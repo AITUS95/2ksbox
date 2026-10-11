@@ -63,11 +63,13 @@ fn main() {
     // title bars). The PNG is one of the sizes `scripts/gen-icons.sh`
     // derives from the icon the packages install.
     let icon = include_bytes!("../../packaging/icon/2ksbox-256.png");
-    // The toolbar in the title bar beside the caption buttons, as Windows
-    // 11's own apps have it (user), rather than on a row of its own under it.
+    // The menu bar in the title bar before the title, as the player's
+    // (user), and the toolbar (only the first-run download's bar) at its
+    // end beside the caption buttons, rather than rows of their own.
     #[cfg(windows)]
     {
-        use mitsuami::winui::{ToolbarAlign, ToolbarPlace, set_toolbar_place};
+        use mitsuami::winui::{MenuBarPlace, ToolbarAlign, ToolbarPlace, set_menu_bar_place, set_toolbar_place};
+        set_menu_bar_place(MenuBarPlace::InTitleBarStart);
         set_toolbar_place(ToolbarPlace::InTitleBar(ToolbarAlign::End));
     }
     App::new()

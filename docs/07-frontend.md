@@ -65,29 +65,32 @@ player line runs a machine with nothing else.
   --machine-details`; user: the drives are what is most often looked
   for). The details show only what the form shows for
   that family (no Direct3D row without our adapter), and a path shows
-  its file name. On Windows and Kirigami the toolbar keeps what is not
+  its file name. On Kirigami the toolbar keeps what is not
   about one machine: New, Shelf, Shaders, the manual and About; no button label
-  there ends in "…" (user). macOS and GTK put those in their menus.
+  there ends in "…" (user). macOS, GTK and Windows put those in their
+  menus (Windows since 2026-10-11, user: its menu bar in the title bar
+  before the title, as the player's, and no toolbar buttons).
 - **About 2ksbox** (2026-10-02) shows the version, the licence and
   the projects 2ksbox is built on, grouped by what they do for it, each
   a link with its licence. The list is `launcher_core::about` (the
   projects the app runs or ships, plus Wine; a library one of them pulls
   in is theirs to credit), and `launcherx --about` prints it. mitsuami
   (`launcher-mitsuami/src/about.rs`) opens it from an info icon at the end of
-  the toolbar, except on macOS (user) and GTK, where it is the
-  application menu's or the primary menu's About item: the app's menus
-  are set on those two only, with `MenuRole::About`, which AppKit moves
-  into the application menu and GTK to the primary menu's end.
+  the toolbar on Kirigami; elsewhere it is Help's About item (macOS's
+  application menu, GTK's primary menu, Windows' title-bar menu bar): the
+  app's menus are set everywhere but Kirigami (the `menu_bar` cfg), with
+  `MenuRole::About`, which AppKit moves into the application menu and
+  GTK to the primary menu's end.
 - **User Manual** (2026-10-09) opens the manual site
   (`launcher_core::about::MANUAL_URL`, `manual/`) in the browser: Help's
-  first item on macOS and GTK, and a "?" before the toolbar's "i" on
-  Windows and Kirigami. `launcherx --about` prints the address too.
+  first item on macOS, GTK and Windows, and a "?" before the toolbar's
+  "i" on Kirigami. `launcherx --about` prints the address too.
   The `mitsuami` check grabs it (`LAUNCHER_SCREEN=about`).
 - **Open Machines Folder** (2026-10-11) opens the library's directory
   (`launcher_core::library::default_dir()`, made first if no machine
   exists yet) in the platform's file manager: Help's second item on
-  macOS and GTK (`launcher_core::library::OPEN_FOLDER`). Windows and
-  Kirigami have no menus and no toolbar button for it.
+  macOS, GTK and Windows (`launcher_core::library::OPEN_FOLDER`).
+  Kirigami has no menus and no toolbar button for it.
 - **The main window's commands have keys** (2026-10-07,
   `machines::Command`): the platform's primary modifier (Cmd on macOS,
   Ctrl elsewhere) with N New Machine, R Start, I Settings, E Discs,
@@ -98,9 +101,11 @@ player line runs a machine with nothing else.
   machine's Settings, Discs, Snapshots and Clone as one capsule of icons
   (user, 2026-10-08; the details have no Start or More there); GTK has
   the same, the two menus as sections of the primary menu, which also
-  has About (user, 2026-10-08); on Windows and Kirigami there are no
-  menus, so the window takes the keys (`on_key`) and the More and
-  context menus and the toolbar's tooltips show them.
+  has About (user, 2026-10-08); Windows has File, Machine and Help as a
+  menu bar in the title bar (user, 2026-10-11), keeping its list and the
+  details' Start and More; on Kirigami there are no menus, so the window
+  takes the keys (`on_key`) and the More and context menus and the
+  toolbar's tooltips show them.
 - **The launcher has no Stop or Kill**, on purpose. A killed guest
   leaves a dirty FAT, so a run ends from the guest or the player window.
 - **Every Start is logged with the line it ran**, quoted to paste back
