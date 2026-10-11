@@ -287,12 +287,23 @@ fn in_profile(dir: PathBuf, name: &str) -> PathBuf {
 }
 
 /// What has to exist on disk before `machine` can start, made if it does
-/// not: a modern machine's firmware variable store, a qcow2 copy of
+/// not: the machine's disk, a new empty one at the family's default size
+/// (`bundle::default_disk_size_gb`) when the file is gone, and a modern
+/// machine's firmware variable store, a qcow2 copy of
 /// EDK2's empty one for its processor (`bundle::Arch::efi_vars_template`). Its TPM needs nothing
 /// made; a missing state file is a TPM libtpms manufactures on the first
 /// start. `spawn` calls this, and `--prepare` for a script that runs
 /// QEMU itself.
 pub fn prepare(machine: &Machine) -> std::io::Result<()> {
+    // Only in a folder that is still there: a disk on an unplugged drive
+    // or in a moved folder is the user's, missing for now, and an empty
+    // one made in its place would hide that
+    let disk = &machine.disk;
+    if !disk.exists() && disk.parent().is_some_and(|d| d.is_dir()) {
+        let size = crate::bundle::default_disk_size_gb(machine.family);
+        crate::fatal::entry(&format!("[player] no disk at {}: made a new {size} GB one", disk.display()));
+        create_disk(disk, size)?;
+    }
     if !machine.family.is_modern() {
         return Ok(());
     }
@@ -486,7 +497,8 @@ pub fn qemu_img_binary() -> PathBuf {
     )
 }
 
-/// Create a new qcow2 disk image for the wizard's "new disk" path.
+/// Create a new qcow2 disk image for the wizard's "new disk" path, and
+/// for [`prepare`] in place of a machine's deleted one.
 pub fn create_disk(path: &std::path::Path, size_gb: u32) -> std::io::Result<()> {
     let bin = qemu_img_binary();
     let out = crate::console::command(&bin)

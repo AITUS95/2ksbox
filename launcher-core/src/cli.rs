@@ -95,8 +95,8 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             println!("{}", argv.join(" "));
         }
         "--prepare" => {
-            // What the player's start makes before QEMU runs (a Windows
-            // 11 machine's firmware variables), for a script that runs
+            // What the player's start makes before QEMU runs (a deleted
+            // disk, a Windows 11 machine's firmware variables), for a script that runs
             // QEMU itself from `--print-args`.
             let path = args.next().expect("usage: --prepare <machine.toml>");
             let machine = Machine::load(Path::new(&path)).expect("load bundle");
