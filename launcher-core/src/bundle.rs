@@ -1177,6 +1177,14 @@ pub struct Machine {
     /// carries an explicit value, since the form always has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accel: Option<Accel>,
+    /// How many processors the guest sees (`-smp`), or `None` for the
+    /// family's default (`default_cpus`). Only XP, 7 and 11 can have more
+    /// than one (`cpus_range`), and an XP or 7 machine only under
+    /// hardware virtualization: emulated, it keeps one, because several
+    /// of our TCG fast paths switch off on a board with more than one
+    /// processor (docs 16 and 23).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<u32>,
     /// Whether the machine has a network adapter at all (doc 06's
     /// per-family NIC on QEMU's user-mode NAT). `false` gives the guest
     /// no adapter rather than an unplugged one: "no networking" should
@@ -1555,15 +1563,32 @@ pub fn ram_mb_range(family: Family) -> std::ops::RangeInclusive<u32> {
     }
 }
 
-/// How many processors the machine has. One on the era's families,
+/// How many processors a new machine has. One on the era's families,
 /// which is all their software expected; Windows 11 refuses fewer than
 /// two, and gets four of the host's (all of them on a host with fewer).
 pub fn default_cpus(family: Family) -> u32 {
     if family.is_modern() {
-        let host = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(2);
-        host.clamp(2, 4)
+        host_cpus().clamp(2, 4)
     } else {
         1
+    }
+}
+
+/// The host's processors, the most any machine is given.
+fn host_cpus() -> u32 {
+    std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(2)
+}
+
+/// How many processors a family can be given, or `None` where it has
+/// exactly one. Windows 11 refuses fewer than two. XP and 7 take more
+/// under hardware virtualization only (`Machine::effective_cpus`).
+/// Windows 98 and DOS use one whatever the board has, and nothing on
+/// `Other` was tried with more.
+pub fn cpus_range(family: Family) -> Option<std::ops::RangeInclusive<u32>> {
+    match family {
+        Family::Win11 => Some(2..=host_cpus().max(2)),
+        Family::Xp | Family::Win7 => Some(1..=host_cpus()),
+        Family::Win98 | Family::Dos | Family::Other => None,
     }
 }
 
@@ -1575,6 +1600,7 @@ impl Machine {
             family,
             ram_mb: default_ram_mb(family),
             accel: Some(default_accel(family)),
+            cpus: cpus_range(family).map(|_| default_cpus(family)),
             network: default_network(family),
             seamless_mouse: default_seamless_mouse(family),
             voodoo2: false,
@@ -1703,6 +1729,22 @@ impl Machine {
             return Accel::Tcg;
         }
         self.accel.unwrap_or_else(|| default_accel(self.family))
+    }
+
+    /// How many processors this machine runs with: its own count,
+    /// clamped to what its family and this host allow (`cpus_range`), or
+    /// the family's default. An XP or 7 machine set to emulation gets
+    /// one. One set to `Auto` keeps its count, which on a host without
+    /// hardware virtualization means an emulated board with more than
+    /// one processor: slower, and still correct.
+    pub fn effective_cpus(&self) -> u32 {
+        let Some(range) = cpus_range(self.family) else {
+            return 1;
+        };
+        if !self.family.is_modern() && self.effective_accel() == Accel::Tcg {
+            return 1;
+        }
+        self.cpus.unwrap_or_else(|| default_cpus(self.family)).clamp(*range.start(), *range.end())
     }
 
     /// The CPU speed this machine runs at: its own setting, or its
@@ -1921,6 +1963,11 @@ impl Machine {
             "-drive".into(),
             format!("file={},if=ide,index=0,media=disk", opt_value(&self.disk.display().to_string())),
         ]);
+        // More than one processor only when asked for (`effective_cpus`),
+        // so every other era machine keeps the command line it had.
+        if self.effective_cpus() > 1 {
+            args.extend(["-smp".into(), self.effective_cpus().to_string()]);
+        }
         // The pointer (doc 03). The USB tablet is an absolute device: it
         // reports where the pointer is rather than how far it moved, so
         // the host pointer is the guest cursor and nothing has to be
@@ -2209,7 +2256,7 @@ impl Machine {
             "-m".into(),
             self.ram_mb.to_string(),
             "-smp".into(),
-            default_cpus(self.family).to_string(),
+            self.effective_cpus().to_string(),
             "-cpu".into(),
             format!("max{}", self.optimization_props(Knob::Cpu)),
         ]);
@@ -2308,7 +2355,7 @@ impl Machine {
             "-m".into(),
             self.ram_mb.to_string(),
             "-smp".into(),
-            default_cpus(self.family).to_string(),
+            self.effective_cpus().to_string(),
             "-cpu".into(),
             "max".into(),
             "-drive".into(),

@@ -530,6 +530,42 @@ accelchoices_check() { # the acceleration picker offers hardware acceleration on
   return $rc
 }
 
+cpus_check() { # the processor count: XP and 7 under hardware virtualization, Windows 11 always, one everywhere else
+  local rc=0 dir="$OUT/cpus" xp w98 w11 a o n
+  rm -rf "$dir"; mkdir -p "$dir/library"
+  export LAUNCHER_LIBRARY_DIR="$dir/library" LAUNCHER_DISC_LIBRARY="$dir/discs.toml"
+  export LAUNCHER_SHADER_PROFILES_DIR="$dir/profiles"
+  : >"$dir/disk.qcow2"
+  # the 15th field after the bundle is the count; the 3rd the accelerator
+  edit() { local b=$1 accel=$2 cpus=$3; $LAUNCHERX --wizard-edit "$b" - - "$accel" - - - - - - - - - - - "$cpus" >/dev/null 2>&1; }
+  smp() { $LAUNCHERX --print-args "$1" | grep -o -- '-smp [0-9]*' | cut -d' ' -f2; }
+  # The host's own count is the ceiling.
+  n=$(( $(nproc) < 4 ? $(nproc) : 4 ))
+  xp="$($LAUNCHERX --new xp XP "$dir/disk.qcow2")" || { echo "--new xp failed"; return 1; }
+  [ -z "$(smp "$xp")" ] || { echo "a new XP machine has -smp $(smp "$xp")"; rc=1; }
+  edit "$xp" kvm 4 || { echo "--wizard-edit kvm 4 failed"; return 1; }
+  [ "$(smp "$xp")" = "$n" ] || { echo "XP on KVM with 4: -smp '$(smp "$xp")', not $n"; rc=1; }
+  grep -qx "cpus = $n" "$xp" || { echo "no cpus = $n in the bundle"; rc=1; }
+  o="$($LAUNCHERX --machine-details "$xp" 2>&1)"
+  grep -qx $'System\tProcessors\t'"$n" <<<"$o" || { echo "XP details: $(grep Processors <<<"$o")"; rc=1; }
+  # Emulated, one, and the count is kept for the way back.
+  edit "$xp" tcg - || { echo "--wizard-edit tcg failed"; return 1; }
+  [ -z "$(smp "$xp")" ] || { echo "an emulated XP machine has -smp $(smp "$xp")"; rc=1; }
+  grep -qx "cpus = $n" "$xp" || { echo "emulation lost the count"; rc=1; }
+  # Windows 98 has one, whatever is asked.
+  w98="$($LAUNCHERX --new win98 W98 "$dir/disk.qcow2")" || { echo "--new win98 failed"; return 1; }
+  edit "$w98" kvm 4 || { echo "--wizard-edit win98 failed"; return 1; }
+  [ -z "$(smp "$w98")" ] || { echo "Windows 98 has -smp $(smp "$w98")"; rc=1; }
+  grep -q '^cpus' "$w98" && { echo "Windows 98's bundle has a count"; rc=1; }
+  grep -q $'\tProcessors\t' <<<"$($LAUNCHERX --machine-details "$w98" 2>&1)" && { echo "Windows 98 shows a Processors row"; rc=1; }
+  # Windows 11 never goes below two.
+  w11="$($LAUNCHERX --new win11 W11 "$dir/disk.qcow2")" || { echo "--new win11 failed"; return 1; }
+  [ -n "$(smp "$w11")" ] || { echo "Windows 11 has no -smp"; rc=1; }
+  edit "$w11" - 1 || { echo "--wizard-edit win11 failed"; return 1; }
+  [ "$(smp "$w11")" = 2 ] || { echo "Windows 11 set to 1: -smp '$(smp "$w11")', not 2"; rc=1; }
+  return $rc
+}
+
 clone_check() { # "Clone…", from the model to a disk our QEMU reads (doc 07)
   local rc=0 dir="$OUT/clone" img=$QIMG io=$QIO
   local bundle disk copy copy_disk o args outside twin sock qpid i
@@ -2332,12 +2368,14 @@ host_stage() {
     run_check shelforder shelforder.log shelforder_check || true
     run_check drive drive.log drive_check || true
     run_check machine-details machine-details.log machinedetails_check || true
+    run_check cpus cpus.log cpus_check || true
     if command -v bwrap >/dev/null; then
       run_check accel-choices accel-choices.log accelchoices_check || true
     else skip accel-choices "needs bwrap, for a /dev with no /dev/kvm"; fi
   else
     skip dirshelf "needs $LAUNCHERX"; skip shelforder "needs $LAUNCHERX"
     skip machine-details "needs $LAUNCHERX"; skip accel-choices "needs $LAUNCHERX"
+    skip cpus "needs $LAUNCHERX"
   fi
   if [ -x $LAUNCHERX ] && [ -x $QIMG ] && [ -x $QIO ]; then
     run_check clone clone.log clone_check || true

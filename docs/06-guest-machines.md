@@ -121,7 +121,11 @@ Modeled as a ~2002–2005 PC.
 | Gamepad | none (USB HID pad, key mapping) | XP binds `hidusb.sys` on first start and shows the pad to DirectInput and `joy.cpl`; nothing to install. No gameport: nothing enumerates a non-PnP port here |
 
 SP3 recommended; activation is the user's affair with their own licence.
-Uniprocessor ACPI HAL; SMP under TCG is a measured decision for later.
+One processor by default. Under hardware virtualization the form offers
+more (`cpus`, doc 07): QEMU's cores of one socket, used only by an XP
+installed with more than one (setup picks the multiprocessor HAL then).
+Emulated it keeps one, since several TCG fast paths need a one-CPU
+board.
 
 ## Windows 7
 
@@ -132,6 +136,7 @@ in-box cards, and the machine Aero runs on.
 |---|---|---|
 | Machine | `pc-i440fx-<ver>` | as XP; Windows 7 drives the PIIX and the HPET in the box |
 | Accel | Automatic | as XP: KVM where the host has it, emulated on a Windows or macOS host (about three minutes to the desktop under TCG) |
+| Processors | 1 (up to the host's count under hardware virtualization) | as XP; Windows 7's HAL takes a changed count by itself |
 | CPU | `max` | what all of M18's Windows 7 work ran on. Windows 7's own software wants SSE2, which `pentium3` lacks |
 | RAM | 2048 MB (1024–3072) | setup wants 1 GB; the top is XP's 32-bit ceiling |
 | Disk | 40 GB | setup wants 16 GB |
@@ -165,7 +170,7 @@ The modern family (ADR-024, track M20): 64-bit, on its own QEMU target
 | QEMU | `qemu-system-x86_64` | `qemu-system-aarch64` |
 | Machine | `q35,smm=on` | `virt,gic-version=3` |
 | Accel | Automatic: KVM with TCG behind it (a Windows host runs no Windows 11 yet: no TPM there) | Automatic: HVF on a Mac (KVM on an Arm Linux host) with TCG behind it |
-| CPU | `max`, 2 to 4 vCPUs (`default_cpus`) | `max`, the same count |
+| CPU | `max`, 2 to 4 vCPUs by default (`default_cpus`; the form takes 2 to the host's count) | `max`, the same count |
 | Firmware | EDK2's secure build from `pc-bios`, its variables the machine's own qcow2 (`efi_vars`) | our own EDK2 (`scripts/build-edk2.sh`), the same |
 | TPM 2.0 | libtpms in QEMU (patch 75) on `tpm-crb`, state in `tpm_state` | the same on `tpm-tis-device` |
 | RAM / disk | 4096 MB (4096 to 32768) / 64 GB | the same |

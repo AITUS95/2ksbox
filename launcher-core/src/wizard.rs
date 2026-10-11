@@ -1,5 +1,5 @@
 //! The guided creation form (doc 07): family, name, memory, processor,
-//! acceleration, networking, the pointer, disk and install media, then a
+//! acceleration, processors, networking, the pointer, disk and install media, then a
 //! bundle written from doc 06's reference defaults. The same form edits
 //! an existing bundle (`open_edit`), where `submit` writes back in place
 //! instead of reserving a new library directory. It never builds a QEMU
@@ -232,6 +232,11 @@ pub struct Form {
     /// one, the family's own default follows the family (Win98 is
     /// emulated, XP is automatic; `bundle::default_accel`).
     accel_chosen: bool,
+    /// How many processors, with the same rule. Shown only where it
+    /// means something (`cpus_applies`), but kept while hidden, so
+    /// picking Emulation and back does not lose it.
+    cpus: u32,
+    cpus_chosen: bool,
     /// Whether the machine gets a network adapter at all. Follows the
     /// family until someone touches it, like memory and the accelerator
     /// (`bundle::default_network`, currently off for every family). The
@@ -314,6 +319,8 @@ impl Default for Form {
             ram_chosen: false,
             accel: bundle::default_accel(Family::Win98),
             accel_chosen: false,
+            cpus: bundle::default_cpus(Family::Win98),
+            cpus_chosen: false,
             network: bundle::default_network(Family::Win98),
             network_chosen: false,
             seamless_mouse: bundle::default_seamless_mouse(Family::Win98),
@@ -360,6 +367,8 @@ impl Form {
             ram_chosen: true,
             accel: machine.effective_accel(),
             accel_chosen: true,
+            cpus: machine.cpus.unwrap_or_else(|| bundle::default_cpus(machine.family)),
+            cpus_chosen: true,
             network: machine.network,
             network_chosen: true,
             seamless_mouse: machine.seamless_mouse,
@@ -488,6 +497,12 @@ impl Form {
         }
         if !self.cpu_speed_chosen {
             self.cpu_speed = bundle::default_cpu_speed(family);
+        }
+        if !self.cpus_chosen {
+            self.cpus = bundle::default_cpus(family);
+        }
+        if let Some(range) = bundle::cpus_range(family) {
+            self.cpus = self.cpus.clamp(*range.start(), *range.end());
         }
         if !self.network_chosen {
             self.network = bundle::default_network(family);
@@ -646,6 +661,47 @@ impl Form {
                 "A chosen processor means the machine is emulated: KVM can't slow a CPU down.",
             ]
         }
+    }
+
+    pub fn cpus(&self) -> u32 {
+        self.cpus
+    }
+
+    /// Whether the processors field is a question here: on Windows 11
+    /// always, on XP and 7 when the machine runs under hardware
+    /// virtualization (`bundle::Machine::effective_cpus`).
+    pub fn cpus_applies(&self) -> bool {
+        match self.family {
+            Family::Win11 => true,
+            Family::Xp | Family::Win7 => self.will_use_kvm(),
+            _ => false,
+        }
+    }
+
+    pub fn cpus_range(&self) -> std::ops::RangeInclusive<u32> {
+        bundle::cpus_range(self.family).unwrap_or(1..=1)
+    }
+
+    pub fn cpus_is_default(&self) -> bool {
+        self.cpus == bundle::default_cpus(self.family)
+    }
+
+    pub fn choose_cpus(&mut self, cpus: u32) {
+        let range = self.cpus_range();
+        self.cpus = cpus.clamp(*range.start(), *range.end());
+        self.cpus_chosen = true;
+    }
+
+    pub fn reset_cpus(&mut self) {
+        self.cpus = bundle::default_cpus(self.family);
+        self.cpus_chosen = false;
+    }
+
+    /// The line under the processors field. XP picks its HAL when it is
+    /// installed: one installed on one processor never uses a second.
+    pub fn cpus_note(&self) -> Option<&'static str> {
+        (self.family == Family::Xp && self.cpus > 1)
+            .then_some("Windows XP uses more than one only if it was installed with more than one.")
     }
 
     pub fn accel(&self) -> Accel {
@@ -1560,6 +1616,7 @@ impl Form {
                 family: self.family,
                 ram_mb: self.ram_mb,
                 accel: Some(self.accel),
+                cpus: None,
                 network: self.network,
                 seamless_mouse: self.seamless_mouse,
                 voodoo2: self.voodoo2,
@@ -1601,6 +1658,9 @@ impl Form {
         // Written out explicitly either way: what the form showed is
         // what the machine gets, even when it is the family's default.
         machine.accel = Some(if self.accel_chosen { self.accel } else { bundle::default_accel(self.family) });
+        // Only on a family that has a count to choose (`cpus_range`).
+        machine.cpus = bundle::cpus_range(self.family)
+            .map(|_| if self.cpus_chosen { self.cpus } else { bundle::default_cpus(self.family) });
         machine.network = if self.network_chosen { self.network } else { bundle::default_network(self.family) };
         machine.seamless_mouse = if self.seamless_mouse_chosen {
             self.seamless_mouse

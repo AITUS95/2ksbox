@@ -289,14 +289,19 @@ pub fn details(machine: &Machine, shader: String) -> Vec<DetailGroup> {
     if machine.family.is_modern() && machine.shared_folder.is_some() {
         network.push(file("Shared folder", machine.shared_folder.as_ref()));
     }
+    let mut system = vec![
+        ("Memory", format!("{} MB", machine.ram_mb)),
+        ("Processor", machine.effective_cpu_speed().label().to_owned()),
+    ];
+    // The count only where the family can have more than one.
+    if bundle::cpus_range(machine.family).is_some() {
+        system.push(("Processors", machine.effective_cpus().to_string()));
+    }
+    system.push(("Acceleration", machine.effective_accel().label().to_owned()));
     vec![
         DetailGroup {
             title: Section::System.label(),
-            rows: rows(vec![
-                ("Memory", format!("{} MB", machine.ram_mb)),
-                ("Processor", machine.effective_cpu_speed().label().to_owned()),
-                ("Acceleration", machine.effective_accel().label().to_owned()),
-            ]),
+            rows: rows(system),
         },
         DetailGroup {
             title: Section::Storage.label(),

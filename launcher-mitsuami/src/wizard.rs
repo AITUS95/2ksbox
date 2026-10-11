@@ -426,6 +426,26 @@ fn SystemPage() -> impl View {
                 @reset=move |()| wiz.edit(Form::reset_accel)
             />
             <AccelLine note=get(wiz, |f| accel(f.accel_note()))/>
+            <Show when=get(wiz, Form::cpus_applies)>
+                <Column gap=Spacing::Md>
+                    <Row gap=Spacing::Sm align=Align::Center>
+                        <Text width=LABEL_W>"Processors"</Text>
+                        <NumberInput
+                            label="Processors"
+                            width=FIELD_W
+                            range_with=get(wiz, |f| {
+                                let r = f.cpus_range();
+                                (*r.start() as i32, *r.end() as i32)
+                            })
+                            step=1
+                            value=get(wiz, |f| f.cpus() as i32)
+                            @change=move |n| wiz.edit(|f| f.choose_cpus(n.max(0) as u32))
+                        />
+                        <Button enabled=get(wiz, |f| !f.cpus_is_default()) @click=move || wiz.edit(Form::reset_cpus)>"Default"</Button>
+                    </Row>
+                    <Note text=get(wiz, |f| f.cpus_note().unwrap_or_default().to_owned())/>
+                </Column>
+            </Show>
             // Only where the machine will be emulated: they are speed-ups in
             // the emulator, and do nothing under hardware virtualization.
             <Show when=get(wiz, Form::optimizations_apply)>

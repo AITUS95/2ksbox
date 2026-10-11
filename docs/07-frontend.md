@@ -198,7 +198,8 @@ The same form creates and edits. It never shows a QEMU command line and
 has no raw-TOML box (user decision).
 
 **Every per-family field follows the family until someone picks it.**
-Memory, the accelerator, the processor, the NIC and the pointer do, and
+Memory, the accelerator, the processor, the processor count, the NIC
+and the pointer do, and
 so do the four fields whose *list* is per family: adapter, sound card,
 music port and pad. Each has a `*_chosen` flag in `wizard::Form`.
 `choose_family` moves every unchosen field to the new family's default;
@@ -227,6 +228,18 @@ The fields, and why each is what it is:
 - **Memory** is bounded per family (`bundle::ram_mb_range`: Win98
   32–512, since more will not boot; XP 64–3072, Windows 7 1024–3072,
   Windows 11 4096–32768, DOS 4–256, Other 16–3072). BeOS R5's 1 GB ceiling is stated, not enforced.
+- **Processors** (`cpus`, `-smp`) is bounded by the family and the host
+  (`bundle::cpus_range`): Windows 11 2 to the host's count, XP and 7 1
+  to the host's count, and no field on Windows 98, DOS or Other, which
+  keep one. A new Windows 11 machine gets 2 to 4 (`default_cpus`). On XP
+  and 7 the row shows only while the machine will run under hardware
+  virtualization (`Form::cpus_applies`), and `Machine::effective_cpus`
+  gives an emulated one a single processor whatever the bundle holds:
+  several of our TCG fast paths switch off on a board with more than one
+  (docs 16, 23). The count stays in the bundle, so Emulation and back
+  keeps it. XP's note says it uses more than one only if it was
+  installed with more than one (setup picks the HAL). QEMU puts them as
+  cores of one socket, which XP Home's one-processor licence accepts.
 - **Acceleration** is Automatic / Hardware virtualization / Emulation,
   `accel = "auto" | "kvm" | "tcg"` on every host. `kvm` means "hardware
   acceleration, required", spelled `whpx` on Windows at spawn, and
