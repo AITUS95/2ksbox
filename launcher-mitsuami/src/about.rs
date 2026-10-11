@@ -1,8 +1,8 @@
 //! About 2ksbox, over `launcher_core::about`: the version, the licence
 //! and the projects 2ksbox is built on, each a link with what it does
 //! for us and its licence. Opened by the Help menu's About item
-//! (`app_menu`; macOS's application menu) and, on Kirigami, by the machine
-//! window's "i".
+//! (`app_menu`; macOS's application menu, the end of GTK's primary menu
+//! and of Kirigami's drawer).
 
 use launcher_core::about::{self, Credit};
 use launcher_core::library;
@@ -29,27 +29,23 @@ impl About {
 }
 
 /// The app's menus: `commands` (the main window's, `machines::command_menus`)
-/// and Help, with the user manual, the machines folder and About. macOS,
-/// GTK and Windows have them: About belongs in macOS's application menu and
-/// at the end of GTK's primary menu, and the role puts it there; on Windows
-/// the menu bar is in the title bar (`main`). On Kirigami the toolbar's "?"
-/// and "i" are the way in, and the window takes the commands' keys itself.
-pub fn app_menu(about: About, commands: Option<MenuBar>) {
-    if let Some(bar) = commands.filter(|_| cfg!(menu_bar)) {
-        set_menu(
-            bar.menu(
-                Menu::new("Help")
-                    .item(MenuItem::new(about::MANUAL).on_select(open_manual))
-                    .item(MenuItem::new(library::OPEN_FOLDER).on_select(open_machines_folder))
-                    .item(MenuItem::new("About 2ksbox").role(MenuRole::About).on_select(move || about.show())),
-            ),
-        );
-    }
+/// and Help, with the user manual, the machines folder and About. About
+/// belongs in macOS's application menu and at the end of GTK's primary menu
+/// and Kirigami's drawer, and the role puts it there; on Windows the menu
+/// bar is in the title bar (`main`).
+pub fn app_menu(about: About, commands: MenuBar) {
+    set_menu(
+        commands.menu(
+            Menu::new("Help")
+                .item(MenuItem::new(about::MANUAL).on_select(open_manual))
+                .item(MenuItem::new(library::OPEN_FOLDER).on_select(open_machines_folder))
+                .item(MenuItem::new("About 2ksbox").role(MenuRole::About).on_select(move || about.show())),
+        ),
+    );
 }
 
-/// Opens the user manual in the browser: Help's item, and the toolbar's "?"
-/// on Kirigami, which has no menus.
-pub fn open_manual() {
+/// Opens the user manual in the browser: Help's item.
+fn open_manual() {
     open_url(about::MANUAL_URL);
 }
 

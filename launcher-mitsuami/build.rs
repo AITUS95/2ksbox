@@ -12,14 +12,6 @@ fn main() {
     if os == "macos" || gtk {
         println!("cargo::rustc-cfg=sidebar");
     }
-    // `menu_bar`: the app's commands, the user manual and About are menus
-    // (macOS's menu bar, GTK's primary menu, a menu bar in Windows' title
-    // bar), not toolbar buttons; Kirigami keeps the buttons and the
-    // window takes the commands' keys itself.
-    println!("cargo::rustc-check-cfg=cfg(menu_bar)");
-    if os == "macos" || gtk || os == "windows" {
-        println!("cargo::rustc-cfg=menu_bar");
-    }
     // The icon Explorer shows for the launcher and its manifest: this crate
     // becomes 2ksbox.exe in the Windows package.
     embed_windows_resources();

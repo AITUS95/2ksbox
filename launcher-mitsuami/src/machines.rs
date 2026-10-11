@@ -309,38 +309,18 @@ pub fn MachinesWindow() -> impl View {
         }
     };
     // On Windows none (user): the title bar's menus have them all.
-    #[cfg(all(menu_bar, not(sidebar)))]
+    #[cfg(windows)]
     let toolbar_buttons = ();
-    // On Kirigami New, Shelf and Shaders, two items the platform spaces as
-    // its toolbars do.
-    #[cfg(not(menu_bar))]
+    // On Kirigami New, Shelf and Shaders at the toolbar's end, as items the
+    // platform spaces as its toolbars do (user); the menu is the drawer's
+    // button at the other end.
+    #[cfg(all(target_os = "linux", feature = "kde"))]
     let toolbar_buttons = view! {
         <Button icon=icons::NEW tooltip=Command::New.tooltip() @click=move || wizard.open_fresh()>"New"</Button>
         <Button icon=icons::DISCS tooltip=Command::Shelf.tooltip() @click=move || discs.open_library(library)>"Shelf"</Button>
         <Button icon=icons::SHADERS tooltip=Command::Shaders.tooltip() @click=move || shaders.open_list()>"Shaders"</Button>
     };
-    // The user manual and About, at the toolbar's end on Kirigami. Elsewhere
-    // they are Help's (`about::app_menu`).
-    #[cfg(menu_bar)]
-    let about_button = ();
-    #[cfg(not(menu_bar))]
-    let about_button = view! {
-        <Button icon=icons::MANUAL icon_only=true tooltip=launcher_core::about::MANUAL @click=move || crate::about::open_manual()>
-            {launcher_core::about::MANUAL}
-        </Button>
-        <Button icon=icons::ABOUT icon_only=true tooltip="About 2ksbox" @click=move || about.show()>
-            "About 2ksbox"
-        </Button>
-    };
-    // On Kirigami the window takes the commands' keys itself: there are no
-    // menus to carry them (`command_menus`).
-    let mut root = Column::new().grow(1.0).min_height(0);
-    if !cfg!(menu_bar) {
-        for command in Command::ALL {
-            root = root.on_key(command.shortcut(), move || command.run(stores, library.current().as_deref()));
-        }
-    }
-    root.children(view! {
+    Column::new().grow(1.0).min_height(0).children(view! {
             <Toolbar>
                 <Show when=move || offer.progress.get().is_some()>
                     // Only a bar, on the toolbar with no capsule: the size
@@ -353,7 +333,6 @@ pub fn MachinesWindow() -> impl View {
                     />
                 </Show>
                 {toolbar_buttons}
-                {about_button}
             </Toolbar>
             <Show when=move || library.read(Machines::is_empty) fallback=|| view! { <MachineLibrary/> }>
                 <Column grow=1.0 gap=Spacing::Md align=Align::Center justify=Justify::Center padding=Spacing::Xl>
@@ -594,9 +573,7 @@ impl Stores {
 
 /// The main window's commands and their keys, the platform's primary
 /// modifier (`Shortcut::primary`: Command on macOS, Ctrl elsewhere) with a
-/// letter. On macOS, GTK and Windows they are the menus'; on Kirigami the
-/// window takes the keys itself, and the More and context menus and the
-/// toolbar's tooltips show them.
+/// letter, the menus' (and the toolbar's tooltips show them).
 #[derive(Clone, Copy, PartialEq)]
 enum Command {
     New,
@@ -610,17 +587,6 @@ enum Command {
 }
 
 impl Command {
-    const ALL: [Command; 8] = [
-        Command::New,
-        Command::Start,
-        Command::Settings,
-        Command::Discs,
-        Command::Snapshots,
-        Command::Clone,
-        Command::Shelf,
-        Command::Shaders,
-    ];
-
     fn label(self) -> &'static str {
         match self {
             Command::New => "New Machine",
@@ -704,36 +670,31 @@ impl Command {
     }
 }
 
-/// The menus' commands on macOS, GTK and Windows, on the chosen machine:
-/// File's New Machine (AppKit's place for New) and the two libraries
-/// (user), and Machine's; on GTK each menu is a section of the primary
-/// menu, on Windows the menu bar is in the title bar (user). On Kirigami
-/// `None`: the window takes the keys.
-fn command_menus(s: Stores) -> Option<MenuBar> {
-    if !cfg!(menu_bar) {
-        return None;
-    }
+/// The menus' commands, on the chosen machine: File's New Machine
+/// (AppKit's place for New) and the two libraries (user), and Machine's;
+/// on GTK each menu is a section of the primary menu, on Windows the menu
+/// bar is in the title bar (user), on Kirigami each is a submenu of the
+/// global drawer's menu, its button at the toolbar's start (user).
+fn command_menus(s: Stores) -> MenuBar {
     let current: Rc<dyn Fn() -> Option<PathBuf>> = Rc::new(move || s.library.current());
     let item = |c: Command| c.item(s, current.clone());
-    Some(
-        MenuBar::new()
-            .menu(
-                Menu::new("File")
-                    .item(item(Command::New))
-                    .separator()
-                    .item(item(Command::Shelf))
-                    .item(item(Command::Shaders)),
-            )
-            .menu(
-                Menu::new("Machine")
-                    .item(item(Command::Start))
-                    .separator()
-                    .item(item(Command::Settings))
-                    .item(item(Command::Discs))
-                    .item(item(Command::Snapshots))
-                    .item(item(Command::Clone)),
-            ),
-    )
+    MenuBar::new()
+        .menu(
+            Menu::new("File")
+                .item(item(Command::New))
+                .separator()
+                .item(item(Command::Shelf))
+                .item(item(Command::Shaders)),
+        )
+        .menu(
+            Menu::new("Machine")
+                .item(item(Command::Start))
+                .separator()
+                .item(item(Command::Settings))
+                .item(item(Command::Discs))
+                .item(item(Command::Snapshots))
+                .item(item(Command::Clone)),
+        )
 }
 
 /// One machine in the list: its name, and its family and state under it.
@@ -910,21 +871,10 @@ pub(crate) mod icons {
     pub const CLONE: &str = platform! {
         macos => "plus.square.on.square", gtk => "edit-copy-symbolic", kde => "edit-copy", windows => "\u{E8C8}",
     };
-    // The Shaders toolbar button's on Kirigami; elsewhere the File menu has
-    // them.
-    #[cfg_attr(menu_bar, allow(dead_code))]
+    // The Shaders toolbar button's on Kirigami; elsewhere only the File
+    // menu has them.
+    #[cfg_attr(not(all(target_os = "linux", feature = "kde")), allow(dead_code))]
     pub const SHADERS: &str = platform! {
         macos => "tv", gtk => "video-display-symbolic", kde => "video-display", windows => "\u{E7F4}",
-    };
-    // A "?": the user manual, beside About, on Kirigami; elsewhere in Help.
-    #[cfg_attr(menu_bar, allow(dead_code))]
-    pub const MANUAL: &str = platform! {
-        macos => "", gtk => "help-contents-symbolic", kde => "help-contents", windows => "\u{E897}",
-    };
-    // An "i" (user): the toolkits' About icon. Only Kirigami has a toolbar
-    // button for it (the menus have About elsewhere), so macOS has no symbol.
-    #[cfg_attr(menu_bar, allow(dead_code))]
-    pub const ABOUT: &str = platform! {
-        macos => "", gtk => "help-about-symbolic", kde => "help-about", windows => "\u{E946}",
     };
 }

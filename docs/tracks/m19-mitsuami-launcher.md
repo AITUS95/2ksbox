@@ -115,10 +115,14 @@ as in Windows 11's own apps (user, 2026-10-01): `main` calls mitsuami's
 a WinUI-only choice (`Start` and `Center` are the others), before the app
 runs. Since 2026-10-11 it holds only the first-run download's bar: the
 user disliked its buttons, so Windows has macOS's and GTK's menus (File,
-Machine, Help; `command_menus`, `about::app_menu`, the `build.rs` cfg
-`menu_bar`) as a menu bar in the title bar before the title
+Machine, Help; `command_menus`, `about::app_menu`) as a menu bar in the
+title bar before the title
 (`set_menu_bar_place(MenuBarPlace::InTitleBarStart)`, as the player's),
-which carries the commands' keys. Kirigami keeps the buttons. The machine window starts 50 wider and taller there (820 × 610,
+which carries the commands' keys. Kirigami has the same menus since
+2026-10-11 (user), as the submenus of the global drawer's menu, whose
+button Kirigami puts at the toolbar's start, and keeps New, Shelf and
+Shaders as buttons at its end; the "?" and "i" buttons went, and the
+drawer's actions carry the keys the window used to take itself. The machine window starts 50 wider and taller there (820 × 610,
 user), and on GTK too (user, 2026-10-01); 770 × 560 on KDE. On macOS the
 machines are the window's sidebar since 2026-10-08 (user: the system's
 sidebar glass, not the list's solid colour): `MachineList` is a
