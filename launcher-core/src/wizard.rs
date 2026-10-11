@@ -116,6 +116,10 @@ struct EditTarget {
     arch: Option<bundle::Arch>,
     efi_vars: Option<PathBuf>,
     tpm_state: Option<PathBuf>,
+    /// The disk and its recorded size (`Machine::disk_size`), kept while
+    /// the form points at the same disk.
+    disk: PathBuf,
+    disk_size: Option<u64>,
 }
 
 /// The acceleration hint under the picker, and whether it is a warning
@@ -398,6 +402,8 @@ impl Form {
                 arch: machine.arch,
                 efi_vars: machine.efi_vars.clone(),
                 tpm_state: machine.tpm_state.clone(),
+                disk: machine.disk.clone(),
+                disk_size: machine.disk_size,
             }),
             ..Default::default()
         };
@@ -1559,6 +1565,7 @@ impl Form {
                 voodoo2: self.voodoo2,
                 voodoo2_undither: self.voodoo2_undither,
                 extra_qemu_args: Vec::new(),
+                disk_size: (disk == edit.disk).then_some(edit.disk_size).flatten(),
                 disk,
                 disc: None,
                 discs: Vec::new(),
@@ -1684,7 +1691,9 @@ impl Form {
         }
         if let Some(edit) = &self.editing {
             let bundle_path = edit.bundle_path.clone();
-            self.build_machine(PathBuf::from(&self.disk_path)).save(&bundle_path)?;
+            let mut machine = self.build_machine(PathBuf::from(&self.disk_path));
+            player::record_disk_size(&mut machine);
+            machine.save(&bundle_path)?;
             return Ok(bundle_path);
         }
         let dir = library::reserve_dir(library_dir, &self.name)?;
@@ -1708,6 +1717,11 @@ impl Form {
             disk_path
         };
         let mut machine = self.build_machine(disk_path);
+        if self.existing_disk {
+            player::record_disk_size(&mut machine);
+        } else {
+            machine.disk_size = Some(u64::from(self.disk_size_gb) << 30);
+        }
         // A modern machine's firmware variables and TPM live in its own
         // folder whatever disk it has; the first start makes them
         // (`player::prepare`).

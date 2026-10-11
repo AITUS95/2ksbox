@@ -107,7 +107,11 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
         }
         "--play" => {
             let path = PathBuf::from(args.next().expect("usage: --play <machine.toml>"));
-            let machine = Machine::load(&path).expect("load bundle");
+            let mut machine = Machine::load(&path).expect("load bundle");
+            // As the window's Play: an old bundle records its disk's size
+            if player::record_disk_size(&mut machine) {
+                machine.save(&path).expect("save bundle");
+            }
             // The same monitor socket the grid's "Play" opens, so the
             // live half of `--discs`/`--snapshots` can be scripted
             // against a player started this way.

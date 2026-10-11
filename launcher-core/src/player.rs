@@ -287,8 +287,9 @@ fn in_profile(dir: PathBuf, name: &str) -> PathBuf {
 }
 
 /// What has to exist on disk before `machine` can start, made if it does
-/// not: the machine's disk, a new empty one at the family's default size
-/// (`bundle::default_disk_size_gb`) when the file is gone, and a modern
+/// not: the machine's disk, a new empty one at its recorded size
+/// (`Machine::disk_size`, else the family's default) when the file is
+/// gone, and a modern
 /// machine's firmware variable store, a qcow2 copy of
 /// EDK2's empty one for its processor (`bundle::Arch::efi_vars_template`). Its TPM needs nothing
 /// made; a missing state file is a TPM libtpms manufactures on the first
@@ -300,9 +301,11 @@ pub fn prepare(machine: &Machine) -> std::io::Result<()> {
     // one made in its place would hide that
     let disk = &machine.disk;
     if !disk.exists() && disk.parent().is_some_and(|d| d.is_dir()) {
-        let size = crate::bundle::default_disk_size_gb(machine.family);
-        crate::fatal::entry(&format!("[player] no disk at {}: made a new {size} GB one", disk.display()));
-        create_disk(disk, size)?;
+        let size = machine
+            .disk_size
+            .unwrap_or_else(|| u64::from(crate::bundle::default_disk_size_gb(machine.family)) << 30);
+        crate::fatal::entry(&format!("[player] no disk at {}: made a new one of {size} bytes", disk.display()));
+        create_disk_bytes(disk, size)?;
     }
     if !machine.family.is_modern() {
         return Ok(());
@@ -497,15 +500,43 @@ pub fn qemu_img_binary() -> PathBuf {
     )
 }
 
-/// Create a new qcow2 disk image for the wizard's "new disk" path, and
-/// for [`prepare`] in place of a machine's deleted one.
+/// Create a new qcow2 disk image for the wizard's "new disk" path.
 pub fn create_disk(path: &std::path::Path, size_gb: u32) -> std::io::Result<()> {
+    create_disk_bytes(path, u64::from(size_gb) << 30)
+}
+
+/// The same at a size in bytes, for [`prepare`] in place of a machine's
+/// deleted disk.
+fn create_disk_bytes(path: &std::path::Path, size: u64) -> std::io::Result<()> {
     let bin = qemu_img_binary();
     let out = crate::console::command(&bin)
         .args(["create", "-f", "qcow2"])
         .arg(path)
-        .arg(format!("{size_gb}G"))
+        .arg(size.to_string())
         .output()
         .map_err(|e| std::io::Error::other(format!("running {}: {e}", bin.display())))?;
     crate::snapshots::check("create", &out)
+}
+
+/// A disk's virtual size in bytes, from `qemu-img info`; `-U` because the
+/// machine may be running. `None` for a disk that is not there or that
+/// `qemu-img` cannot read.
+pub fn disk_size(path: &std::path::Path) -> Option<u64> {
+    let out = crate::console::command(&qemu_img_binary())
+        .args(["info", "-U", "--output=json"])
+        .arg(path)
+        .output()
+        .ok()?;
+    let info: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    info["virtual-size"].as_u64()
+}
+
+/// Fill in `machine.disk_size` from the disk when the bundle has none.
+/// Whether it did, so a caller holding the bundle knows to save it.
+pub fn record_disk_size(machine: &mut Machine) -> bool {
+    if machine.disk_size.is_some() {
+        return false;
+    }
+    machine.disk_size = disk_size(&machine.disk);
+    machine.disk_size.is_some()
 }

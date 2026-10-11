@@ -157,8 +157,13 @@ impl Machines {
     }
 
     pub fn play(&mut self, row: usize) -> Result<String, String> {
-        let entry = self.entries.get(row).ok_or("no such machine")?;
+        let entry = self.entries.get_mut(row).ok_or("no such machine")?;
         let dir = entry.dir.clone();
+        // A bundle from before `disk_size` learns it here, while the
+        // disk is still there to read it from
+        if player::record_disk_size(&mut entry.machine) {
+            let _ = entry.machine.save(&dir.join(library::BUNDLE_FILE));
+        }
         let machine = entry.machine.clone();
         // The monitor socket is derived from the bundle directory, so
         // every window that wants live control finds it again without

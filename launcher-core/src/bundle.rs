@@ -1229,6 +1229,13 @@ pub struct Machine {
     pub voodoo2_undither: bool,
     /// Primary IDE hard disk (qcow2).
     pub disk: PathBuf,
+    /// The disk's size in bytes (its virtual size, not what it takes on
+    /// the host), so a deleted disk comes back the size it was
+    /// (`player::prepare`). The wizard writes it, and the first start of
+    /// a bundle without it reads it off the disk (`player::record_disk_size`).
+    /// Absent = the family's default size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_size: Option<u64>,
     /// The disc in the CD-ROM drive when the machine boots, if any. Just
     /// one: the collection of discs is the shared shelf
     /// (`disc_library.rs`), not a per-machine list, and any other disc is
@@ -1573,6 +1580,7 @@ impl Machine {
             voodoo2: false,
             voodoo2_undither: false,
             disk,
+            disk_size: None,
             disc: None,
             discs: Vec::new(),
             shader_profile: None,
