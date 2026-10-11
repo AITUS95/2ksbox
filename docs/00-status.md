@@ -22,7 +22,7 @@ is the index.
 | **M7** XP display driver | `tracks/m7-display-driver.md` | `d3dpt/hw/d3dpt_vga.c`, `d3dpt/hw/d3dpt_exec_load.[ch]`, `d3dpt/d3dpt_fb.h`, `d3dpt/exec/d3dpt_exec_ddi.cpp`, `guest-tools/src/d3dptvid/nt/`, `tools/xp-*.sh`, `tools/d3dpt-dp2-test.cpp`, doc 15 | Done through protocol v13 · a title for each probe-only DX8 feature, more 8 bpp titles, a driver stage in `scripts/test.sh` |
 | **M8** x87 / SSE fast paths | `tracks/m8-tcg-fastpaths.md` | patches 05, 06, 11, 12, `tools/x87-*`, `tools/sse-guest-test.py`, docs 13, 16 | Done · a real Direct3D workload with and without `*-fast=off` |
 | **M9** TCG on Apple Silicon | `tracks/m9-tcg-aarch64.md` | `tools/tcg-profile.*`, `tools/tcg-hot.py`, the TCG patches from 13 on | Done; optimization closed by user decision (2026-09-12) · binary32 at PC=24 slower than PC=53 on aarch64, the game tests uncapped on the Air |
-| **M10** Win98 display driver | `tracks/m10-win98-driver.md` | `guest-tools/src/d3dptvid/core/` and `w9x/`, `guest-tools/build-driver*.sh`, `setup.c`'s 9x role, `tools/win98-*.sh`, doc 19, ADR-012 | Active; steps 0–4 done, step 5 (real titles) under way · the ACPI standby resume |
+| **M10** Win98 display driver | `tracks/m10-win98-driver.md` | `guest-tools/src/d3dptvid/core/` and `w9x/`, `guest-tools/build-driver*.sh`, `setup.c`'s 9x role, `tools/win98-*.sh`, doc 19, ADR-012 | Active; steps 0–4 done, step 5 (real titles) under way; Age of Empires' intro videos froze Win98 until the DCI primary became a flat pointer (2026-10-11, doc 19 §46, `gdiprobe.exe`'s DCI case) · the ACPI standby resume |
 | **M11** Windows host | `tracks/m11-windows-host.md` | `packaging/windows/`, `build-windows.sh`, `package-windows.sh`, `package-msix.sh`, `win-run.sh`, `embed/mglcntx_embed.c`'s WGL half, `build-windows.md` | Done; Windows builds natively in MSYS2 (ADR-026), the package is all MSVC, runs guests on the user's PC and packs as a Store MSIX · Moto Racer's speed there, live control over AF_UNIX, the Store upload, an installer |
 | **M12** music | `tracks/m12-music.md` | `libsynth/`, patches 60–61, `soundfonts/`, `bundle::Sound` / `Music`, `tools/midi-guest-test.py`, doc 20 | All stages landed · capture Win98's failing MIDI run, a host MIDI port |
 | **M13** gamepads | `tracks/m13-gamepads.md` | `player-core/src/pad.rs`, `gamepad/`, patches 26–27, `bundle::Pad`, `tools/pad-guest-test.py` | Done · a real controller on the key mapping, the USB pad on Win98 FE / Me |
@@ -376,8 +376,8 @@ tracks, plus the items no track owns.
     and the script warns twice before it changes anything; next, run it
     from the disc on a fresh overlay.
 12. **The finished tracks' leftovers.** M4: a decoder thread for the executor. M7: a shader title, a
-    split-stream title, 3DMark2001's Nature for cubes, StarCraft / Age of
-    Empires on 8 bpp, a driver stage in `scripts/test.sh`.
+    split-stream title, 3DMark2001's Nature for cubes, StarCraft on 8 bpp,
+    a driver stage in `scripts/test.sh`.
     M8: a Direct3D title with and without `*-fast=off`. M9: the Air's game
     tests uncapped (`DDFLAGS=32768`), binary32 at PC=24 on aarch64 (0.49 s
     against PC=53's 0.38 s on the Air, not profiled). M16: the OpenGL ICD

@@ -1074,6 +1074,48 @@ static int EscNoted(WORD code)
     return 0;
 }
 
+/* ------------------------------------------------------ the DCI primary
+ *
+ * A DCI client asks for the primary surface with `DCICREATEPRIMARYSURFACE`
+ * and the DIB Engine answers it from this PDEVICE: `wSelSurface` is the
+ * VRAM selector, `dwOffSurface` is 0. DCIMAN32 does not make the screen's
+ * address of that for a 32-bit client: it handed out 0x0001EE20. Age of
+ * Empires' intro videos go that way, and the codec decompressed each frame
+ * into low memory, over KERNEL32's 16-bit thunk segment, and the next
+ * 32-to-16 call ran the pixels (doc 19 §46). Under TCG, which does not
+ * check CS limits, that was a freeze with a black screen. On the Cirrus it
+ * plays.
+ *
+ * So the answer is rewritten to a flat selector and the VRAM's linear
+ * address. Selector plus offset and offset alone then name the same byte,
+ * whichever way a client reads it. The Engine's own drawing goes through
+ * the PDEVICE, which keeps the VRAM selector. The struct is the Engine's
+ * and outlives the call, so one already rewritten is left alone. */
+typedef struct {
+    DWORD dwSize, dwDCICaps, dwCompression, dwMask[3];
+    DWORD dwWidth, dwHeight;
+    LONG  lStride;
+    DWORD dwBitCount, dwOffSurface;
+    WORD  wSelSurface, wReserved;
+} DCISURFACEINFO_t;
+
+static WORD wFlatSel = 0;
+
+static void DCIPrimaryFlat(DCISURFACEINFO_t FAR *si)
+{
+    if (si == 0 || si->wSelSurface != wVramSel || !dwVramLin) return;
+    if (!wFlatSel) {
+        WORD sel = AllocSelector(wVramSel);
+
+        if (!sel) return;
+        SetSelectorBase(sel, 0);
+        SetSelectorLimit(sel, 0xffffffffUL);
+        wFlatSel = sel;
+    }
+    si->dwOffSurface += dwVramLin;
+    si->wSelSurface = wFlatSel;
+}
+
 /* the DirectDraw sub-commands of DCICOMMAND (doc 19 §2) */
 #define DDCREATEDRIVEROBJECT    10
 #define DDGET32BITDRIVERNAME    11
@@ -1153,7 +1195,12 @@ LONG WINAPI __loadds Control(LPVOID lpDevice, UINT function,
          * failing them keeps DirectDraw working (the reference driver
          * learned this). */
         if (cmd->dwVersion != DD_VERSION) {
-            return DIB_Control(lpDevice, function, lpInput, lpOutput);
+            LONG r = DIB_Control(lpDevice, function, lpInput, lpOutput);
+
+            if (cmd->dwCommand == DCICREATEPRIMARYSURFACE && (WORD)r == 0 &&
+                lpOutput != 0)
+                DCIPrimaryFlat(*(DCISURFACEINFO_t FAR * FAR *)lpOutput);
+            return r;
         }
         switch (cmd->dwCommand) {
         case DDCREATEDRIVEROBJECT:

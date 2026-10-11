@@ -719,8 +719,8 @@ first eliminations were made on the opening splash, not the menu, and
 say nothing about it. What stays useful:
 
 - `gdiprobe.exe` checks each GDI raster operation's pixels with
-  `GetPixel` (57 cases at 8/16/32 bpp; its 8 bpp failures are the
-  probe's own palette quantisation). `setbpp.exe` sets the desktop depth
+  `GetPixel`, and the DCI primary (§46), 60 cases at 8/16/32 bpp; its
+  five 8 bpp failures are the probe's own palette quantisation. `setbpp.exe` sets the desktop depth
   from a batch file.
 - **The game sets its own mode** (1024×768×16 here) whatever the
   desktop's depth, so bisecting depth via the desktop changes nothing.
@@ -1284,3 +1284,40 @@ names the caller) and `D9CTEST.EXE` (M16):
   say, so this is Win98's too. The float formats keep
   `D3DFORMAT_OP_OFFSCREENPLAIN`: a video-memory one is the driver's to
   make.
+
+### 46. Age of Empires' intro froze the machine: the DCI primary was not a flat pointer
+
+Age of Empires (Gold, and Rise of Rome's `EMPIRESX.EXE`) sets 800×600×8,
+then 640×480×16 for its intro videos, and the machine froze there with a
+black screen. With `NOSTARTUP` the game reached its menu, and on the
+Cirrus (user, 2026-10-11) the videos played.
+
+The DIB Engine answers DCI's `DCICREATEPRIMARYSURFACE` (`DCICOMMAND`
+with DCI's version, handed to `DIB_Control`) from the PDEVICE:
+`wSelSurface` is the VRAM selector and `dwOffSurface` the offset in it,
+0. DCIMAN32 turns that into the flat pointer a 32-bit client gets, and
+from this answer gave **0x0001EE20** at every depth. The video codec
+(the DLL at 0x1C400000) decompressed each frame there, over low memory,
+including the segment of KERNEL32's 16-bit thunk code. The next 32-to-16
+call ran the pixels. On a real CPU that ends in a GP fault at the
+segment's limit and the "illegal operation" box. TCG does not check a
+code segment's limit, so the CPU ran the 64 KB segment of pixels in a
+circle, the IP wrapping, and the guest looked hung. Turning off the TCG
+optimisations changed nothing because none of them was involved.
+
+Found with the gdbstub (`EXTRA="-gdb tcp:127.0.0.1:12346"`): a
+breakpoint on the thunk segment's linear range showed KERNEL32's own
+code there at first, and a write watchpoint on it then named the codec's
+store and its destination.
+
+**`Control` rewrites the DIB Engine's answer** (`DCIPrimaryFlat` in
+`d3dpt9x.c`): a flat selector (base 0, 4 GB limit, made once) and the
+VRAM's linear address as the offset. Selector plus offset and the offset
+alone then name the same byte, whichever way a client reads it, and
+DCIMAN32 hands out 0x80019000. The Engine draws through the PDEVICE,
+which keeps the VRAM selector. `gdiprobe.exe` checks it at each depth
+(`DCICreatePrimary`, the address, one pixel written through it and read
+back with `GetPixel`); the old driver fails the address case at all
+three. The intro now plays through to the menu headless
+(`tools/win98-game-test.sh`, `GUEST_CMD` running `EMPIRESX.EXE` from
+its folder, the disc in `CDS=`).

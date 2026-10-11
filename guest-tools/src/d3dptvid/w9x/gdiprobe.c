@@ -129,6 +129,93 @@ static void fill(HDC dc, COLORREF c)
     DeleteObject(br);
 }
 
+/* The DCI primary, as a video codec gets it (doc 19 §46). DCIMAN32 hands a
+ * 32-bit client the screen as a flat pointer in `dwOffSurface`, and the
+ * DIB Engine fills that from the PDEVICE's selector and offset. Age of
+ * Empires' intro froze the guest when that pointer was 0, the offset in
+ * VRAM: the codec drew the frame over low memory. A pointer below 4 MB is
+ * that bug and is never written through. Otherwise one pixel is written
+ * through it and read back with GetPixel, which proves it is the screen. */
+typedef struct {
+    DWORD dwSize, dwDCICaps, dwCompression, dwMask[3];
+    DWORD dwWidth, dwHeight;
+    LONG  lStride;
+    DWORD dwBitCount;
+    ULONG_PTR dwOffSurface;
+    WORD  wSelSurface, wReserved;
+} DCISURF;
+
+static void dci_primary(HDC dc, int bpp)
+{
+    HMODULE lib = LoadLibraryA("DCIMAN32.DLL");
+    HDC (WINAPI *open_)(void);
+    void (WINAPI *close_)(HDC);
+    int (WINAPI *create)(HDC, DCISURF **);
+    int (WINAPI *begin)(DCISURF *, int, int, int, int);
+    void (WINAPI *end)(DCISURF *);
+    void (WINAPI *destroy)(DCISURF *);
+    DCISURF *s = NULL;
+    HDC prov;
+    BYTE *p;
+    int rc;
+
+    if (!lib) {
+        logf_("gdiprobe: no DCIMAN32.DLL, DCI not checked\n");
+        return;
+    }
+    open_ = (void *)GetProcAddress(lib, "DCIOpenProvider");
+    close_ = (void *)GetProcAddress(lib, "DCICloseProvider");
+    create = (void *)GetProcAddress(lib, "DCICreatePrimary");
+    begin = (void *)GetProcAddress(lib, "DCIBeginAccess");
+    end = (void *)GetProcAddress(lib, "DCIEndAccess");
+    destroy = (void *)GetProcAddress(lib, "DCIDestroy");
+    if (!open_ || !close_ || !create || !begin || !end || !destroy) {
+        logf_("gdiprobe: DCIMAN32 lacks an entry, DCI not checked\n");
+        FreeLibrary(lib);
+        return;
+    }
+    prov = open_();
+    rc = prov ? create(prov, &s) : -1;
+    cases++;
+    if (rc != 0 || !s) {
+        failed++;
+        logf_("%-46s rc %d  FAIL\n", "DCICreatePrimary", rc);
+        if (prov) close_(prov);
+        FreeLibrary(lib);
+        return;
+    }
+    logf_("%-46s %lux%lu %lu bpp stride %ld at %08lx sel %04x\n",
+          "DCICreatePrimary", (unsigned long)s->dwWidth,
+          (unsigned long)s->dwHeight, (unsigned long)s->dwBitCount,
+          (long)s->lStride, (unsigned long)s->dwOffSurface, s->wSelSurface);
+    if (s->dwOffSurface < 0x400000) {
+        failed++;
+        logf_("%-46s %08lx  FAIL  (not a flat pointer to the screen)\n",
+              "DCI primary address", (unsigned long)s->dwOffSurface);
+    } else if (bpp != 16 && bpp != 32) {
+        logf_("%-46s %08lx  PASS  (no pixel written at %d bpp)\n",
+              "DCI primary address", (unsigned long)s->dwOffSurface, bpp);
+    } else {
+        fill(dc, RGB(0, 0, 0));
+        GdiFlush();
+        if (begin(s, X, Y, W, H) >= 0) {
+            p = (BYTE *)s->dwOffSurface + (Y + 10) * s->lStride +
+                (X + 10) * (bpp / 8);
+            if (bpp == 16)
+                *(WORD *)p = 0xf800;
+            else
+                *(DWORD *)p = 0x00ff0000;
+            end(s);
+        }
+        cases--;        /* check() counts this case */
+        check("DCI primary, one pixel written", dc, X + 10, Y + 10,
+              RGB(255, 0, 0));
+    }
+    destroy(s);
+    close_(prov);
+    FreeLibrary(lib);
+}
+
 static void battery(void)
 {
     HDC dc;
@@ -383,6 +470,8 @@ static void battery(void)
         DeleteObject(br);
         DeleteObject(pat);
     }
+
+    dci_primary(dc, bpp);
 
     fill(dc, RGB(0, 0, 0));
     ReleaseDC(NULL, dc);
