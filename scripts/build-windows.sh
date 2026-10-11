@@ -104,8 +104,9 @@ esac
 # mtools for the guests' scratch disks, bsdtar, and ImageMagick for the
 # icon check. The fourth is Windows 11's: MINGW64's perl for OpenSSL's
 # Configure for MSVC (build-deps.sh; it refuses MSYS2's own), and nasm,
-# bison and flex for its firmware (build-edk2.sh). Not here: Rust, which is rustup's own installer with the GNU
-# host, and Open Watcom, which is a snapshot to unpack (both in
+# bison and flex for its firmware (build-edk2.sh). Not here: Rust, which
+# is rustup's own installer (the MSVC and GNU toolchains, either one the
+# default), and Open Watcom, which is a snapshot to unpack (both in
 # docs/build-windows.md).
 MSYS2_PACKAGES=(git rsync diffutils patch
   mingw-w64-x86_64-{gcc,clang,lld,gdb,ninja,meson,pkgconf,python,python-distlib}
@@ -161,11 +162,10 @@ if [ ${#missing[@]} -gt 0 ]; then
   echo "build-windows.sh: not found: ${missing[*]} -- run scripts/build-windows.sh --msys2-deps" >&2
   exit 1
 fi
-# rustup's default on Windows is the MSVC toolchain, whose build scripts
-# need Microsoft's link.exe: the host has to be the GNU one.
-host="$(rustc -vV | sed -n 's/^host: //p')"
-[ "$host" = x86_64-pc-windows-gnu ] || {
-  echo "build-windows.sh: rustc's host is $host; run: rustup default stable-x86_64-pc-windows-gnu" >&2; exit 1; }
+# Every cargo here names its toolchain, so rustup's default (either one)
+# is left alone: MSVC through scripts/cargo-msvc.sh and `cargo +…-msvc`,
+# and the GNU one only for the virtio stage's guest agent
+# (build-virtio-win.sh), whose build scripts then link with MSYS2's gcc.
 export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="${CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER:-gcc}"
 
 if [ ! -f qemu/VERSION ] || [ ! -f third_party/qemu-3dfx/qemu-1/hw/mesa/meson.build ]; then
@@ -424,6 +424,8 @@ fi
 if want virtio; then
   if ! command -v xorriso >/dev/null; then
     skip virtio "no xorriso (scripts/build-windows.sh --msys2-deps)" || true
+  elif ! rustup run stable-x86_64-pc-windows-gnu rustc -V >/dev/null 2>&1; then
+    skip virtio "no stable-x86_64-pc-windows-gnu toolchain for the guest agent (rustup toolchain install stable-x86_64-pc-windows-gnu)" || true
   else
     say "virtio: build-virtio-win.sh x64"
     scripts/build-virtio-win.sh x64

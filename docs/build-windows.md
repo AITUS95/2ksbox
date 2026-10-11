@@ -600,11 +600,13 @@ git config --global core.autocrlf false       # belt and braces: CRLF breaks eve
 cd /c && git clone --recurse-submodules --shallow-submodules https://github.com/Roboport-Tecnologia/2ksbox
 cd 2ksbox && scripts/build-windows.sh --msys2-deps
 
-# 2. Rust from https://rustup.rs with the GNU host (MSVC's build scripts need Microsoft's
-#    linker), plus the MSVC toolchain for the launcher, the players and the tools:
-./rustup-init.exe -y --default-host x86_64-pc-windows-gnu
+# 2. Rust from https://rustup.rs, with both toolchains: MSVC for QEMU's
+#    crates, the launcher, the players and the tools, GNU for the guest
+#    agent and launcher-capi's check. Every script names the one it
+#    wants, so either can be rustup's default:
+./rustup-init.exe -y
 echo 'export PATH="$(cygpath "$USERPROFILE")/.cargo/bin:$PATH"' >> ~/.bashrc && . ~/.bashrc
-rustup toolchain install stable-x86_64-pc-windows-msvc
+rustup toolchain install stable-x86_64-pc-windows-msvc stable-x86_64-pc-windows-gnu
 
 # 3. Open Watcom: the same ow-snapshot.tar.xz as on Linux (binaries in binnt64),
 #    open-watcom-v2's Last-CI-build release, unpacked where build-driver9x.sh

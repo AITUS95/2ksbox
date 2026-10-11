@@ -35,10 +35,11 @@ BUDGET="${D3D_GOLDEN_BUDGET:-1200}"
 # "On Windows".
 case "$OS" in MINGW64_NT*) OS=Windows;; MINGW*|MSYS*|CYGWIN*)
   echo "test.sh: run it from MSYS2's MINGW64 shell" >&2; exit 2;; esac
-QDIR=build/qemu; RREL=target/release; CARGO_TGT=()
+QDIR=build/qemu; RREL=target/release; CARGO=(cargo); CARGO_TGT=()
 # The tools (launcherx, discx, synthx) and how to build them: on Windows
 # MSVC (scripts/cargo-msvc.sh, target/x86_64-pc-windows-msvc), while
-# launcher-capi's check stays on the mingw target
+# launcher-capi's check stays on the mingw target, by the GNU toolchain
+# named (CARGO), whatever rustup's default
 TREL=target/release; TOOL_CARGO=(cargo)
 case "$OS" in
   Darwin) SO=dylib;;
@@ -46,7 +47,7 @@ case "$OS" in
     # The QEMU and player the package ships: MSVC (configure-qemu.sh,
     # docs/build-windows.md "QEMU under MSVC") and player-mitsuami.
     SO=dll; QDIR=build/win/qemu-msvc; RREL=target/x86_64-pc-windows-gnu/release
-    CARGO_TGT=(--target x86_64-pc-windows-gnu)
+    CARGO=(cargo +stable-x86_64-pc-windows-gnu); CARGO_TGT=(--target x86_64-pc-windows-gnu)
     TREL=target/x86_64-pc-windows-msvc/release; TOOL_CARGO=(scripts/cargo-msvc.sh)
     export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="${CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER:-gcc}"
     # the programs below find libqemu-embed and the executor's DLLs here
@@ -2568,7 +2569,7 @@ host_stage() {
   # check on the C front end, so a rename or a changed default in a model
   # shows up here as well as in the launcher.
   # A scratch library and shelf, never the user's own.
-  if cargo build "${CARGO_TGT[@]}" -p launcher-capi >"$OUT/capi-build.log" 2>&1; then
+  if "${CARGO[@]}" build "${CARGO_TGT[@]}" -p launcher-capi >"$OUT/capi-build.log" 2>&1; then
     CAPI_LIB=""
     for cand in "${RREL%/release}/debug/liblauncher_capi.a" "$RREL/liblauncher_capi.a"; do
       [ -f "$cand" ] && CAPI_LIB="$cand" && break
@@ -2577,7 +2578,7 @@ host_stage() {
     # to know, not ours to guess: on macOS this one wants objc, iconv and
     # half a dozen frameworks, and the Linux list is not a subset of it.
     # rustc will say; the old list stays as the fallback.
-    CAPI_LIBS="$(cargo rustc "${CARGO_TGT[@]}" -q -p launcher-capi -- --print native-static-libs 2>&1 \
+    CAPI_LIBS="$("${CARGO[@]}" rustc "${CARGO_TGT[@]}" -q -p launcher-capi -- --print native-static-libs 2>&1 \
                  | sed -n 's/^note: native-static-libs: //p' | tail -1)"
     [ -n "$CAPI_LIBS" ] || CAPI_LIBS="-lstdc++ -lm -ldl -lpthread"
     # (Windows: rustc lists the windows/winapi crates' import libraries,
@@ -2671,7 +2672,7 @@ host_stage() {
   local preset=third_party/slang-shaders/crt/crt-guest-advanced.slangp
   if have_display && [ -f "$preset" ]; then
     # (Windows' player-mitsuami is build-windows.sh's mitsuami stage)
-    if [ "$PLAYER" != "$RREL/player" ] || cargo build "${CARGO_TGT[@]}" --release -p player -q 2>"$OUT/player-build.log"; then
+    if [ "$PLAYER" != "$RREL/player" ] || "${CARGO[@]}" build "${CARGO_TGT[@]}" --release -p player -q 2>"$OUT/player-build.log"; then
       run_check mode-sweep mode-sweep.log \
         $PLAYER --shader "$preset" --mode-sweep "$OUT/mode-sweep" || true
       # The chain's border sampling, from the run that just happened: the

@@ -67,8 +67,13 @@ fi
 
 # The agent and its installer (track M23) are on both discs, built here
 # from guest-agent/ for x64 (Windows 11 on Arm runs it under emulation;
-# rustup's x86_64-pc-windows-gnu and mingw-w64 build it).
+# rustup's x86_64-pc-windows-gnu and mingw-w64 build it). On Windows by
+# the GNU toolchain itself, whatever rustup's default: under the MSVC one
+# its build scripts would want Microsoft's link.exe, which MSYS2's
+# coreutils `link` shadows.
 AGENT=guest-agent/target/x86_64-pc-windows-gnu/release/2ksbox-agent.exe
+AGENT_CARGO=(cargo)
+[ "${MSYSTEM:-}" != MINGW64 ] || AGENT_CARGO=(cargo +stable-x86_64-pc-windows-gnu)
 # viogpudo's resolution helpers (vgpusrv, viogpuap) are ours, from our
 # viogpudo's build (track M24, patch 03: upstream's viogpuap stops at the
 # first display device that is not virtio-gpu's, the standard VGA or ramfb
@@ -102,7 +107,7 @@ if ! [ -f "$SRC" ] || [ "$(shasum -a 256 "$SRC" | cut -d' ' -f1)" != "$SHA256" ]
 fi
 
 echo "==> the 2ksbox agent (x64)"
-( cd guest-agent && cargo build --release --locked --target x86_64-pc-windows-gnu ) || {
+( cd guest-agent && "${AGENT_CARGO[@]}" build --release --locked --target x86_64-pc-windows-gnu ) || {
   echo "build-virtio-win: the agent did not build (rustup target add x86_64-pc-windows-gnu; mingw-w64)" >&2; exit 1; }
 
 # disc <arch>: the drivers (virtio-win folder:disc folder pairs, each with
