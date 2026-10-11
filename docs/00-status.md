@@ -90,6 +90,9 @@ scripts/build.sh --x86_64  # on the Air: the Intel build, under Rosetta, into bu
 scripts/test.sh            # host stage; `all` adds the guests (before any
                            # commit touching QEMU, embed, the D3D device, guest DLLs)
 
+# the PC, from PowerShell: each verb opens MINGW64 itself (build-windows.md)
+scripts\win.ps1 build      # build-windows.sh; also run, test, package, drivers, sideload, shell
+
 # a machine the way the launcher runs it
 target/release/launcherx --print-args <machine>/machine.toml   # the exact QEMU line
 target/release/player --shader third_party/slang-shaders/crt/crt-lottes.slangp -- \

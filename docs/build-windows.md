@@ -636,6 +636,23 @@ GDB=1 scripts/win-run.sh player ...       # the player under gdb
 scripts/package-windows.sh                # the zip ("Packaging on Windows")
 ```
 
+From PowerShell, `scripts\win.ps1` does the same without opening the
+MINGW64 shell first: each verb starts MSYS2's MINGW64 login shell in
+the checkout (MSYS2 from `$env:MSYS2_ROOT`, Scoop's or `C:\msys64`),
+puts cargo on `PATH` (`scripts/win-ps1.sh`: a non-interactive shell
+skips the `~/.bashrc` line of step 2) and runs the script, arguments
+passed through:
+
+```powershell
+scripts\win.ps1 build [stages...]          # build-windows.sh
+scripts\win.ps1 run [launcher|player|qemu] # win-run.sh, the launcher by default
+scripts\win.ps1 test [checks...]           # test.sh, all by default
+scripts\win.ps1 package [args...]          # package-windows.sh
+scripts\win.ps1 drivers [publish|fetch]    # windows-drivers.sh, publish by default
+scripts\win.ps1 sideload [args...]         # win-sideload.ps1
+scripts\win.ps1 sh <script> [args...]      # any other script; `shell` for a prompt
+```
+
 `scripts/win-run.sh` stands in for the one-folder package: it puts
 `build/win/qemu` on `PATH` for the embed DLL, names the winit player to
 the launcher only when `player-mitsuami` is not built (once built, the
