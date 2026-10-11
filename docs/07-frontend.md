@@ -83,6 +83,11 @@ player line runs a machine with nothing else.
   first item on macOS and GTK, and a "?" before the toolbar's "i" on
   Windows and Kirigami. `launcherx --about` prints the address too.
   The `mitsuami` check grabs it (`LAUNCHER_SCREEN=about`).
+- **Open Machines Folder** (2026-10-11) opens the library's directory
+  (`launcher_core::library::default_dir()`, made first if no machine
+  exists yet) in the platform's file manager: Help's second item on
+  macOS and GTK (`launcher_core::library::OPEN_FOLDER`). Windows and
+  Kirigami have no menus and no toolbar button for it.
 - **The main window's commands have keys** (2026-10-07,
   `machines::Command`): the platform's primary modifier (Cmd on macOS,
   Ctrl elsewhere) with N New Machine, R Start, I Settings, E Discs,

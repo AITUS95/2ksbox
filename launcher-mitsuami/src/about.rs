@@ -4,6 +4,7 @@
 //! macOS, by the application menu's About item (`app_menu`).
 
 use launcher_core::about::{self, Credit};
+use launcher_core::library;
 use mitsuami::prelude::*;
 
 const NAME_W: f32 = 170.0;
@@ -27,7 +28,7 @@ impl About {
 }
 
 /// The app's menus: `commands` (the main window's, `machines::command_menus`)
-/// and Help, with the user manual and About. Only macOS and GTK have any:
+/// and Help, with the user manual, the machines folder and About. Only macOS and GTK have any:
 /// About belongs in macOS's application menu and at the end of GTK's primary
 /// menu, and the role puts it there. Elsewhere the toolbar's "?" and "i" are
 /// the way in, and the window takes the commands' keys itself.
@@ -37,6 +38,7 @@ pub fn app_menu(about: About, commands: Option<MenuBar>) {
             bar.menu(
                 Menu::new("Help")
                     .item(MenuItem::new(about::MANUAL).on_select(open_manual))
+                    .item(MenuItem::new(library::OPEN_FOLDER).on_select(open_machines_folder))
                     .item(MenuItem::new("About 2ksbox").role(MenuRole::About).on_select(move || about.show())),
             ),
         );
@@ -47,6 +49,21 @@ pub fn app_menu(about: About, commands: Option<MenuBar>) {
 /// where there are no menus.
 pub fn open_manual() {
     open_url(about::MANUAL_URL);
+}
+
+/// Opens the machines' directory in the file manager: Help's item. A
+/// library with no machine yet has no directory, so it is made first.
+fn open_machines_folder() {
+    let dir = library::default_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("[launcher] creating {}: {e}", dir.display());
+        return;
+    }
+    spawn_local(async move {
+        if let Err(e) = launch(&dir).await {
+            eprintln!("[launcher] opening {}: {e:?}", dir.display());
+        }
+    });
 }
 
 /// The app's icon as pixels, decoded once here: `Image` takes a file or

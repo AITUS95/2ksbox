@@ -12,6 +12,9 @@ pub const BUNDLE_FILE: &str = "machine.toml";
 /// on Linux, `~/Library/Application Support` on macOS, `%APPDATA%` on
 /// Windows) plus `machines`. `LAUNCHER_LIBRARY_DIR` overrides it for
 /// development and tests, like the player's `PLAYER_*` knobs.
+/// Help's item that opens `default_dir()` in the file manager.
+pub const OPEN_FOLDER: &str = "Open Machines Folder";
+
 pub fn default_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("LAUNCHER_LIBRARY_DIR") {
         return dir.into();
