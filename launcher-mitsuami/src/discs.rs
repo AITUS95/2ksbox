@@ -198,50 +198,63 @@ pub fn DiscShelfWindow() -> impl View {
             open=move || discs.read(|s| s.open)
             @close_request=move || discs.close(library)
         >
-            <Column padding_y=Spacing::Xl gap=Spacing::Lg grow=1.0 min_height=0>
+            <Column grow=1.0 min_height=0>
                 {crate::shot::arm(&["discs", "shelf"])}
-                <Show when=move || discs.read(Shelf::for_machine)>
-                    <DriveCard/>
-                </Show>
-                <Row margin_x=Spacing::Xl shrink=0.0 gap=Spacing::Sm align=Align::Center>
-                    <Text text_style=TextStyle::Headline>"Library"</Text>
-                    <Text text_style=TextStyle::Caption color=Color::SecondaryLabel grow=1.0>
-                        {move || discs.read(Shelf::count_label)}
-                    </Text>
-                    <MenuButton icon=icons::NEW menu=add_menu()>"Add"</MenuButton>
-                </Row>
+                // The drive and the heading stay while the rows scroll: on
+                // macOS in the title bar's glass, the rows blurred under it,
+                // where the glass's hard edge is the line between them
+                // (user).
+                <Column header=true header_edge=HeaderEdge::Hard shrink=0.0>
+                    <Column padding_top=Spacing::Xl padding_bottom=Spacing::Lg gap=Spacing::Lg>
+                        <Show when=move || discs.read(Shelf::for_machine)>
+                            <DriveCard/>
+                        </Show>
+                        <Row margin_x=Spacing::Xl shrink=0.0 gap=Spacing::Sm align=Align::Center>
+                            <Text text_style=TextStyle::Headline>"Library"</Text>
+                            <Text text_style=TextStyle::Caption color=Color::SecondaryLabel grow=1.0>
+                                {move || discs.read(Shelf::count_label)}
+                            </Text>
+                            <MenuButton icon=icons::NEW menu=add_menu()>"Add"</MenuButton>
+                        </Row>
+                    </Column>
+                    <Show when=move || !cfg!(target_os = "macos") && !discs.read(|s| s.discs().is_empty())>
+                        <Separator/>
+                    </Show>
+                </Column>
                 <Show when=move || discs.read(|s| s.discs().is_empty()) fallback=|| view! { <DiscList/> }>
                     <Column margin_x=Spacing::Xl grow=1.0 align=Align::Center justify=Justify::Center>
                         <Text color=Color::SecondaryLabel>"No discs yet."</Text>
                     </Column>
                 </Show>
-                // On its own under the list, as in the design.
-                <Group
-                    margin_x=Spacing::Xl
-                    shrink=0.0
-                    file_drop={FileDrop::extensions(DISC_FILTER.1.iter().copied()).and_folders()}
-                    @drop={move |paths: Vec<PathBuf>| {
-                        discs.drop_over.set(false);
-                        for path in paths {
-                            discs.add(&path);
-                        }
-                    }}
-                    @drop_hover={move |over: bool| discs.drop_over.set(over)}
-                >
-                    <Row gap=Spacing::Sm align=Align::Center justify=Justify::Center padding_y=Spacing::Sm>
-                        <Icon name=icons::DOWNLOAD color=Color::SecondaryLabel icon_size=16.0 />
-                        <Text color=Color::SecondaryLabel>
-                            {move || if discs.drop_over.get() {
-                                "Release to add"
-                            } else {
-                                "Drop disc images or folders here"
-                            }.to_owned()}
-                        </Text>
-                    </Row>
-                </Group>
-                <Show when=move || discs.read(|s| s.error().is_some())>
-                    <Text margin_x=Spacing::Xl color=Color::Error>{move || discs.read(|s| s.error().unwrap_or_default().to_owned())}</Text>
-                </Show>
+                <Column padding_top=Spacing::Lg padding_bottom=Spacing::Xl gap=Spacing::Lg shrink=0.0>
+                    // On its own under the list, as in the design.
+                    <Group
+                        margin_x=Spacing::Xl
+                        shrink=0.0
+                        file_drop={FileDrop::extensions(DISC_FILTER.1.iter().copied()).and_folders()}
+                        @drop={move |paths: Vec<PathBuf>| {
+                            discs.drop_over.set(false);
+                            for path in paths {
+                                discs.add(&path);
+                            }
+                        }}
+                        @drop_hover={move |over: bool| discs.drop_over.set(over)}
+                    >
+                        <Row gap=Spacing::Sm align=Align::Center justify=Justify::Center padding_y=Spacing::Sm>
+                            <Icon name=icons::DOWNLOAD color=Color::SecondaryLabel icon_size=16.0 />
+                            <Text color=Color::SecondaryLabel>
+                                {move || if discs.drop_over.get() {
+                                    "Release to add"
+                                } else {
+                                    "Drop disc images or folders here"
+                                }.to_owned()}
+                            </Text>
+                        </Row>
+                    </Group>
+                    <Show when=move || discs.read(|s| s.error().is_some())>
+                        <Text margin_x=Spacing::Xl color=Color::Error>{move || discs.read(|s| s.error().unwrap_or_default().to_owned())}</Text>
+                    </Show>
+                </Column>
             </Column>
         </Window>
     }
@@ -282,9 +295,8 @@ fn DiscList() -> impl View {
     view! {
         // A plain column on the window's own background, not a `List`,
         // which every platform draws as a framed box (user), between
-        // separators across the window (user).
+        // separators across the window (user), the top one the header's.
         <Column grow=1.0 min_height=0>
-            <Separator/>
             <ScrollView grow=1.0 min_height=0>
                 <Column padding_x=Spacing::Xl padding_y=Spacing::Sm gap=Spacing::Sm>
                     <For

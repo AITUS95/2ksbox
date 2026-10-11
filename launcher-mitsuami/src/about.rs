@@ -104,25 +104,32 @@ pub fn AboutWindow() -> impl View {
         >
             // The credits scroll edge to edge, between separators, with
             // their own padding inside so the scroll bar never covers them.
+            // What's above them stays: on macOS in the title bar's glass,
+            // the credits blurred under it, where the glass's hard edge is
+            // the top separator (user).
             <Column grow=1.0 min_height=0>
                 {crate::shot::arm(&["about"])}
-                <Column padding=Spacing::Lg gap=Spacing::Md>
-                    <Row gap=Spacing::Lg align=Align::Center>
-                        {icon().map(|p| view! { <Image source=ImageSource::Pixels(p) width=64 height=64/> })}
-                        <Column gap=Spacing::Xs grow=1.0>
-                            <Text text_style=TextStyle::Title>{format!("{} {}", about::NAME, about::VERSION)}</Text>
-                            <Text>{about::TAGLINE}</Text>
-                            <Text text_style=TextStyle::Caption color=Color::SecondaryLabel>{about::LICENSE}</Text>
-                            <Row>
-                                <Button button_style=ButtonStyle::Borderless @click=|| open_url(about::URL)>
-                                    {about::URL}
-                                </Button>
-                            </Row>
-                        </Column>
-                    </Row>
-                    <Text weight=FontWeight::Semibold>{about::THANKS}</Text>
+                <Column header=true header_edge=HeaderEdge::Hard shrink=0.0>
+                    <Column padding=Spacing::Lg gap=Spacing::Md>
+                        <Row gap=Spacing::Lg align=Align::Center>
+                            {icon().map(|p| view! { <Image source=ImageSource::Pixels(p) width=64 height=64/> })}
+                            <Column gap=Spacing::Xs grow=1.0>
+                                <Text text_style=TextStyle::Title>{format!("{} {}", about::NAME, about::VERSION)}</Text>
+                                <Text>{about::TAGLINE}</Text>
+                                <Text text_style=TextStyle::Caption color=Color::SecondaryLabel>{about::LICENSE}</Text>
+                                <Row>
+                                    <Button button_style=ButtonStyle::Borderless @click=|| open_url(about::URL)>
+                                        {about::URL}
+                                    </Button>
+                                </Row>
+                            </Column>
+                        </Row>
+                        <Text weight=FontWeight::Semibold>{about::THANKS}</Text>
+                    </Column>
+                    <Show when=|| !cfg!(target_os = "macos")>
+                        <Separator/>
+                    </Show>
                 </Column>
-                <Separator/>
                 <ScrollView grow=1.0 min_height=0>
                     <Column gap=Spacing::Lg padding_x=Spacing::Xl padding_y=Spacing::Md>
                         {credit_groups()}

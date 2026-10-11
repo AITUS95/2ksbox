@@ -39,7 +39,7 @@ and bump `rev` to the pushed mitsuami commit before committing here.
 A dependency change, a new mitsuami `rev` included (it is a git
 dependency), means regenerating `packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami `46ee64e` since 2026-10-09: 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami `4dce09e` since 2026-10-11: 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -82,7 +82,13 @@ window with a toolbar and no sidebar full size on AppKit too, so a table
 at its top runs under the bar (the snapshots window), and `46ee64e`,
 `MenuBarPlace::InTitleBarStart`, a WinUI menu bar in the title bar
 before the title (the `TitleBar`'s `LeftHeader`), which the player uses.
-Both crates built with no change.
+Both crates built with no change. Then `4dce09e` (2026-10-11), with
+`1c4b6ad` and `295b8e2` (a capture leaves out the scroll edge effect,
+which blanked one under the bar): `Container::header`, a window's header
+in the AppKit title bar (a bottom titlebar accessory, the scroll view
+under it running up under it), with `Container::header_edge`, its soft
+or hard edge (macOS 26.1), for the disc shelf and About. The player's pin
+moved with it, since the Flatpak vendors one mitsuami for both.
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:
@@ -346,6 +352,14 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    disc, and on a running machine swaps the disc now too; the card polls
    the running drive every 2 s and only touches the window when it
    changed (`probe_live` / `live_changed`). The typed-path field is gone.
+   Since 2026-10-11 (user: the same design, the fixed header glass) the
+   card and the Library row are the window's header (mitsuami 4dce09e's
+   `Container::header`): on macOS it goes in the title bar, in its glass,
+   and the rows scroll up under it, blurred, the glass's hard edge
+   (`header_edge=HeaderEdge::Hard`, user: not the soft fade) in place of
+   the separator above them; the other platforms keep it at the top as
+   it was, separator included. About's icon, name and thanks are its
+   header the same way.
    Checked headless on Broadway: the card with a disc and empty, five
    rows of the three kinds. Not driven: the pencil, a drop, the menu.
    Checked headless on a scratch machine with a real qcow2: a clone copied
