@@ -30,6 +30,12 @@
 # too. On a Windows installed without the disc, 2ksbox\install.cmd adds
 # them (and the agent).
 #
+# 2ksbox\experimental-display carries our own viogpudo (track M24) for
+# the disc's processor, unsigned, with its installer (test mode, a
+# certificate of the machine's own; it warns twice before it changes
+# anything) and a README of warnings. Nothing runs it by itself; Windows
+# Setup still installs upstream's signed driver.
+#
 # Out: build/virtio-win/2ksbox-drivers-<arm64|x64>.iso, which the
 # launcher puts in a CD drive of its own on every Windows 11 machine of
 # that processor (`disc_library::drivers_iso`, `bundle::Machine`'s
@@ -71,7 +77,8 @@ AGENT=guest-agent/target/x86_64-pc-windows-gnu/release/2ksbox-agent.exe
 # upstream's.
 scripts/windows-drivers.sh fetch viogpudo >/dev/null 2>&1 || true
 STAMP=$( { echo "$VERSION $SHA256"; cat "$0"; cat guest-agent/Cargo.toml guest-agent/src/*.rs guest-agent/install.* guest-agent/autounattend.xml
-           cat build/viogpudo/{arm64,x64}/{vgpusrv,viogpuap}.exe 2>/dev/null; } \
+           cat build/viogpudo/{arm64,x64}/{vgpusrv,viogpuap}.exe build/viogpudo/{arm64,x64}/viogpudo.{sys,inf} 2>/dev/null
+           cat guest-tools/viogpudo/{viogpudo-install.ps1,install.cmd,README.txt}; } \
   | shasum -a 256 | cut -c1-16)
 
 TODO=()
@@ -149,6 +156,23 @@ disc() {
   for f in vgpusrv viogpuap; do
     [ -f "$tree/\$WinPEDriver\$/viogpudo/$f.exe" ] || { echo "build-virtio-win: virtio-win $VERSION has no $dir viogpudo/$f.exe" >&2; exit 1; }
   done
+  # our viogpudo, for whoever opts in (M24): never installed by itself
+  local exp=$tree/2ksbox/experimental-display ours=build/viogpudo/$arch expnote=""
+  if [ -f "$ours/viogpudo.sys" ] && [ -f "$ours/viogpudo.inf" ]; then
+    mkdir -p "$exp/$arch"
+    cp "$ours"/{viogpudo.sys,viogpudo.inf,vgpusrv.exe,viogpuap.exe} "$exp/$arch/"
+    cp guest-tools/viogpudo/viogpudo-install.ps1 "$exp/"
+    sed 's/$/\r/' guest-tools/viogpudo/install.cmd > "$exp/install.cmd"
+    sed 's/$/\r/' guest-tools/viogpudo/README.txt > "$exp/README.txt"
+    expnote="
+2ksbox\\experimental-display holds an EXPERIMENTAL display driver of
+2ksbox's own, smoother than Red Hat's but not signed by Microsoft: it puts
+Windows in test mode. Nothing installs it; read its README.txt first.
+"
+    echo "    experimental display driver: ours ($ours), in 2ksbox\\experimental-display"
+  else
+    echo "note: no viogpudo build of ours for $arch: no 2ksbox\\experimental-display on the disc" >&2
+  fi
   mkdir -p "$tree/2ksbox"
   cp "$AGENT" guest-agent/install.ps1 "$tree/2ksbox/"
   # cmd.exe misreads a batch file's parenthesized blocks with LF line ends
@@ -172,7 +196,7 @@ shared folder on a drive letter when the machine has one. It also starts
 viogpudo's resolution service, so the desktop follows the window's size.
 A Windows installed with this disc in a drive runs it by itself at the
 first logon (autounattend.xml); on one installed without it, run it once.
-
+$expnote
 License: virtio-win_license.txt (BSD-3-Clause).
 EOF
   xorriso -as mkisofs -quiet -o "$iso.part" -V 2KSBOX_DRIVERS -J -joliet-long -r "$tree"

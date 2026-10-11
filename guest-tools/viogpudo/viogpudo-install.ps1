@@ -18,11 +18,21 @@
 # If pnputil still refuses ours, upstream's is put back from the drivers
 # disc, so the virtio-gpu is never left without a driver (a black window).
 #
-# Run it elevated from the disc (build-viogpudo.sh iso); it picks the
-# processor's folder and copies it to a work folder first (the disc is
+# It asks twice before it touches anything, on every run: a warning
+# answered y, then the word INSTALL typed. A console that cannot ask
+# (-NonInteractive) cancels.
+#
+# The drivers disc carries it in 2ksbox\experimental-display (with
+# install.cmd, which elevates, and a README), only its own processor's
+# folder; build-viogpudo.sh iso carries both. Run it elevated; it picks
+# the processor's folder and copies it to a work folder first (the disc is
 # read-only):
 #
 #   powershell -ep bypass -f D:\viogpudo-install.ps1 [-VSyncHz <n>]    then restart
+#
+# Once ours is in, HKLM\SOFTWARE\2ksbox's ExperimentalDisplay = 1 tells
+# the drivers disc's 2ksbox\install.ps1 to leave viogpudo alone (it would
+# otherwise put upstream's back, which Windows ranks above ours).
 #
 # -VSyncHz sets the vertical blank's rate (the service's Parameters key,
 # read when the driver starts; 0 for upstream's behaviour, the A/B without
@@ -37,6 +47,52 @@ $ErrorActionPreference = "Stop"
 
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
 $src = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) $arch
+if (-not (Test-Path -LiteralPath (Join-Path $src "viogpudo.sys"))) {
+    throw "no $arch driver beside this script ($src)"
+}
+
+function Cancelled {
+    Write-Host ""
+    Write-Host "Cancelled. Nothing was changed."
+    exit 2
+}
+
+# Two warnings before anything changes; any answer but the one asked for
+# cancels, and so does a console that cannot ask.
+Write-Host ""
+Write-Host "  WARNING 1 of 2: an EXPERIMENTAL display driver" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  This replaces Red Hat's display driver (VirtIO GPU) with 2ksbox's own"
+Write-Host "  build of it, which gives Windows a vertical blank in step with your"
+Write-Host "  screen, so the desktop scrolls and animates more smoothly."
+Write-Host ""
+Write-Host "  Microsoft has not signed it. To load it:"
+Write-Host "   - Windows is put in TEST MODE: a 'Test Mode' watermark stays in the"
+Write-Host "     corner of the desktop, and Windows will load any test-signed"
+Write-Host "     driver, not only this one. That makes this Windows less secure."
+Write-Host "   - A code-signing certificate is made on this machine and trusted."
+Write-Host "   - Secure Boot must be off (2ksbox's default for Windows 11)."
+Write-Host "   - If Smart App Control is on, it must be turned off, and Windows"
+Write-Host "     cannot turn it on again without being reinstalled."
+Write-Host "   - It takes two runs of this script, with a restart after each."
+Write-Host ""
+Write-Host "  It is experimental. If something goes wrong the machine's screen can"
+Write-Host "  stay black. Take a snapshot of the machine in 2ksbox before you go on;"
+Write-Host "  README.txt beside this script says how to undo it."
+Write-Host ""
+try { $a = Read-Host "  Go on? [y/N]" } catch { Cancelled }
+if ($a -notmatch '^\s*y(es)?\s*$') { Cancelled }
+
+Write-Host ""
+Write-Host "  WARNING 2 of 2: are you sure?" -ForegroundColor Red
+Write-Host ""
+Write-Host "  Test mode, a trusted certificate of this machine's own, and a driver"
+Write-Host "  Microsoft has not signed. 2ksbox does not support this setup; Red Hat's"
+Write-Host "  driver, which you have now, is the supported one."
+Write-Host ""
+try { $a = Read-Host "  Type INSTALL to install it, anything else to cancel" } catch { Cancelled }
+if ($a.Trim() -cne "INSTALL") { Cancelled }
+Write-Host ""
 $work = Join-Path $env:SystemRoot "Temp\2ksbox-viogpudo"
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $work | Out-Null
@@ -114,6 +170,10 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 3010) {
     }
     throw "pnputil could not install our driver ($code; C:\Windows\INF\setupapi.dev.log says why)"
 }
+# the drivers disc's install.ps1 leaves viogpudo alone from now on
+$mark = "HKLM:\SOFTWARE\2ksbox"
+if (-not (Test-Path $mark)) { New-Item $mark | Out-Null }
+Set-ItemProperty $mark -Name ExperimentalDisplay -Type DWord -Value 1
 
 # The resolution service (vgpusrv starts viogpuap in the console session,
 # which applies the window's size to the desktop; without it the desktop

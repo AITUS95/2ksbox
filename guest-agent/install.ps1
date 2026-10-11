@@ -18,8 +18,14 @@ function say($s) { Add-Content -Path $log -Value $s; Write-Host $s }
 say "2ksbox guest tools: installing from $here"
 
 $drivers = Join-Path $root '$WinPEDriver$'
+# The experimental viogpudo (2ksbox\experimental-display, track M24) marks
+# itself installed; upstream's, which Windows ranks above it, stays out.
+$exp = (Get-ItemProperty HKLM:\SOFTWARE\2ksbox -ErrorAction SilentlyContinue).ExperimentalDisplay -eq 1
 if (Test-Path -LiteralPath $drivers) {
-  foreach ($l in (pnputil /add-driver "$drivers\*.inf" /subdirs /install 2>&1)) { if ("$l".Trim()) { say "  $("$l".Trim())" } }
+  foreach ($d in (Get-ChildItem -LiteralPath $drivers -Directory)) {
+    if ($exp -and $d.Name -eq 'viogpudo') { say "  viogpudo: the experimental one is installed, left alone"; continue }
+    foreach ($l in (pnputil /add-driver "$($d.FullName)\*.inf" /install 2>&1)) { if ("$l".Trim()) { say "  $("$l".Trim())" } }
+  }
 }
 
 $dst = Join-Path $env:ProgramFiles '2ksbox'

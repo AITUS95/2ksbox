@@ -727,8 +727,9 @@ which first sources `guest-tools/msys2-i686.sh`, the whole port:
 ## Our viogpudo
 
 Track M24's build of virtio-win's display-only driver
-(`docs/tracks/m24-viogpudo.md`), not a `build-windows.sh` stage: nothing
-ships it. The kit is Microsoft's WDK and SDK NuGet packages (user
+(`docs/tracks/m24-viogpudo.md`), not a `build-windows.sh` stage. The
+drivers disc carries it, opt-in, in `2ksbox\experimental-display`
+(`build-virtio-win.sh`, from the fetched build). The kit is Microsoft's WDK and SDK NuGet packages (user
 decision 2026-10-09, over the 26H1 EWDK's 15 GB ISO), which the script
 restores into `build/viogpudo/packages` with a `nuget.exe` it fetches,
 and imports through a `Directory.Build.props` it writes at the source

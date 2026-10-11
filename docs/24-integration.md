@@ -176,7 +176,8 @@ file holds one there at its default (track M24, 2026-10-09:
 a machine without the agent kept ramfb's screen beside ours, and a
 choppy desktop); on one installed without it, `2ksbox\install.cmd`
 installs it by hand
-(`install.ps1`: the drivers, the agent in `C:\Program Files\2ksbox`,
+(`install.ps1`: the drivers, except viogpudo once M24's experimental one
+is in (`HKLM\SOFTWARE\2ksbox` `ExperimentalDisplay`), the agent in `C:\Program Files\2ksbox`,
 and its logon tasks; and, track M24, viogpudo's resolution service from
 the disc's `$WinPEDriver$\viogpudo` in `C:\Program Files\2ksbox\viogpu`,
 without which the desktop takes the window's size only at boot:

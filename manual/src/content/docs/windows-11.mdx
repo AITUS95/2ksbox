@@ -82,6 +82,29 @@ from the drivers disc, which setup installs, the
 machine's screen follows the window's size. Make the window bigger and
 the desktop grows.
 
+### An experimental, smoother display driver
+
+The drivers disc also carries 2ksbox's own build of the display driver,
+in `2ksbox\experimental-display`. It gives Windows a vertical blank in
+step with your screen, so the desktop scrolls and animates more smoothly.
+Nothing installs it. Microsoft hasn't signed it, so it only loads with
+Windows in test mode:
+
+<Aside type="caution">
+- A **Test Mode** watermark stays on the desktop, and Windows then loads
+  any test-signed driver, not only this one. That makes Windows less
+  secure.
+- If **Smart App Control** is on, you must turn it off, and Windows can't
+  turn it back on without being reinstalled.
+- It's experimental. The screen can stay black. **Take a
+  [snapshot](../snapshots/) first.**
+</Aside>
+
+To install it, read the folder's `README.txt`, then run its
+`install.cmd`. It warns you twice before it changes anything. The first
+run only turns test mode on. Restart Windows, run it again, and restart
+again. The README also says how to undo it.
+
 <Aside>
 A Windows 11 machine has no shader by default, no floppy, no Voodoo 2
 and no MIDI port. It's for modern Windows. Old games belong on a Windows

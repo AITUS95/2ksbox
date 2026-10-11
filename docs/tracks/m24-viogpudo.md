@@ -47,15 +47,18 @@ measurement says whether it is worth it.
   MSYS2, the WDK from NuGet) and a test ISO; `scripts/windows-drivers.sh`
   publishes the PC's build by source hash and fetches it elsewhere, beside
   M18's WDDM driver.
-- `guest-tools/viogpudo/viogpudo-install.ps1`: test mode, a certificate,
-  signing, upstream's viogpudo out of the store, ours in.
+- `guest-tools/viogpudo/viogpudo-install.ps1`: two warnings, then test
+  mode, a certificate, signing, upstream's viogpudo out of the store, ours
+  in; `install.cmd` (elevates) and `README.txt` (the warnings, install and
+  undo) beside it on the drivers disc.
 - This doc; the `build-windows.md` section "Our viogpudo".
 
 Not here: the launcher. Step 4 needs small pieces of QEMU (a
 virtio-gpu patch), the embed API and the player, and the resolution
 service touched the drivers disc's `install.ps1` (M23's); each is named
 in its commit. `build-virtio-win.sh` keeps shipping upstream's signed
-driver.
+driver under `$WinPEDriver$`, and ours opt-in beside it (below,
+"Opt-in on the drivers disc").
 
 ## Steps
 
@@ -436,3 +439,24 @@ Windows 11 test here.
 - Upstream's `AddSingleTargetMode` copies `TotalSize` into `ActiveSize`
   before `BuildVideoSignalInfo` fills it, so target modes have a zero
   active size; patch 01 sets it in its own mode only.
+
+## Opt-in on the drivers disc (2026-10-11)
+
+User decision: until step 5 ships it signed, ours goes on the drivers
+disc for anyone who wants it, with warnings, and the installer warns
+twice before it runs. `build-virtio-win.sh` puts the disc's processor's
+build in `2ksbox\experimental-display\<arch>` with
+`viogpudo-install.ps1`, `install.cmd` (asks for administrator rights) and
+`README.txt` (what test mode costs, Smart App Control, a snapshot first,
+the undo commands, Safe Mode for a black screen); the disc's own README
+points at it. Nothing runs it by itself. On every run the script shows
+warning 1 (answer `y`) and warning 2 (type `INSTALL`); anything else, or
+a console that cannot ask, cancels with nothing changed. Once ours is in
+it sets `HKLM\SOFTWARE\2ksbox` `ExperimentalDisplay` = 1, and
+`2ksbox\install.ps1` then adds every `$WinPEDriver$` folder but
+viogpudo's, since upstream's would otherwise take the device back
+(Windows ranks Microsoft's signature above ours). Not yet run in a guest
+from the disc. The published build's hash covers all of
+`patches/viogpudo/`, its README too: an edit there, even to the README,
+leaves no build to fetch until the PC publishes again (and `fetch`
+removes the one it had).
