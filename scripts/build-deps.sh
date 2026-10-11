@@ -43,7 +43,7 @@
 # in its SDK, offline, with the tarballs as declared sources.
 #
 # On Windows, in MSYS2's MINGW64 shell, it builds what QEMU links when it
-# is built against MSVC's runtime (`WIN_QEMU_CC=msvc`, docs/build-windows.md
+# is built against MSVC's runtime (docs/build-windows.md
 # "QEMU under MSVC"): zlib, pcre2, glib, pixman, libslirp and libepoxy,
 # static, with MSYS2's clang targeting x86_64-pc-windows-msvc against
 # Visual Studio's headers and the UCRT (scripts/msvc-env.sh), into
@@ -194,7 +194,7 @@ CRT=""
 MESON=(meson setup --prefix="$PREFIX" --libdir=lib --buildtype=release --default-library=static -Db_staticpic=true)
 if [ "$OS" = Windows ]; then
   # MSYS2's clang for MSVC's ABI, the compiler of the QEMU build these
-  # libraries link into (configure-qemu.sh, WIN_QEMU_CC=msvc), with
+  # libraries link into (configure-qemu.sh on Windows), with
   # lld-link and Visual Studio's lib for archives. Here as clang-cl, its
   # MSVC-syntax driver: glib's meson takes only that kind for MSVC (with
   # clang's GNU driver it looks for mingw's ssize_t). Meson takes it for

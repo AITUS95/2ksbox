@@ -15,7 +15,7 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let default = manifest.join(if target_os == "windows" {
-        "../build/win/qemu"
+        "../build/win/qemu-msvc"
     } else if target_os == "macos" && target_arch == "x86_64" && cfg!(target_arch = "aarch64") {
         "../build/x86_64/qemu"
     } else {

@@ -31,7 +31,7 @@ import qemuhost
 argv = sys.argv[1:]
 # The program by its absolute path: with NoDefaultCurrentDirectoryInExePath
 # set (as some shells set it) CreateProcess finds no relative one, and
-# test.sh's is relative (build/win/qemu/...).
+# test.sh's is relative (build/win/qemu-msvc/...).
 argv[0] = os.path.abspath(shutil.which(argv[0]) or argv[0])
 kind = None
 for i in range(len(argv) - 1):

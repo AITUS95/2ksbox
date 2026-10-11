@@ -33,36 +33,42 @@ re-applies the patch queue) while another build reads `qemu/`
 | Part | Built with | Why |
 |---|---|---|
 | the package's QEMU, `libqemu-embed-i386.dll`, `qemu-img` (`build/win/qemu-msvc`) | MSYS2's clang targeting `x86_64-pc-windows-msvc`, Visual Studio's headers and the static C runtime, lld-link; its libraries static from `build-deps.sh` | everything the package ships is MSVC (ADR-026's third amendment), so it carries no runtime DLL ("QEMU under MSVC") |
-| the test QEMU (`build/win/qemu`) | MSYS2's clang against its mingw runtime (msvcrt), lld | what `test.sh` and the winit player run; clang because mingw GCC has only emulated TLS, which QEMU touches on every device access (a VGA register read cost 2.3x Linux's). Patch 68 made clang build it until QEMU 10.0 did so upstream. `WIN_QEMU_CC=gcc` builds the old way |
-| `libdisc`, `libsynth` (inside QEMU), the winit `player.exe` | Rust `x86_64-pc-windows-gnu` for the mingw QEMU, `x86_64-pc-windows-msvc` for the MSVC one | the QEMU's own ABI; the winit player is not shipped, but `test.sh` runs it |
+| `libdisc`, `libsynth` (inside QEMU) | Rust `x86_64-pc-windows-msvc` (`scripts/cargo-msvc.sh`) | QEMU's own ABI |
 | `launcherx`, `discx`, `synthx`, `tools\wgl-probe.exe` | Rust `x86_64-pc-windows-msvc` (`scripts/cargo-msvc.sh`) and `cl`, static C runtime | everything that does not link into QEMU is MSVC (ADR-026's second amendment) |
-| `2ksbox.exe` (`launcher-mitsuami`), `2ksbox-player.exe` (`player-mitsuami`) | Rust `x86_64-pc-windows-msvc`, static C runtime | WinUI 3 needs MSVC (ADR-023, ADR-025); the player imports the embed DLL by name and runs either QEMU (over the mingw one, two C runtimes; doc 11, "The C runtime boundary") |
+| `2ksbox.exe` (`launcher-mitsuami`), `2ksbox-player.exe` (`player-mitsuami`) | Rust `x86_64-pc-windows-msvc`, static C runtime | WinUI 3 needs MSVC (ADR-023, ADR-025); the player imports the embed DLL by name |
 | DXVK's `d3d9.dll`, `d3dpt_exec.dll` | Visual Studio's `cl`, static C runtime, in the environment `scripts/msvc-env.sh` sets up | DXVK throws C++ exceptions out of `Direct3DCreate9`, which only an executor built by the same compiler catches, so the two moved to MSVC together (ADR-026's amendments). QEMU loads the executor by name; only C crosses that edge. DXVK under MSVC needed patch 15 ("DXVK under MSVC" below) |
 | the guest-tools ISO | MSYS2's i686 GCC with Linux's i686 runtime, Open Watcom | Windows 9x and XP guests; modern MSVC targets neither |
+| `d3dpt-dp2-test.exe`, `launcher-capi`'s check in `test.sh` | MSYS2's GCC, Rust `x86_64-pc-windows-gnu` | test programs only, never shipped: the executor's host test loads the MSVC executor across two C runtimes, which only C crosses |
 | the WDDM driver | the Enterprise WDK 10.0.19041 | Windows 7 and 32-bit kernel drivers ("The WDDM driver") |
 | our viogpudo (track M24) | Visual Studio 2022 with the WDK 10.0.26100 from NuGet | ARM64 and x64 Windows 11 kernel drivers; the NuGet kit needs no EWDK ISO ("Our viogpudo") |
 
-The mingw QEMU's libraries are MSYS2's (`--msys2-deps`), the MSVC one's
-ours (`build-deps.sh`), libslirp among them: every launcher machine asks
+QEMU's libraries are ours (`build-deps.sh`), not MSYS2's, which are
+mingw's; libslirp is among them: every launcher machine asks
 for `-netdev user`, and a QEMU built without it dies with "network
 backend 'user' is not compiled into this binary" while configure only
 said `slirp support: NO`; `package-windows.sh` boots its BIOS check
 machine with `-netdev user` (libslirp is linked statically, so no import
 table shows it).
 
-`build-windows.sh` configures QEMU only when `build/win/qemu/build.ninja`
-is missing, the compiler or the QEMU release changed, or a meson file or
-`configure-qemu.sh` is newer than the last configure.
+`build-windows.sh` configures QEMU only when `build/win/qemu-msvc/build.ninja`
+is missing, the QEMU release changed, or a meson file, `configure-qemu.sh`
+or `build-deps.sh`'s `.pc` directory is newer than the last configure.
+
+The mingw QEMU (`build/win/qemu`, MSYS2's clang against msvcrt) and the
+winit player built on it were removed on 2026-10-11, after two days
+deprecated (user, 2026-10-09: "those are not shipping anymore, there's
+no reason to test them and not the shipping ones"). A checkout's old
+`build/win/qemu` and `target/x86_64-pc-windows-gnu/release/player.exe`
+are unused and can be deleted.
 
 ## What each stage produces
 
 | Stage | Output | Notes |
 |---|---|---|
-| `qemu` | `build/win/qemu/{qemu-system-i386,qemu-img,qemu-io}.exe`, `libqemu-embed-i386.dll` | the mingw QEMU `test.sh` runs; `configure-qemu.sh --windows`; clang; a directory from another QEMU release configures afresh; WHPX in i386 through patch 84 (Acceleration) |
-| `qemu-msvc` | the same in `build/win/qemu-msvc`, and `libqemu-embed-x86_64.dll` (Windows 11's) | the package's QEMU: `build-deps.sh`, then `WIN_QEMU_CC=msvc configure-qemu.sh` when it never has or its inputs moved, then `ninja` ("QEMU under MSVC"); after `qemu`, which prepares the tree |
-| `rust` | `target/x86_64-pc-windows-gnu/release/player.exe`, `target/x86_64-pc-windows-msvc/release/{launcherx,discx,synthx}.exe` | `qemu-embed/build.rs` finds the DLL in `build/win/qemu`; the winit player is for `test.sh`; the tools are MSVC (`scripts/cargo-msvc.sh`, rustup's `stable-x86_64-pc-windows-msvc`), skipped without it |
+| `qemu-msvc` | `build/win/qemu-msvc/{qemu-system-i386,qemu-img,qemu-io}.exe`, `libqemu-embed-i386.dll`, and `libqemu-embed-x86_64.dll` (Windows 11's) | the package's QEMU: prepares the tree, `build-deps.sh`, then `configure-qemu.sh` when it never has or its inputs moved, then `ninja` ("QEMU under MSVC"); a directory from another QEMU release configures afresh; WHPX in i386 through patch 84 (Acceleration) |
+| `rust` | `target/x86_64-pc-windows-msvc/release/{launcherx,discx,synthx}.exe` | the tools are MSVC (`scripts/cargo-msvc.sh`, rustup's `stable-x86_64-pc-windows-msvc`), skipped without it |
 | `mitsuami` | `launcher-mitsuami/target/release/launcher-mitsuami.exe`, `player-mitsuami/target/release/player-mitsuami.exe`, `player-mitsuami/target/qemu-x86_64/release/player-mitsuami.exe` | the package's `2ksbox.exe`, `2ksbox-player.exe` and `2ksbox-player-x86_64.exe` (ADR-023, track M22; the last `--features qemu-x86_64`, Windows 11's, track M20); their own workspaces; MSVC ("The launcher") |
-| `exec` | `build/win/dxvk/src/d3d9/d3d9.dll`, `build/win/d3dpt/d3dpt_exec.dll`, `build/win/d3dpt-dp2-test.exe`, `build/win/wgl-probe.exe` | DXVK (patch 08's headless WSI), the executor and the offscreen-GL probe, MSVC; the executor's host test (mingw, so it loads the executor as QEMU does). Skipped without Visual Studio's C++ tools |
+| `exec` | `build/win/dxvk/src/d3d9/d3d9.dll`, `build/win/d3dpt/d3dpt_exec.dll`, `build/win/d3dpt-dp2-test.exe`, `build/win/wgl-probe.exe` | DXVK (patch 08's headless WSI), the executor and the offscreen-GL probe, MSVC; the executor's host test (mingw, so it proves the C-only boundary across two C runtimes). Skipped without Visual Studio's C++ tools |
 | `wddm` | `build/wddm/x86/{d3dptkmd.sys,d3dptumd.dll,d3dptkmd.inf}`, and `build/wddm/x64` for Windows 11 with the x86 user-mode driver beside it as `d3dptumd32.dll` for 32-bit processes (WoW64; unsigned; `wddm-install.ps1` test signs it in the guest) | Windows 7's WDDM driver through a mounted EWDK, or the published build for these sources without one ("The WDDM driver") |
 | `edk2` | `qemu/pc-bios/2ksbox-x86_64-{code,vars}.fd` | Windows 11's firmware (`build-edk2.sh x86_64`, track M20): OvmfPkgX64 with Secure Boot and no SMM, which WHPX lacks, built with Visual Studio 2022 (EDK2's `VS2022` toolchain in a batch file of the script's), MINGW64's nasm, iasl built once from ACPICA's pinned source with msbuild (MSYS2's bison and flex), and the Python launcher's 3.12 (EDK2's BaseTools refuse MINGW64's). Fetches EDK2 and its submodules (~400 MB) once; its own stamp |
 | `virtio` | `build/virtio-win/2ksbox-drivers-x64.iso` | Windows 11's drivers disc (`build-virtio-win.sh x64`), as on Linux. Downloads virtio-win's ISO once; needs xorriso and the agent's `x86_64-pc-windows-gnu` target |
@@ -234,7 +240,8 @@ DXVK's ninja inside it. A `build/win/dxvk` configured before the move
 (no `.2ksbox-cc` saying `msvc`) is configured afresh. Both DLLs link the
 C runtime statically and import only system DLLs; `package-windows.sh`
 checks that. The host test `d3dpt-dp2-test.exe` stays mingw on purpose:
-it opens the executor as QEMU does, across the two C runtimes.
+it opens the executor across two C runtimes, so anything but C crossing
+that edge fails there.
 
 The first MSVC DXVK failed 8 of the oracle's 127 checks (the fixed
 function on a two-stream declaration, cube and volume textures) with
@@ -251,17 +258,18 @@ diff the two builds' API dumps before reading code.
 
 ### QEMU under MSVC
 
-QEMU also builds against MSVC's runtime (2026-10-04, user: "see if you
-can also make qemu compile on msvc"). It builds beside the mingw
-build, in its own `build/win/qemu-msvc`; since the same day it is the
-QEMU the package ships (`build-windows.sh qemu-msvc`, a stage of every
-default run; ADR-026's third amendment). By hand:
+QEMU builds against MSVC's runtime (2026-10-04, user: "see if you
+can also make qemu compile on msvc"), in `build/win/qemu-msvc`; since
+the same day it is the QEMU the package ships (`build-windows.sh
+qemu-msvc`, a stage of every default run; ADR-026's third amendment),
+and since 2026-10-11 the only Windows QEMU (the mingw one it was built
+beside is gone). By hand:
 
 ```sh
 scripts/build-deps.sh               # zlib, pcre2, glib, pixman, libslirp, libepoxy
-WIN_QEMU_CC=msvc scripts/configure-qemu.sh
+scripts/configure-qemu.sh
 ninja -C build/win/qemu-msvc        # in any MINGW64 shell
-WIN_QEMU_CC=msvc scripts/test.sh all
+scripts/test.sh all
 ```
 
 The two scripts find Visual Studio themselves (`scripts/msvc-env.sh`),
@@ -290,9 +298,7 @@ directory, so QEMU's own code keeps the warning.
 - **The libraries** are ours, static, from `scripts/build-deps.sh` on
   Windows into `build/deps/x86_64-msvc`, with clang-cl (glib's meson
   takes only an MSVC-syntax compiler for MSVC). MSYS2's are mingw's. The
-  embed DLL then imports nothing but Windows' own DLLs, where the mingw
-  one needs glib, pixman, libslirp, libepoxy, zlib, bzip2, libgcc and
-  winpthread beside it. libslirp's and libepoxy's `.pc` files gain the
+  embed DLL then imports nothing but Windows' own DLLs. libslirp's and libepoxy's `.pc` files gain the
   define that stops their headers declaring `dllimport`
   (`LIBSLIRP_STATIC`, `EPOXY_PUBLIC=extern`); libslirp has a patch
   making iconv optional (`patches/deps/README.md`); libepoxy's EGL half
@@ -314,22 +320,19 @@ directory, so QEMU's own code keeps the warning.
   (lld-link refuses its two resource objects), bzip2 (dmg's bz2 chunks).
   None ships.
 - `libqemu-embed-*.dll` keeps mingw's `lib` prefix, the name the players
-  import (`raw-dylib`), so a player runs either build unchanged: the
-  first one on `PATH` wins. `WIN_QEMU_CC=msvc scripts/win-run.sh
-  launcher` (or `player`, `qemu`) puts `build/win/qemu-msvc` there in
-  place of `build/win/qemu`; the launcher's players inherit it, and its
-  `qemu-img` comes from the same directory (`LAUNCHER_QEMU_IMG_BIN`).
-  The MSVC `qemu-img.exe` imports only Windows' DLLs; the mingw one
-  wants MSYS2's `mingw64/bin` on `PATH` (exit `0xc0000135` without it).
+  import (`raw-dylib`), found on `PATH`. `scripts/win-run.sh launcher`
+  (or `player`, `qemu`) puts `build/win/qemu-msvc` there; the launcher's
+  players inherit it, and its `qemu-img` comes from the same directory
+  (`LAUNCHER_QEMU_IMG_BIN`). `qemu-img.exe` imports only Windows' DLLs.
 
 **Tested (2026-10-04):** QEMU's own unit tests, 99 of 99 (the RCU ones
 with the arguments meson gives them, the subprocess ones with glib's
-`gspawn-win64-helper.exe` beside them); `WIN_QEMU_CC=msvc scripts/test.sh
-all`, which takes the MSVC build for the host checks and the guest
+`gspawn-win64-helper.exe` beside them); `scripts/test.sh all` with the
+MSVC build, which takes the MSVC build for the host checks and the guest
 tools (`tools/guestwait.sh`, `tools/qemuhost.py`; XP's Direct3D frames
 among them): 47 passed, 1 failed, 28 skipped, the same checks as the
 mingw build's run the same day (`sharing` fails on both: `qemu-vdagent`
-needs spice-protocol, which Windows builds without). The checks that
+needed spice-protocol, which Windows then built without). The checks that
 boot a machine through a player skipped there (no player built in that
 checkout); by hand, `player-mitsuami` with `build/win/qemu-msvc` first on
 `PATH` boots the XP machine (`launcherx --print-args`, through an
@@ -369,9 +372,8 @@ guest on the user's PC reads `NVIDIA GeForce RTX 3090/PCIe/SSE2`.
 `2ksbox.exe` is `launcher-mitsuami` (ADR-023): WinUI 3 through
 mitsuami. The same stage then builds `player-mitsuami` (track M22),
 which the package ships as `2ksbox-player.exe` (2026-10-03), MSVC as
-well. In the package it runs the MSVC QEMU; in a checkout it runs
-either, the mingw DLL across two C runtimes (doc 11, "The C runtime
-boundary"), and a launcher in the checkout starts it once built. Each
+well. It runs the MSVC QEMU, in the package and in a checkout, where a
+launcher starts it once built. Each
 links a static C runtime. `package-windows.sh` checks both import no Visual C++ runtime DLL, and
 runs the staged player from outside the package folder on a machine
 with a General MIDI port to its BIOS and a clean exit, which is WinUI
@@ -583,10 +585,10 @@ a guest and runs `test.sh`'s Direct3D checks (2026-10-03), its
 `SETUP.EXE` and the Win98 half untried. The launcher builds only here, so `scripts/package-windows.sh`
 rolls and checks the zip here too ("Packaging on Windows").
 
-**MINGW64, not UCRT64 or CLANG64**: it is the mingw QEMU's ABI (msvcrt,
-GCC's runtime and libstdc++, Rust's `x86_64-pc-windows-gnu`), which
-`test.sh` and the winit player run; the package itself is MSVC. The
-scripts refuse the other two shells.
+**MINGW64, not UCRT64 or CLANG64**: the package is MSVC, so the shell
+only supplies tools (clang and lld-link for QEMU, nasm, perl, windres,
+the i686 guest toolchain), and the build was made and tested in this
+one. The scripts refuse the other two shells.
 
 Once, on the PC:
 
@@ -628,7 +630,7 @@ finds converted.
 Then, as often as needed:
 
 ```sh
-scripts/build-windows.sh                  # qemu-msvc rust mitsuami exec wddm edk2 virtio, and the ISO when its sources moved (the mingw `qemu` only when named)
+scripts/build-windows.sh                  # qemu-msvc rust mitsuami exec wddm edk2 virtio, and the ISO when its sources moved
 scripts/build-windows.sh rust             # one stage
 scripts/build-windows.sh guest            # the ISO again, whatever the stamp says
 scripts/win-run.sh launcher               # the launcher, out of the checkout
@@ -654,11 +656,9 @@ scripts\win.ps1 sh <script> [args...]      # any other script; `shell` for a pro
 ```
 
 `scripts/win-run.sh` stands in for the one-folder package: it puts
-`build/win/qemu` on `PATH` for the embed DLL, names the winit player to
-the launcher only when `player-mitsuami` is not built (once built, the
-launcher finds that one itself and it is the default; `LAUNCHER_PLAYER_BIN`
-picks either), and names the executor and DXVK (copied to `dxvk_d3d9.dll`) to
-QEMU. The launcher writes nothing to the terminal, so paste the
+`build/win/qemu-msvc` on `PATH` for the embed DLL (the launcher finds
+`player-mitsuami` in the checkout itself) and names the executor and
+DXVK (copied to `dxvk_d3d9.dll`) to QEMU. The launcher writes nothing to the terminal, so paste the
 `[player] …` line from `launcher.log` after `GDB=1 scripts/win-run.sh
 player`.
 

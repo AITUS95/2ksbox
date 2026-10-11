@@ -30,7 +30,7 @@ HUD_MASK="0,368,270,112"
 BUDGET="${D3D_GOLDEN_BUDGET:-1200}"
 # Where this platform's build puts things. Windows runs natively in MSYS2's
 # MINGW64 shell on what scripts/build-windows.sh built (build/win,
-# target/x86_64-pc-windows-gnu, never the Linux layout); MSYS2 finds
+# target/x86_64-pc-windows-msvc, never the Linux layout); MSYS2 finds
 # `foo.exe` for `foo`, so the names carry no suffix. docs/testing.md
 # "On Windows".
 case "$OS" in MINGW64_NT*) OS=Windows;; MINGW*|MSYS*|CYGWIN*)
@@ -45,10 +45,7 @@ case "$OS" in
   Windows)
     # The QEMU and player the package ships: MSVC (configure-qemu.sh,
     # docs/build-windows.md "QEMU under MSVC") and player-mitsuami.
-    # WIN_QEMU_CC=mingw tests the deprecated mingw QEMU and winit player
-    # instead, together: both players load a DLL of the same name.
     SO=dll; QDIR=build/win/qemu-msvc; RREL=target/x86_64-pc-windows-gnu/release
-    case "${WIN_QEMU_CC:-msvc}" in msvc) ;; *) QDIR=build/win/qemu;; esac
     CARGO_TGT=(--target x86_64-pc-windows-gnu)
     TREL=target/x86_64-pc-windows-msvc/release; TOOL_CARGO=(scripts/cargo-msvc.sh)
     export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="${CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER:-gcc}"
@@ -74,7 +71,7 @@ DP2=build/d3dpt-dp2-test; [ "$OS" = Windows ] && DP2=build/win/d3dpt-dp2-test
 [ "$OS" = Windows ] && OUT="$(cygpath -m "$OUT")"
 [ "$OS" = Windows ] && QSYS_PIPE="python3 tools/qmp-pipe.py $QSYS"
 LAUNCHERX=$TREL/launcherx; DISCX=$TREL/discx; SYNTHX=$TREL/synthx; PLAYER=$RREL/player
-[ "$QDIR" = build/win/qemu-msvc ] && PLAYER=player-mitsuami/target/release/player-mitsuami
+[ "$OS" = Windows ] && PLAYER=player-mitsuami/target/release/player-mitsuami
 # Paths in one spelling. On Windows the launcher writes them its way
 # (C:/given/dir\joined\part, JSON's doubled backslashes) and bash its own
 # (/c/...): `normp` turns every backslash of a text into '/', `np` writes
@@ -2494,12 +2491,12 @@ host_stage() {
   # drives tpm-crb's registers, and a fresh TPM, a restart on the same
   # state file, and a savevm / loadvm round trip each have to hold. On
   # the i386 QEMU where there is no x86_64 one (a Mac): its q35 has the
-  # same tpm-crb and backend. On Windows the MSVC QEMU's (the package's;
-  # patch 88): the mingw one test.sh otherwise runs has no libtpms.
+  # same tpm-crb and backend (and on Windows, whose build makes no
+  # qemu-system-x86_64.exe; patch 88). The tool is Python, which finds
+  # no `foo.exe` for `foo`, so Windows names the file.
   tpm_qemu=$QDIR/qemu-system-x86_64
   [ -x "$tpm_qemu" ] || tpm_qemu=$QSYS
-  [ "$OS" != Windows ] || [ ! -x build/win/qemu-msvc/qemu-system-i386.exe ] \
-    || tpm_qemu=build/win/qemu-msvc/qemu-system-i386.exe
+  [ "$OS" != Windows ] || tpm_qemu=$QSYS.exe
   if [ -x "$tpm_qemu" ] && ! $tpm_qemu -tpmdev help 2>&1 | grep -q libtpms; then
     skip tpm-qtest "this QEMU has no libtpms backend"
   elif [ -x "$tpm_qemu" ]; then

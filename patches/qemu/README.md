@@ -919,10 +919,11 @@ aborted before the firmware.
 **Drop:** upstream skips unaligned sections in `hvf_set_phys_mem()`.
 
 ### 83-msvc-runtime
-QEMU on Windows against MSVC's runtime instead of mingw's (`WIN_QEMU_CC=msvc`,
-`docs/build-windows.md` "QEMU under MSVC"): MSYS2's clang targeting
+QEMU on Windows against MSVC's runtime instead of mingw's
+(`docs/build-windows.md` "QEMU under MSVC"; the only Windows build since
+2026-10-11): MSYS2's clang targeting
 `x86_64-pc-windows-msvc`, Visual Studio's headers, the UCRT and the static
-C runtime, lld-link. Everything is inert in the mingw build (`host_msvc`,
+C runtime, lld-link. Everything is inert in other builds (`host_msvc`,
 `_MSC_VER`, `QEMU_ENUM_UNSIGNED` empty), except two changes that hold
 for every build: four enum fields migrate through `VMSTATE_UINT32_ENUM`
 (the same four bytes), and `accel_irqchip_begin_route_changes()` loses an
@@ -955,8 +956,8 @@ for every build: four enum fields migrate through `VMSTATE_UINT32_ENUM`
   `_USE_MATH_DEFINES`, `dxguid` for the D-Bus display, no `qemu-nbd`
   (POSIX threads), `libqemu-embed-*.dll` with mingw's `lib` prefix (the
   name the players import).
-**Test:** `WIN_QEMU_CC=msvc scripts/test.sh all` matches the mingw build's
-run (47 passed, the same 1 failed, 28 skipped, 2026-10-04); QEMU's unit
+**Test:** `scripts/test.sh all` on Windows; on 2026-10-04 it matched the
+then mingw build's run (47 passed, the same 1 failed, 28 skipped, 2026-10-04); QEMU's unit
 tests 99 of 99 under MSVC. **Drop:** upstream QEMU builds for MSVC's ABI
 (it supports only mingw on Windows).
 

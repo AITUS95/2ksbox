@@ -72,19 +72,17 @@ Everything Windows is done natively on Windows (user decision,
 ```sh
 scripts/build-windows.sh                  # qemu-msvc rust mitsuami exec wddm edk2 virtio guest, as usual
 scripts/test.sh all                       # in the MINGW64 shell
-WIN_QEMU_CC=mingw scripts/test.sh all     # the deprecated mingw QEMU and winit player (build-windows.sh qemu rust)
 ```
 
 The suite tests what the package ships (user, 2026-10-09): the QEMU
 built against MSVC's runtime (`build/win/qemu-msvc`, `docs/build-windows.md`
 "QEMU under MSVC") for the host checks and the guest tools
 (`tools/guestwait.sh`, `tools/qemuhost.py`), and `player-mitsuami` where
-a check runs the player. `WIN_QEMU_CC=mingw` takes the mingw pair
-instead, together, since both players load a DLL of the same name. On
+a check runs the player; the mingw QEMU and winit player it could take
+instead (`WIN_QEMU_CC=mingw`) were removed on 2026-10-11. On
 2026-10-09 the MSVC run passed 65 checks with `sharing` failing on a
 harness bug (its QMP piped into `-qmp stdio`, which Windows' QEMU reads
-wrongly; it goes through `tools/qmp-pipe.py` now and passes); the mingw
-run fails `sharing` for good, having no `qemu-vdagent`.
+wrongly; it goes through `tools/qmp-pipe.py` now and passes).
 
 Beyond `--msys2-deps`, the guest stage wants `mingw-w64-x86_64-mtools`
 (the scratch disks; MSYS2 has no dosfstools, and `mformat` builds them),
@@ -102,8 +100,8 @@ the copy keeps it (`FRESH=1` makes a new copy).
 What differs from Linux, so a failure there reads right:
 
 - **Paths.** The script's own layer at its top names this platform's
-  build (`build/win/qemu`, `target/x86_64-pc-windows-gnu` for the winit
-  player, `target/x86_64-pc-windows-msvc` for the tools, the executor
+  build (`build/win/qemu-msvc`, `player-mitsuami/target/release`,
+  `target/x86_64-pc-windows-msvc` for the tools, the executor
   and `dxvk_d3d9.dll` in `build/win/d3dpt`). `build/test` is spelled
   `C:/...`, which bash and the native programs both read, because MSYS2
   rewrites a `/c/...` argument for a native program but never an

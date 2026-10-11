@@ -2,42 +2,35 @@
 # Build the Windows artefacts on Windows, in MSYS2's MINGW64 shell, in
 # dependency order (ADR-026). This is the Windows counterpart of
 # scripts/build.sh, which builds for the host it runs on. Everything the
-# package ships is MSVC: QEMU (built a second time against MSVC's runtime),
+# package ships is MSVC: QEMU (against MSVC's runtime),
 # the launcher, player-mitsuami, the Direct3D executor, DXVK and the
-# tools. The mingw QEMU (MSYS2's msvcrt and libstdc++) stays for test.sh
-# and the winit player it runs; the
-# guest-tools ISO is MSYS2's i686 toolchain (guest-tools/msys2-i686.sh).
+# tools. The guest-tools ISO is MSYS2's i686 toolchain
+# (guest-tools/msys2-i686.sh). The mingw QEMU and the winit player built
+# on it were removed on 2026-10-11 (deprecated since 2026-10-09).
 # The cross build from Linux (scripts/win-cross.sh and its container) was
 # retired on 2026-10-03. The package comes from here too
 # (scripts/package-windows.sh, checked on Windows itself). Run what was
 # built with scripts/win-run.sh.
 #
 #   scripts/build-windows.sh                everything this host can build
-#   scripts/build-windows.sh qemu rust      only those stages
+#   scripts/build-windows.sh qemu-msvc rust only those stages
 #   scripts/build-windows.sh --package      ... and then roll the zip
 #   scripts/build-windows.sh wddm --publish the WDDM driver, then publish it for
 #                                           Linux and macOS (gh, logged in)
-#   scripts/build-windows.sh -f qemu        prepare QEMU's tree even if its stamp
+#   scripts/build-windows.sh -f qemu-msvc   prepare QEMU's tree even if its stamp
 #                                           says nothing changed
 #   scripts/build-windows.sh --msys2-deps   (Windows) install what the build needs
 #
 # Stages, in the order they must run:
 #
-#   qemu    (deprecated, only when named) configure-qemu.sh --windows ->
-#           ninja: qemu-system-i386.exe, qemu-img.exe, qemu-io.exe,
-#           libqemu-embed-i386.dll, into build/win/qemu (with libdisc built
-#           for windows-gnu first): the mingw build, which nothing ships;
-#           the winit player's, and test.sh's with WIN_QEMU_CC=mingw
-#   qemu-msvc the same tree against MSVC's runtime (build-deps.sh's
-#           libraries, then configure-qemu.sh with WIN_QEMU_CC=msvc) into
+#   qemu-msvc QEMU against MSVC's runtime (build-deps.sh's libraries,
+#           then configure-qemu.sh) into
 #           build/win/qemu-msvc: the QEMU the package ships and test.sh
 #           and win-run.sh run, importing
 #           only Windows' own DLLs; with libqemu-embed-x86_64.dll, the
 #           Windows 11 player's (track M20; under WHPX, with no TPM)
 #   rust   the tools launcherx, discx and synthx with MSVC
-#           (scripts/cargo-msvc.sh, into target/x86_64-pc-windows-msvc);
-#           and, only with `qemu` named, the deprecated winit player, cargo
-#           --target x86_64-pc-windows-gnu, which links that QEMU's DLL.
+#           (scripts/cargo-msvc.sh, into target/x86_64-pc-windows-msvc).
 #   mitsuami (Windows only) cargo build --release in launcher-mitsuami/
 #           (its own workspace): the launcher every package ships
 #           (ADR-023), on WinUI 3, then player-mitsuami/ the same way
@@ -50,9 +43,7 @@
 #           and run on the Windows App Runtime 2.4+, which a PC installs
 #           once. The launcher talks to the rest only through the
 #           player's command line; the player imports the embed DLL by
-#           name, so it runs either QEMU (the package's is the MSVC one;
-#           over the mingw one, two C runtimes in one process,
-#           docs/11-m1-embed-api.md, "The C runtime boundary").
+#           name.
 #   exec    (Windows only) DXVK's d3d9.dll into build/win/dxvk
 #           (configure-dxvk.sh --windows), then build-d3dpt-exec.sh
 #           --windows: d3dpt_exec.dll, the Direct3D executor (doc 14). Both
@@ -95,17 +86,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# MSYS2's MINGW64 shell only. The other MSYS2 shells are other C runtimes
-# and C++ libraries than the mingw QEMU's msvcrt + libstdc++ (test.sh and
-# the winit player), and the MSVC stages expect this shell's tools.
+# MSYS2's MINGW64 shell only: the stages expect this shell's tools
+# (clang, nasm, perl, windres, the i686 toolchain).
 case "${MSYSTEM:-}" in
   MINGW64) ;;
   "") echo "build-windows.sh: Windows builds are made on Windows, in MSYS2's MINGW64 shell (ADR-026; docs/build-windows.md)" >&2; exit 1 ;;
   *) echo "build-windows.sh: this is MSYS2's $MSYSTEM shell; open the MINGW64 one" >&2; exit 1 ;;
 esac
 
-# Everything the build needs from MSYS2, in one place: the toolchain and
-# QEMU's libraries, gdb, and diffutils, which a bare MSYS2
+# Everything the build needs from MSYS2, in one place: the toolchain, gdb,
+# and diffutils, which a bare MSYS2
 # lacks: QEMU's meson requires `diff` (tests/qapi-schema) and prepare-qemu.sh
 # keeps meson files' mtimes with `cmp`. The second half is the guest-tools
 # ISO's: the i686 toolchain, gendef, and what qemu-3dfx's build calls
@@ -119,7 +109,6 @@ esac
 # docs/build-windows.md).
 MSYS2_PACKAGES=(git rsync diffutils patch
   mingw-w64-x86_64-{gcc,clang,lld,gdb,ninja,meson,pkgconf,python,python-distlib}
-  mingw-w64-x86_64-{glib2,pixman,zlib,libepoxy,libslirp}
   mingw-w64-x86_64-glslang
   mingw-w64-i686-gcc mingw-w64-x86_64-tools make which vim perl nasm xorriso zstd
   mingw-w64-x86_64-{mtools,imagemagick} libarchive
@@ -137,7 +126,7 @@ while [ $# -gt 0 ]; do
       pacman -S --needed "${MSYS2_PACKAGES[@]}"
       exit ;;
     -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    qemu|qemu-msvc|rust|mitsuami|exec|wddm|edk2|virtio|guest) STAGES+=("$1"); shift ;;
+    qemu-msvc|rust|mitsuami|exec|wddm|edk2|virtio|guest) STAGES+=("$1"); shift ;;
     *) echo "build-windows.sh: unknown argument '$1' (try --help)" >&2; exit 2 ;;
   esac
 done
@@ -200,8 +189,8 @@ done
 # interrupted build is the failure that costs an hour, so the stamp is
 # removed before prepare starts and written only once it has finished:
 # the skip is taken only over a tree a prepare completed. -f prepares
-# regardless. Either QEMU stage prepares it: the MSVC one is the default.
-if want qemu || want qemu-msvc; then
+# regardless.
+if want qemu-msvc; then
   qemu_stamp=$( { for g in qemu third_party/qemu-3dfx; do git -C "$g" rev-parse HEAD 2>/dev/null || echo none; done
                   find patches/qemu embed d3dpt/hw d3dpt/d3dpt_proto.h \
                        d3dpt/d3dpt_fb.h d3dpt/exec/d3dpt_exec.h libdisc/qemu libdisc/libdisc.h \
@@ -220,61 +209,13 @@ if want qemu || want qemu-msvc; then
   fi
 fi
 
-# The mingw QEMU (deprecated on Windows, user 2026-10-09: "those are not
-# shipping anymore, there's no reason to test them and not the shipping
-# ones"): built only when the stage is named, for the winit player.
-if want qemu; then
-  # meson will not switch a build directory's compiler (patch 68 moved the
-  # Windows QEMU from GCC to clang), so a different one configures afresh
-  want_cc="${WIN_QEMU_CC:-clang}"
-  if [ -f build/win/qemu/build.ninja ] && [ "$(cat build/win/qemu/.2ksbox-cc 2>/dev/null || echo gcc)" != "$want_cc" ]; then
-    echo "    build/win/qemu was built with $(cat build/win/qemu/.2ksbox-cc 2>/dev/null || echo gcc), wanted $want_cc - configuring afresh"
-    rm -rf build/win/qemu
-  fi
-  # Nor a directory built from another QEMU release (9.2 to 11.1, M21):
-  # ninja's regeneration replays the old command line, which names options
-  # the new release removed ("Unknown options: glusterfs"), and the old
-  # release's thin archives are updated in place, which MSYS2's ar cannot
-  # open ("ar: libqemuutil.a: No such file or directory"). A directory with
-  # no record is from before the record, so 9.2's.
-  want_qemu="$(cat qemu/VERSION)"
-  if [ -f build/win/qemu/build.ninja ] && [ "$(cat build/win/qemu/.2ksbox-qemu 2>/dev/null || echo 9.2.4)" != "$want_qemu" ]; then
-    echo "    build/win/qemu was built from QEMU $(cat build/win/qemu/.2ksbox-qemu 2>/dev/null || echo 9.2.4), the tree is $want_qemu - configuring afresh"
-    rm -rf build/win/qemu
-  fi
-  # Configure again when the tree or the configure script changed since the
-  # last configure, as scripts/build.sh does (a flag configure-qemu.sh
-  # gained is otherwise not applied). configure starts from a clean
-  # meson-private, so the objects stay.
-  needs_configure=""
-  [ -f build/win/qemu/build.ninja ] || needs_configure=1
-  for f in qemu/meson.build qemu/hw/mesa/meson.build scripts/configure-qemu.sh; do
-    if [ -f build/win/qemu/build.ninja ] && [ "$f" -nt build/win/qemu/build.ninja ]; then
-      needs_configure=1
-    fi
-  done
-  if [ -n "$needs_configure" ]; then
-    say "qemu: configure (mingw-w64, $want_cc)"
-    scripts/configure-qemu.sh --windows
-    echo "$want_cc" > build/win/qemu/.2ksbox-cc
-    echo "$want_qemu" > build/win/qemu/.2ksbox-qemu
-  else
-    echo "    build/win/qemu is configured - skipping configure"
-    # prepare re-applied the queue, so meson may need to regenerate; ninja
-    # works that out itself from the mtimes it just saw change.
-    :
-  fi
-  say "qemu: ninja"
-  ninja -C build/win/qemu ${JOBS[@]+"${JOBS[@]}"} \
-    qemu-system-i386.exe qemu-img.exe qemu-io.exe libqemu-embed-i386.dll
-  BUILT+=(qemu)
-fi
-
-# The QEMU the package ships: the same prepared tree against MSVC's
-# runtime, into its own build/win/qemu-msvc (docs/build-windows.md "QEMU
-# under MSVC"). Its libraries come first, from build-deps.sh (each skipped
-# by its own stamp once built), and it configures as `qemu` does, when it
-# never has or its inputs moved; its regeneration needs no msvc-env.sh.
+# The QEMU the package ships: the prepared tree against MSVC's runtime,
+# into build/win/qemu-msvc (docs/build-windows.md "QEMU under MSVC"). Its
+# libraries come first, from build-deps.sh (each skipped by its own stamp
+# once built), and it configures when it never has or its inputs moved
+# (meson replays an old release's command line, so a directory from
+# another QEMU release configures afresh); its regeneration needs no
+# msvc-env.sh.
 if want qemu-msvc; then
   if [ ! -f qemu/VERSION ] || [ ! -f build/.stamp-qemu-prepare ]; then
     skip qemu-msvc "QEMU's tree is not prepared (its prepare failed above)" || true
@@ -299,7 +240,7 @@ if want qemu-msvc; then
     done
     if [ -n "$needs_configure" ]; then
       say "qemu-msvc: configure (clang for MSVC's ABI, static C runtime)"
-      WIN_QEMU_CC=msvc scripts/configure-qemu.sh
+      scripts/configure-qemu.sh
       echo "$want_qemu" > $QM/.2ksbox-qemu
     else
       echo "    $QM is configured - skipping configure"
@@ -313,13 +254,6 @@ if want qemu-msvc; then
 fi
 
 if want rust; then
-  # The winit player (deprecated) is on QEMU's mingw ABI and links the
-  # mingw QEMU's embed DLL, so it is built only beside that QEMU (the
-  # `qemu` stage named); test.sh and win-run.sh run player-mitsuami.
-  if want qemu; then
-    say "rust: cargo build --release --target x86_64-pc-windows-gnu -p player (the winit player, deprecated)"
-    cargo build --release --target x86_64-pc-windows-gnu ${JOBS[@]+"${JOBS[@]}"} -p player
-  fi
   # The tools are MSVC, as everything that does not link into QEMU
   # (scripts/cargo-msvc.sh, target/x86_64-pc-windows-msvc).
   if ! rustup run stable-x86_64-pc-windows-msvc rustc -V >/dev/null 2>&1; then
@@ -352,8 +286,7 @@ if want mitsuami; then
     ( cd launcher-mitsuami && PATH="$nolink" CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static" \
         "$cargo" "+$MSVC" build --release )
     # ... and the player on mitsuami (track M22), the same way. It links
-    # QEMU's DLL by name, the package's MSVC one or the mingw one (two C
-    # runtimes, doc 11, "The C runtime boundary"). A launcher in a
+    # QEMU's DLL by name. A launcher in a
     # checkout starts it whenever it is built (launcher_core::player).
     say "mitsuami: cargo +$MSVC build --release (player-mitsuami)"
     ( cd player-mitsuami && PATH="$nolink" CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static" \

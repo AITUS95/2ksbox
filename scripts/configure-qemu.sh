@@ -4,14 +4,7 @@
 # Python version pinned in .python-version (QEMU 11.1 supports <= 3.13,
 # and 3.14 only with a real distlib: see QEMU_PYTHON below).
 #
-# Usage: scripts/configure-qemu.sh [--windows] [extra configure flags...]
-#
-# --windows builds for Windows x86_64 with mingw-w64 into build/win/qemu
-# instead of build/qemu, against the Rust staticlib built for
-# x86_64-pc-windows-gnu, in MSYS2's MINGW64 shell on Windows, where it is
-# implied (below). The cross build from Linux was retired (ADR-026). The
-# two build directories are independent, so one checkout holds a Linux
-# build and a Windows build at once.
+# Usage: scripts/configure-qemu.sh [extra configure flags...]
 #
 # On an Apple Silicon Mac the Intel build (scripts/build.sh --x86_64,
 # docs/build-macos.md "The Intel build") runs this whole script under
@@ -23,17 +16,16 @@
 # the build is the plain native one.
 #
 # On Windows, in MSYS2's MINGW64 shell (docs/build-windows.md, "Building
-# on Windows"): --windows is implied, and MSYS2's own Python is used
-# rather than uv's. A python.org
-# interpreter makes a venv with `Scripts\` where QEMU's configure looks for
-# `bin/`.
-#
-# WIN_QEMU_CC=msvc (Windows) builds QEMU against MSVC's runtime instead of
-# mingw's, into build/win/qemu-msvc (docs/build-windows.md, "QEMU under
-# MSVC"): MSYS2's clang targeting x86_64-pc-windows-msvc with Visual
-# Studio's headers, the UCRT and the static C runtime, linked by lld-link,
-# against the libraries scripts/build-deps.sh builds for it and the Rust
-# staticlibs for x86_64-pc-windows-msvc. The mingw build stays where it is.
+# on Windows", "QEMU under MSVC"), it configures QEMU against MSVC's
+# runtime into build/win/qemu-msvc (the only Windows build since the mingw
+# one was removed, 2026-10-11): MSYS2's clang targeting
+# x86_64-pc-windows-msvc with Visual Studio's headers, the UCRT and the
+# static C runtime, linked by lld-link, against the libraries
+# scripts/build-deps.sh builds for it and the Rust staticlibs for
+# x86_64-pc-windows-msvc. Its own directory, so one checkout can hold a
+# Linux build and a Windows build at once. MSYS2's own Python is used
+# rather than uv's: a python.org interpreter makes a venv with `Scripts\`
+# where QEMU's configure looks for `bin/`.
 #
 # QEMU_PYTHON=<interpreter> uses that one and never consults uv. It is for
 # a sandbox that has a suitable Python and cannot fetch one (the Flatpak:
@@ -46,28 +38,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-WINDOWS=""; NATIVE=""
-if [ "${1:-}" = "--windows" ]; then WINDOWS=1; shift; fi
+NATIVE=""
 case "${MSYSTEM:-}" in
-  "") [ -z "$WINDOWS" ] || {
-        echo "configure-qemu.sh --windows: in MSYS2's MINGW64 shell on Windows (ADR-026)"; exit 1; } ;;
-  MINGW64) WINDOWS=1; NATIVE=1 ;;
-  # UCRT64 and CLANG64 are other C runtimes and C++ libraries than the
-  # package's msvcrt + libstdc++, so a build there would not be the build
-  # that ships.
+  "") ;;
+  MINGW64) NATIVE=1 ;;
+  # the shell scripts/build-windows.sh and build-deps.sh run in
   *) echo "MSYS2 $MSYSTEM shell: build from the MINGW64 one (docs/build-windows.md)"; exit 1 ;;
 esac
 
 ROSETTA=""
 [ "$(uname -s)" = Darwin ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ] && ROSETTA=1
-MSVC=""
-[ -z "$NATIVE" ] || [ "${WIN_QEMU_CC:-}" != msvc ] || MSVC=1
-if [ -n "$MSVC" ]; then
+if [ -n "$NATIVE" ]; then
   BUILD="${WIN_QEMU_BUILD:-$ROOT/build/win/qemu-msvc}"
   CARGO_TARGET=x86_64-pc-windows-msvc
-elif [ -n "$WINDOWS" ]; then
-  BUILD="${WIN_QEMU_BUILD:-$ROOT/build/win/qemu}"
-  CARGO_TARGET=x86_64-pc-windows-gnu
 elif [ -n "$ROSETTA" ]; then
   BUILD="$ROOT/build/x86_64/qemu"
   CARGO_TARGET=x86_64-apple-darwin
@@ -141,11 +124,11 @@ echo "==> python: $PYTHON ($("$PYTHON" -V 2>&1))"
 # libdisc (the CD-ROM image model, libdisc/): a Rust staticlib linked into
 # qemu-system-* and libqemu-embed-* for block/cdimage.c (patch 50). The crate
 # has no QEMU dependency, so no cycle with the player.
-# Under MSVC through scripts/cargo-msvc.sh: rustup's MSVC toolchain and
+# On Windows through scripts/cargo-msvc.sh: rustup's MSVC toolchain and
 # the static C runtime, as the rest of that build.
-CARGO=(cargo build); [ -z "$MSVC" ] || CARGO=("$ROOT/scripts/cargo-msvc.sh" build)
+CARGO=(cargo build); [ -z "$NATIVE" ] || CARGO=("$ROOT/scripts/cargo-msvc.sh" build)
 echo "==> cargo build --release -p libdisc${CARGO_TARGET:+ --target $CARGO_TARGET}"
-if [ -n "$MSVC" ]; then
+if [ -n "$NATIVE" ]; then
   (cd "$ROOT" && "${CARGO[@]}" --release -p libdisc)
 else
   (cd "$ROOT" && cargo build --release -p libdisc ${CARGO_TARGET:+--target "$CARGO_TARGET"})
@@ -155,7 +138,7 @@ fi
 # hw/audio/opl3.c and hw/audio/mpu401.c (patch 60, doc 20). Also no QEMU
 # dependency, so no cycle with the player.
 echo "==> cargo build --release -p libsynth${CARGO_TARGET:+ --target $CARGO_TARGET}"
-if [ -n "$MSVC" ]; then
+if [ -n "$NATIVE" ]; then
   (cd "$ROOT" && "${CARGO[@]}" --release -p libsynth)
 else
   (cd "$ROOT" && cargo build --release -p libsynth ${CARGO_TARGET:+--target "$CARGO_TARGET"})
@@ -169,13 +152,7 @@ cd "$BUILD"
 EXTRA_CFLAGS="-I$ROOT/third_party/khronos -fPIC"
 CFG=(-Db_staticpic=true)
 if [ -n "$NATIVE" ]; then
-  # Windows, in MSYS2's MINGW64 shell. clang, not GCC (patch 68): mingw
-  # GCC 15 has only emulated TLS, a call on every __thread access, and
-  # QEMU makes several on every device access (one VGA register read took
-  # 121.6 ns against clang's 64.3; Linux: 52.7). Against GCC's mingw
-  # runtime, linked by lld, named through meson's CC_LD. No TCG plugins:
-  # lld has no --dynamic-list, and nothing here loads a plugin.
-  # WIN_QEMU_CC=gcc builds the old way.
+  # Windows, in MSYS2's MINGW64 shell.
   EXTRA_CFLAGS="-I$MROOT/third_party/khronos"
   # Only the libraries the package ships: MSYS2 may have more (zstd and
   # friends arrive as other packages' dependencies), and QEMU links
@@ -184,75 +161,68 @@ if [ -n "$NATIVE" ]; then
   CFG=(--disable-zstd --disable-gnutls --disable-nettle --disable-gcrypt --disable-capstone
        --disable-libusb --disable-usb-redir --disable-lzo --disable-snappy --disable-smartcard
        --disable-libcbor --disable-lzfse)
-  if [ -n "$MSVC" ]; then
-    # MSVC's ABI and runtime (WIN_QEMU_CC=msvc above): clang's GNU driver,
-    # since QEMU's flags are GCC's, with Visual Studio's environment for
-    # the headers and libraries, and lld-link. The libraries are ours,
-    # built for the same runtime (build-deps.sh on Windows); MSYS2's are
-    # mingw's. The static C runtime, as every MSVC binary here (ADR-026).
-    . "$ROOT/scripts/msvc-env.sh" || exit 1
-    DEPS="$MROOT/build/deps/x86_64-msvc"
-    [ -f "$DEPS/lib/pkgconfig/glib-2.0.pc" ] || {
-      echo "no $DEPS/lib/pkgconfig/glib-2.0.pc: scripts/build-deps.sh first"; exit 1; }
-    export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
-    unset PKG_CONFIG_PATH
-    export CC_LD=lld-link CXX_LD=lld-link
-    CFG+=(--cc="clang --target=x86_64-pc-windows-msvc" --cxx="clang++ --target=x86_64-pc-windows-msvc"
-          --disable-plugins --disable-bzip2 -Db_vscrt=mt
-          # qemu-ga links two resource objects, which lld-link refuses;
-          # no package ships the guest agent
-          --disable-guest-agent)
-    # Visual Studio's header and library directories go into the build
-    # directory, so a plain `ninja -C build/win/qemu-msvc` works in any
-    # shell, with no msvc-env.sh (clang finds no UCRT on its own here).
-    # configure splits these flags on spaces, so each directory is
-    # written as its 8.3 short name, and as a word of its own: MSYS2
-    # rewrites the /PROGRA~1 inside a joined -idirafterC:/PROGRA~1 as a
-    # POSIX path. -idirafter, not clang-cl's -imsvc (the GNU driver has
-    # none): searched after patch 83's -isystem include/msvc, whose
-    # #include_next then finds the UCRT's. Libraries as lld-link's own
-    # -libpath:, through -Wl: meson takes a lone -L apart from its
-    # directory, and in its own link checks passes -L on as -Wl,-L, which
-    # lld-link ignores (a regeneration then finds no pathcch.lib).
-    msvc_short() {
-      local s; s="$(cygpath -m -s "$1")"
-      case "$s" in *" "*)
-        echo "configure-qemu.sh: '$1' has no 8.3 short name (fsutil 8dot3name query)" >&2; return 1 ;; esac
-      printf '%s' "$s"
-    }
-    MSVC_CFLAGS="" MSVC_LDFLAGS="" d=""
-    IFS=';' read -ra dirs <<< "$INCLUDE"
-    for d in "${dirs[@]}"; do [ -z "$d" ] || MSVC_CFLAGS="$MSVC_CFLAGS -idirafter $(msvc_short "$d")" || exit 1; done
-    IFS=';' read -ra dirs <<< "$LIB"
-    for d in "${dirs[@]}"; do [ -z "$d" ] || MSVC_LDFLAGS="$MSVC_LDFLAGS -Wl,-libpath:$(msvc_short "$d")" || exit 1; done
-    # GLib's headers as system headers: they test `#if __GNUC__`, which
-    # this target leaves undefined, and QEMU's -Wundef printed four
-    # warnings for every file that includes glib.h. Clang drops the -I
-    # pkg-config gives for the same directory, so -Wundef still covers
-    # QEMU's own code.
-    MSVC_CFLAGS="$MSVC_CFLAGS -isystem $DEPS/include/glib-2.0 -isystem $DEPS/lib/glib-2.0/include"
-    EXTRA_CFLAGS="$EXTRA_CFLAGS$MSVC_CFLAGS"
-    CFG+=(--extra-cxxflags="${MSVC_CFLAGS# }" --extra-ldflags="${MSVC_LDFLAGS# }")
-    echo "==> MSVC runtime, libraries: $DEPS (static)"
-    # WHPX (Windows 11 guests under the host's hypervisor, track M20)
-    # needs the Windows SDK's VMX capability codes, which arrived after
-    # 10.0.22000 (mingw-w64's headers have them). WHPX is required, as
-    # in the mingw build: an older SDK stops the build here (user).
-    WHVDEFS="$(cygpath -u "${WindowsSdkDir:-}")/Include/${WindowsSDKVersion%\\}/um/WinHvPlatformDefs.h"
-    if ! grep -q WHvCapabilityCodeVmxBasic "$WHVDEFS" 2>/dev/null; then
-      echo "configure-qemu.sh: the Windows SDK ${WindowsSDKVersion%\\} has no WHvCapabilityCodeVmxBasic, which WHPX needs: install the Windows 11 SDK 10.0.26100 (Visual Studio Installer, Individual components)" >&2
-      exit 1
-    fi
-    CFG+=(--enable-whpx)
-    # The TPM 2.0 of a Windows 11 box: libtpms and its libcrypto from
-    # build-deps.sh, in this process (patches 75 and 88)
-    CFG+=(--enable-libtpms)
-  elif [ "${WIN_QEMU_CC:-clang}" = clang ]; then
-    command -v clang >/dev/null && command -v ld.lld >/dev/null || {
-      echo "no clang/lld: pacman -S mingw-w64-x86_64-clang mingw-w64-x86_64-lld"; exit 1; }
-    export CC_LD=lld CXX_LD=lld
-    CFG+=(--cc=clang --cxx=clang++ --disable-plugins)
+  # MSVC's ABI and runtime: clang's GNU driver,
+  # since QEMU's flags are GCC's, with Visual Studio's environment for
+  # the headers and libraries, and lld-link. The libraries are ours,
+  # built for the same runtime (build-deps.sh on Windows); MSYS2's are
+  # mingw's. The static C runtime, as every MSVC binary here (ADR-026).
+  . "$ROOT/scripts/msvc-env.sh" || exit 1
+  DEPS="$MROOT/build/deps/x86_64-msvc"
+  [ -f "$DEPS/lib/pkgconfig/glib-2.0.pc" ] || {
+    echo "no $DEPS/lib/pkgconfig/glib-2.0.pc: scripts/build-deps.sh first"; exit 1; }
+  export PKG_CONFIG_LIBDIR="$DEPS/lib/pkgconfig"
+  unset PKG_CONFIG_PATH
+  export CC_LD=lld-link CXX_LD=lld-link
+  CFG+=(--cc="clang --target=x86_64-pc-windows-msvc" --cxx="clang++ --target=x86_64-pc-windows-msvc"
+        --disable-plugins --disable-bzip2 -Db_vscrt=mt
+        # qemu-ga links two resource objects, which lld-link refuses;
+        # no package ships the guest agent
+        --disable-guest-agent)
+  # Visual Studio's header and library directories go into the build
+  # directory, so a plain `ninja -C build/win/qemu-msvc` works in any
+  # shell, with no msvc-env.sh (clang finds no UCRT on its own here).
+  # configure splits these flags on spaces, so each directory is
+  # written as its 8.3 short name, and as a word of its own: MSYS2
+  # rewrites the /PROGRA~1 inside a joined -idirafterC:/PROGRA~1 as a
+  # POSIX path. -idirafter, not clang-cl's -imsvc (the GNU driver has
+  # none): searched after patch 83's -isystem include/msvc, whose
+  # #include_next then finds the UCRT's. Libraries as lld-link's own
+  # -libpath:, through -Wl: meson takes a lone -L apart from its
+  # directory, and in its own link checks passes -L on as -Wl,-L, which
+  # lld-link ignores (a regeneration then finds no pathcch.lib).
+  msvc_short() {
+    local s; s="$(cygpath -m -s "$1")"
+    case "$s" in *" "*)
+      echo "configure-qemu.sh: '$1' has no 8.3 short name (fsutil 8dot3name query)" >&2; return 1 ;; esac
+    printf '%s' "$s"
+  }
+  MSVC_CFLAGS="" MSVC_LDFLAGS="" d=""
+  IFS=';' read -ra dirs <<< "$INCLUDE"
+  for d in "${dirs[@]}"; do [ -z "$d" ] || MSVC_CFLAGS="$MSVC_CFLAGS -idirafter $(msvc_short "$d")" || exit 1; done
+  IFS=';' read -ra dirs <<< "$LIB"
+  for d in "${dirs[@]}"; do [ -z "$d" ] || MSVC_LDFLAGS="$MSVC_LDFLAGS -Wl,-libpath:$(msvc_short "$d")" || exit 1; done
+  # GLib's headers as system headers: they test `#if __GNUC__`, which
+  # this target leaves undefined, and QEMU's -Wundef printed four
+  # warnings for every file that includes glib.h. Clang drops the -I
+  # pkg-config gives for the same directory, so -Wundef still covers
+  # QEMU's own code.
+  MSVC_CFLAGS="$MSVC_CFLAGS -isystem $DEPS/include/glib-2.0 -isystem $DEPS/lib/glib-2.0/include"
+  EXTRA_CFLAGS="$EXTRA_CFLAGS$MSVC_CFLAGS"
+  CFG+=(--extra-cxxflags="${MSVC_CFLAGS# }" --extra-ldflags="${MSVC_LDFLAGS# }")
+  echo "==> MSVC runtime, libraries: $DEPS (static)"
+  # WHPX (Windows 11 guests under the host's hypervisor, track M20)
+  # needs the Windows SDK's VMX capability codes, which arrived after
+  # 10.0.22000. WHPX is required: an older SDK stops the build here
+  # (user).
+  WHVDEFS="$(cygpath -u "${WindowsSdkDir:-}")/Include/${WindowsSDKVersion%\\}/um/WinHvPlatformDefs.h"
+  if ! grep -q WHvCapabilityCodeVmxBasic "$WHVDEFS" 2>/dev/null; then
+    echo "configure-qemu.sh: the Windows SDK ${WindowsSDKVersion%\\} has no WHvCapabilityCodeVmxBasic, which WHPX needs: install the Windows 11 SDK 10.0.26100 (Visual Studio Installer, Individual components)" >&2
+    exit 1
   fi
+  CFG+=(--enable-whpx)
+  # The TPM 2.0 of a Windows 11 box: libtpms and its libcrypto from
+  # build-deps.sh, in this process (patches 75 and 88)
+  CFG+=(--enable-libtpms)
 elif [ "$(uname -s)" = Darwin ]; then
   # Every Mac build targets the floor, the oldest macOS the app runs on
   # (scripts/macos-floor.sh; build.sh exports the same value, and a preset
@@ -319,13 +289,8 @@ fi
 # guest agent (track M23, doc 24 §3). build-deps.sh puts them in the prefix
 # on macOS and Linux, and in the MSVC set on Windows: the package's QEMU
 # has the channel too, which a new Windows 11 machine always gets (its
-# clipboard is on by default), or it would not start. The mingw build
-# test.sh runs has no spice-protocol.
-if [ -n "$WINDOWS" ] && [ -z "$MSVC" ]; then
-  CFG+=(--disable-spice-protocol)
-else
-  CFG+=(--enable-spice-protocol)
-fi
+# clipboard is on by default), or it would not start.
+CFG+=(--enable-spice-protocol)
 # No QEMU user interface at all. The player is the front end. It embeds
 # QEMU, the embed library appends `-display none` itself
 # (embed/libqemu_embed.c), and it brings its own 3D context provider
@@ -427,7 +392,7 @@ sed -i.bak '/^werror = true$/d' "$BUILD/config-meson.cross" && rm -f "$BUILD/con
 # MSVC: the libraries' .pc files, in the file meson reads again when a
 # plain `ninja` regenerates, where this script's PKG_CONFIG_LIBDIR is
 # gone and MSYS2's pkg-config would answer with its mingw glib.
-if [ -n "$MSVC" ] && ! grep -q '^pkg_config_libdir' "$BUILD/config-meson.cross"; then
+if [ -n "$NATIVE" ] && ! grep -q '^pkg_config_libdir' "$BUILD/config-meson.cross"; then
   sed -i "s|^\[properties\]\$|[properties]\npkg_config_libdir = ['$DEPS/lib/pkgconfig']|" "$BUILD/config-meson.cross"
 fi
 # keep the edited native file from looking newer than build.ninja (spurious regen)

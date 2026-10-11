@@ -168,10 +168,9 @@ the library**. A raw `SOCKET` is refused at startup as `File descriptor
 On Windows the player and the library are two C runtimes apart. The
 package's player (`player-mitsuami`) and its QEMU (`build-windows.sh
 qemu-msvc`, ADR-026's third amendment) are both MSVC, but each links the
-static C runtime, so each module has its own copy; the mitsuami player
-over the mingw test QEMU is UCRT over msvcrt. Only the winit player
-(`windows-gnu`, test only) shares the mingw QEMU's `msvcrt.dll`, which
-hides any state the two sides happen to share. Audited 2026-10-02 (when
+static C runtime, so each module has its own copy. (Until 2026-10-11 a
+checkout also had a mingw QEMU, whose `msvcrt.dll` the winit player
+shared, hiding any state the two sides happened to share.) Audited 2026-10-02 (when
 QEMU was still mingw only), every channel the API or the process
 offers:
 
@@ -232,8 +231,8 @@ offers:
   it reads the environment from the process block
   (`GetEnvironmentVariableA`, `d3dpt::env`), not from a C runtime's copy.
 
-**Linking across the toolchains.** The mingw build makes an import
-library only as `libqemu-embed-<target>.dll.a`, which `link.exe` does not
+**Linking across the toolchains.** The mingw build (removed 2026-10-11)
+made an import library only as `libqemu-embed-<target>.dll.a`, which `link.exe` does not
 look for. So on Windows the bindings import the DLL themselves
 (`#[link(kind = "raw-dylib")]` in `qemu-embed/src/lib.rs`): rustc writes
 the import table under either toolchain, and no import library is needed

@@ -10,26 +10,15 @@
 #   scripts/win-run.sh qemu [args...]       qemu-system-i386.exe: no window of its
 #                                           own, -display vnc=:0 to look at a guest
 #   GDB=1 scripts/win-run.sh player ...     any of them under gdb
-#   WIN_QEMU_CC=mingw scripts/win-run.sh .. the deprecated mingw QEMU
-#                                           (build/win/qemu) and, for
-#                                           `player`, the winit player
 #
-# By default everything is the package's: the QEMU built against MSVC's
-# runtime (build/win/qemu-msvc, docs/build-windows.md "QEMU under MSVC")
-# and player-mitsuami.
+# Everything is the package's: the QEMU built against MSVC's runtime
+# (build/win/qemu-msvc, docs/build-windows.md "QEMU under MSVC") and
+# player-mitsuami.
 #
 # What it sets, each only when the caller has not:
-#   PATH                  build/win/qemu-msvc (or the mingw qemu) first, for
-#                         libqemu-embed-i386.dll.
-#                         The mingw runtime comes from /mingw64/bin, already
-#                         on this shell's PATH
-#   LAUNCHER_PLAYER_BIN   with WIN_QEMU_CC=mingw, the winit player when player-mitsuami is not built
-#                         (the launcher finds that one itself): the launcher
-#                         is built into its own target/ and looks beside
-#                         itself and in target/<profile>, where a --target
-#                         build never puts the winit player
-#   LAUNCHER_QEMU_IMG_BIN qemu-img from the same QEMU build (the launcher's own
-#                         rule takes build/win/qemu's, the mingw one)
+#   PATH                  build/win/qemu-msvc first, for
+#                         libqemu-embed-i386.dll
+#   LAUNCHER_QEMU_IMG_BIN qemu-img from the same QEMU build
 #   D3DPT_EXEC_LIB        QEMU's own search is relative to the working directory
 #   D3DPT_DXVK_LIB        the executor loads DXVK only by the package's name for
 #                         it, dxvk_d3d9.dll (never plain d3d9.dll, which is
@@ -43,14 +32,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [ "${MSYSTEM:-}" = MINGW64 ] || { echo "win-run.sh: run it in MSYS2's MINGW64 shell" >&2; exit 1; }
 
-REL="$ROOT/target/x86_64-pc-windows-gnu/release"
-QDIR="$ROOT/build/win/qemu-msvc"; MINGW=""
-case "${WIN_QEMU_CC:-msvc}" in msvc) ;; *) QDIR="$ROOT/build/win/qemu"; MINGW=1 ;; esac
+QDIR="$ROOT/build/win/qemu-msvc"
 case "${1:-}" in
   launcher|mitsuami) BIN="$ROOT/launcher-mitsuami/target/release/launcher-mitsuami.exe"; STAGE=mitsuami ;;
-  player)   BIN="$ROOT/player-mitsuami/target/release/player-mitsuami.exe"; STAGE=mitsuami
-            [ -n "$MINGW" ] && { BIN="$REL/player.exe"; STAGE="qemu rust"; } ;;
-  qemu)     BIN="$QDIR/qemu-system-i386.exe"; STAGE=qemu ;;
+  player)   BIN="$ROOT/player-mitsuami/target/release/player-mitsuami.exe"; STAGE=mitsuami ;;
+  qemu)     BIN="$QDIR/qemu-system-i386.exe"; STAGE=qemu-msvc ;;
   *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
 shift
@@ -62,15 +48,9 @@ fi
 # Native programs read these, so Windows paths rather than MSYS2's /c/...
 win() { cygpath -w "$1"; }
 
-export PATH="$QDIR:$REL:$PATH"
+export PATH="$QDIR:$PATH"
 if [ -z "${LAUNCHER_QEMU_IMG_BIN:-}" ] && [ -x "$QDIR/qemu-img.exe" ]; then
   export LAUNCHER_QEMU_IMG_BIN="$(win "$QDIR/qemu-img.exe")"
-fi
-# Only when there is no mitsuami player: once built it is the default,
-# and the launcher finds it in the checkout by its own rule
-# (launcher_core::player), which this variable would override.
-if [ -n "$MINGW" ] && [ -z "${LAUNCHER_PLAYER_BIN:-}" ] && [ ! -x "$ROOT/player-mitsuami/target/release/player-mitsuami.exe" ]; then
-  export LAUNCHER_PLAYER_BIN="$(win "$REL/player.exe")"
 fi
 
 EXEC="$ROOT/build/win/d3dpt/d3dpt_exec.dll"

@@ -131,14 +131,14 @@ pub fn shipped(installed: &str) -> Option<PathBuf> {
 }
 
 /// `rel` in the workspace checkout this binary was built from. A Windows
-/// binary built from a Linux checkout (docs/build-windows.md) finds
-/// QEMU's own artefacts under `build/win/qemu`, since that checkout holds
-/// both builds at once.
+/// binary finds QEMU's own artefacts under `build/win/qemu-msvc`
+/// (docs/build-windows.md), since a checkout can hold a Linux build and a
+/// Windows build at once.
 pub fn checkout(rel: &str) -> PathBuf {
     let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     if cfg!(windows) {
         if let Some(rest) = rel.strip_prefix("build/qemu") {
-            return root.join(format!("build/win/qemu{rest}"));
+            return root.join(format!("build/win/qemu-msvc{rest}"));
         }
     }
     root.join(rel)

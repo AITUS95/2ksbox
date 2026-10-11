@@ -234,9 +234,9 @@ qemu-msvc` into `build/win/qemu-msvc`, ADR-026's third amendment): the
 package is all MSVC and ships no runtime DLL, and **`test.sh` and
 `win-run.sh` run what ships** (user, 2026-10-09: "there's no reason to
 test them and not the shipping ones"): the MSVC QEMU and
-`player-mitsuami`. The mingw clang QEMU under MSYS2 (`build/win/qemu`)
-and the winit player are deprecated on Windows: built only when the
-`qemu` stage is named, tested with `WIN_QEMU_CC=mingw`. The 9x/XP guest
+`player-mitsuami`. The mingw QEMU (`build/win/qemu`) and the winit
+player's Windows build were removed on 2026-10-11; don't bring them
+back. The 9x/XP guest
 code is i686 mingw. The
 executor runs on DXVK there too (`dxvk_d3d9.dll`, never the system's
 d3d9 under that name); `build/win/d3dpt-dp2-test.exe` is the oracle and
