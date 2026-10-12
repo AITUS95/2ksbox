@@ -41,8 +41,8 @@ struct Player {
     /// The pointer is over the guest's image, not the bars around it.
     pointer_inside: bool,
     /// The guest's hardware cursor (the d3dpt-vga driver, doc 15), the
-    /// sequence number it came with, and it as the surface's cursor at the
-    /// picture's zoom and the surface's scale it was made for.
+    /// sequence number it came with, it as the surface's cursor, and the
+    /// picture's zoom and the surface's scale it was made at.
     guest_shape: Option<Arc<player_core::qemu_vm::CursorImage>>,
     guest_cursor_seq: u64,
     guest_cursor: Option<Cursor>,
@@ -80,9 +80,8 @@ enum HostCursor {
     #[default]
     Default,
     Hidden,
-    /// the guest's shape of this sequence number, at this zoom and
-    /// surface scale
-    Guest(u64, (u32, f32)),
+    /// the guest's shape of this sequence number, at this surface scale
+    Guest(u64, f32),
 }
 
 thread_local! {
@@ -698,8 +697,8 @@ fn host_cursor_possible(w: Window_) -> bool {
     !w.locked.get_untracked() && vm().is_some_and(|v| v.mouse_is_absolute())
 }
 
-/// Pick up a new guest cursor shape (a define or a clear), and remake the
-/// host's from it when the picture's zoom or the surface's scale moved.
+/// Pick up a new guest cursor shape (a define or a clear), and look again
+/// when the picture's zoom or the surface's scale moved.
 fn update_guest_cursor(w: Window_) {
     let changed = with(|p| {
         let newer = p.session.as_ref().and_then(Session::display).and_then(|d| d.cursor_if_newer(p.guest_cursor_seq));
@@ -715,7 +714,7 @@ fn update_guest_cursor(w: Window_) {
             changed = p.guest_shape.is_some();
         }
         if changed {
-            p.guest_cursor = p.guest_shape.as_deref().map(|c| host_cursor(c, fit.0, fit.1));
+            p.guest_cursor = p.guest_shape.as_deref().map(|c| host_cursor(c, fit.1));
         }
         changed
     })
@@ -726,37 +725,34 @@ fn update_guest_cursor(w: Window_) {
 }
 
 /// Screen pixels per guest pixel in the picture on show, whole (the
-/// picture's scale is whole but for a free fit under 1x). The host cursor
-/// is drawn at it, as big as the guest's own would be in the picture.
+/// picture's scale is whole but for a free fit under 1x). Over a picture
+/// at 2x or more the platform's cursor stands in for the guest's: the
+/// guest's, scaled up, looked worse (user).
 fn cursor_zoom(p: &Player) -> u32 {
     let Some(gpu) = p.gpu.as_ref() else { return 1 };
     let Some((_, rows)) = gpu.shown_size() else { return 1 };
     let (_, _, _, vh) = gpu.viewport();
-    // a 32x32 shape at 8x is 256 pixels, the most X11 and Windows take
-    ((vh / rows.max(1) as f32).round() as u32).clamp(1, 8)
+    ((vh / rows.max(1) as f32).round() as u32).max(1)
 }
 
-/// The guest's cursor as the surface's: each guest pixel `zoom` of the
-/// screen's, repeated rather than filtered, as the picture is.
-fn host_cursor(c: &player_core::qemu_vm::CursorImage, zoom: u32, scale: f32) -> Cursor {
-    let (width, height) = (c.width * zoom, c.height * zoom);
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for y in 0..height {
-        for x in 0..width {
-            let px = c.argb[((y / zoom) * c.width + x / zoom) as usize];
-            rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, px as u8, (px >> 24) as u8]);
-        }
+/// The guest's cursor as the surface's, one guest pixel to one of the
+/// screen's, as the picture's 1x.
+fn host_cursor(c: &player_core::qemu_vm::CursorImage, scale: f32) -> Cursor {
+    let mut rgba = Vec::with_capacity(c.argb.len() * 4);
+    for px in &c.argb {
+        rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, *px as u8, (px >> 24) as u8]);
     }
     Cursor::Image {
-        pixels: Pixels::new(width, height, rgba).scale(scale),
-        hotspot: Point::new((c.hot_x * zoom) as f32 / scale, (c.hot_y * zoom) as f32 / scale),
+        pixels: Pixels::new(c.width, c.height, rgba).scale(scale),
+        hotspot: Point::new(c.hot_x as f32 / scale, c.hot_y as f32 / scale),
     }
 }
 
 /// The cursor over the surface: the guest's shape while over the image
-/// (and visible per the guest), hidden over the image when the guest has
-/// no hardware cursor, the platform's elsewhere and while the close
-/// question is up.
+/// at 1x (and visible per the guest), the platform's over it scaled up,
+/// hidden over the image when the guest hides its cursor or has no
+/// hardware cursor, the platform's elsewhere and while the close question
+/// is up.
 fn apply_cursor(w: Window_) {
     if w.locked.get_untracked() {
         return; // the lock hides it
@@ -767,7 +763,11 @@ fn apply_cursor(w: Window_) {
         let want = if !p.pointer_inside || p.asking {
             HostCursor::Default
         } else if let (true, Some(_), Some(true)) = (possible, &p.guest_cursor, visible) {
-            HostCursor::Guest(p.guest_cursor_seq, p.guest_cursor_fit)
+            if p.guest_cursor_fit.0 > 1 {
+                HostCursor::Default
+            } else {
+                HostCursor::Guest(p.guest_cursor_seq, p.guest_cursor_fit.1)
+            }
         } else {
             HostCursor::Hidden
         };
@@ -780,7 +780,7 @@ fn apply_cursor(w: Window_) {
                 match &want {
                     HostCursor::Default => "default".to_string(),
                     HostCursor::Hidden => format!("hidden (shape {}, guest visible {visible:?})", p.guest_cursor.is_some()),
-                    HostCursor::Guest(s, (z, _)) => format!("the guest's shape #{s} at {z}x"),
+                    HostCursor::Guest(s, _) => format!("the guest's shape #{s}"),
                 }
             );
         }

@@ -474,9 +474,9 @@ adds the sprite every card of the era had.
   player. "No cursor" is a hidden 1×1 transparent one
   (`fb_cursor_clear`).
 - **Player.** With the USB tablet, the host window's cursor takes the
-  guest's shape over the image, at the picture's zoom (each guest pixel
-  repeated, so a 640x480 desktop at 3x has a 3x pointer), and hides when
-  the guest hides it. With a
+  guest's shape over the image at 1x; over a picture scaled up it is the
+  host's own cursor (the guest's, scaled, looked worse; user,
+  2026-10-11). It hides when the guest hides it. With a
   relative mouse (PS/2, the player's grab) the player composites the
   sprite into the frame, and a move alone republishes it; the headless
   dump takes that path, so a `PLAYER_DUMP_OUT` frame shows the cursor. A

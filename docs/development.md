@@ -252,7 +252,7 @@ player [--shader <preset.slangp>] [--shader-params <k=v,...>]
   turns is a flicker the picture alone does not show. Pair the presented
   slot with `PLAYER_SHOT_EVERY=1`'s shots.
 - `PLAYER_CURSOR_LOG=1` prints each change of the host cursor: default,
-  hidden, or the guest's shape and the zoom it is drawn at.
+  hidden, or the guest's shape.
 
 ### Keys, pointer and window
 

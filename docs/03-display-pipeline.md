@@ -274,8 +274,8 @@ grab and pointer lock from mitsuami's surface.
 **Pointer.** Absolute (USB tablet) for the desktop, relative (PS/2 plus a
 host cursor grab) for mouselook, chosen by the bundle's `seamless_mouse`
 (doc 07's "Seamless mouse" checkbox). With the tablet the player never
-grabs and the guest's hardware cursor is the host cursor, as big as it is
-in the picture; without it a
+grabs and the guest's hardware cursor is the host cursor at 1x (the host's
+own over a picture scaled up); without it a
 click takes the pointer and Ctrl+Alt+G gives it back. The player follows
 the guest (`mouse_is_absolute`), so a machine can be switched without
 touching the player.
