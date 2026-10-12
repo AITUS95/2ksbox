@@ -1,0 +1,73 @@
+PUSH in the x86 emulator WHPX (and HVF, MSHV) runs MMIO exits through.
+The decoder knows PUSH (50+r, 68, 6a, ff /6) but the emulator had no
+handler, so exec_instruction() printed "Unimplemented handler ... for
+PUSH" and stepped over the instruction: ESP never moved and the guest's
+stack came out one slot short. `push [mmio]` is what a compiler emits
+for a device register passed straight as an argument; our XP display
+driver's gamma ramp log does it, so Warcraft III (which sets a gamma
+ramp at start) bugchecked XP under WHPX while KVM's in-kernel emulator
+ran it. The handler reads the operand, decrements ESP by the operand
+size (8 for a 64-bit-mode push of a 32-bit operand) at the stack's width
+(SS.B, 64-bit, or 16-bit in real and virtual-8086 mode), writes through
+SS and moves ESP. Drop when upstream's emulator implements PUSH.
+
+diff --git a/target/i386/emulate/x86_emu.c b/target/i386/emulate/x86_emu.c
+index c595bec..61c8d98 100644
+--- a/target/i386/emulate/x86_emu.c
++++ b/target/i386/emulate/x86_emu.c
+@@ -1341,6 +1341,47 @@ static bool exec_xadd(CPUX86State *env, struct x86_decode *decode)
+     return 0;
+ }
+ 
++/*
++ * PUSH r/m, reg or imm. An MMIO exit lands here for `push [mmio]` (a
++ * register read passed straight as a call's argument); with no handler
++ * the push was skipped and the guest's stack came out 4 bytes short.
++ */
++static bool exec_push(CPUX86State *env, struct x86_decode *decode)
++{
++    CPUState *cpu = env_cpu(env);
++    x86_segment_descriptor cs, ss;
++    int stack_size = 2;     /* real and virtual-8086 mode */
++    target_ulong sp;
++
++    /* (x86_is_long64_mode() is a stub that aborts) */
++    if (x86_is_protected(cpu) && !x86_is_v8086(cpu)) {
++        emul_ops->read_segment_descriptor(cpu, &cs, R_CS);
++        if (x86_is_long_mode(cpu) && cs.l) {
++            stack_size = 8;
++            if (decode->operand_size == 4) {
++                decode->operand_size = 8;   /* no 32-bit push in 64-bit mode */
++            }
++        } else {
++            emul_ops->read_segment_descriptor(cpu, &ss, R_SS);
++            stack_size = ss.db ? 4 : 2;
++        }
++    }
++
++    if (fetch_operands(env, decode, 1, true, false, false)) {
++        return 1;
++    }
++    sp = read_reg(env, R_ESP, stack_size) - decode->operand_size;
++    if (x86_write_mem(cpu, &decode->op[0].val,
++                      linear_addr_size(cpu, sp, stack_size, R_SS),
++                      decode->operand_size)) {
++        return 1;
++    }
++    write_reg(env, R_ESP, sp, stack_size);
++
++    env->eip += decode->len;
++    return 0;
++}
++
+ static struct cmd_handler {
+     enum x86_decode_cmd cmd;
+     bool (*handler)(CPUX86State *env, struct x86_decode *ins);
+@@ -1385,6 +1426,7 @@ static struct cmd_handler {
+     {X86_DECODE_CMD_MOVSX, exec_movsx},
+     {X86_DECODE_CMD_XCHG, exec_xchg},
+     {X86_DECODE_CMD_XADD, exec_xadd},
++    {X86_DECODE_CMD_PUSH, exec_push},
+ };
+ 
+ static struct cmd_handler _cmd_handler[X86_DECODE_CMD_LAST];

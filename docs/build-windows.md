@@ -536,8 +536,12 @@ host yet (QEMU builds no TPM there; track M20). QEMU 11.1 builds WHPX into x86_6
 **patch 84** puts it back into i386 and fixes what killed it there
 (11.1's WHPX emulates MMIO with an x86 emulator whose 64-bit register
 stores overran the i386 target's 32-bit registers, so a machine died in
-SeaBIOS; track M21, step 4). The `whpx-i386` check boots SeaBIOS under
-it. From 2026-10-02 to 10-04 era machines were emulated on Windows
+SeaBIOS; track M21, step 4). That emulator is also missing
+instructions KVM's has: **patch 93** adds PUSH, whose absence unbalanced
+the stack of a guest pushing from MMIO (Warcraft III bugchecked XP
+through our display driver); a log line "Unimplemented handler ... for
+X" names the next one. The `whpx-i386` check boots SeaBIOS under
+it, then a boot sector that pushes from MMIO. From 2026-10-02 to 10-04 era machines were emulated on Windows
 while it was missing. `Accel::Auto` is `whpx:tcg`, "hardware
 acceleration required" is `whpx`, and the wizard's hint asks
 `WHvGetCapability`, because the feature can be installed and still off

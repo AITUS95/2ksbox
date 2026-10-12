@@ -2150,7 +2150,8 @@ whpx_i386_check() { # an era machine under WHPX gets through SeaBIOS (patch 84),
     echo "WHPX is not on: $(head -1 "$qlog")"; return 77
   fi
   if [ "${n:-0}" -ge 2 ] && ! grep -q "Unexpected VP exit" "$qlog"; then
-    echo "SeaBIOS under WHPX reached the end of its boot order, and again after a reset"; return 0
+    echo "SeaBIOS under WHPX reached the end of its boot order, and again after a reset"
+    whpx_mmio_push; return
   fi
   if [ "${n:-0}" = 1 ]; then
     echo "SeaBIOS under WHPX did not come back after a reset"
@@ -2158,6 +2159,38 @@ whpx_i386_check() { # an era machine under WHPX gets through SeaBIOS (patch 84),
     echo "SeaBIOS under WHPX never reached the end of its boot order"
   fi
   tail -5 "$qlog"; tail -3 "$log" 2>/dev/null
+  return 1
+}
+
+whpx_mmio_push() { # whpx-i386's second half: PUSH from MMIO under WHPX (patch 93)
+  # WHPX runs an MMIO access through QEMU's x86 emulator, whose PUSH did
+  # nothing: Warcraft III's gamma ramp bugchecked XP through our display
+  # driver's `push [regs+0xa00]`. tools/whpx-mmio-push.asm pushes a word
+  # and a dword from VGA text memory and says on the debug port whether
+  # the stack and the values came out right.
+  local img="$OUT/whpx-push.img" log="$OUT/whpx-push.log" qlog="$OUT/whpx-push-qemu.log" p
+  command -v nasm >/dev/null || { echo "no nasm, so no MMIO push run (scripts/build-windows.sh --msys2-deps)"; return 1; }
+  nasm -f bin -o "$img" tools/whpx-mmio-push.asm || return 1
+  rm -f "$log"
+  $QSYS -L qemu/pc-bios -accel whpx -cpu pentium3 -machine pc -m 64 -display none -net none \
+    -monitor none -drive "file=$img,format=raw,if=floppy" \
+    -chardev "file,id=dbg,path=$log" -device isa-debugcon,iobase=0x402,chardev=dbg \
+    >"$qlog" 2>&1 & p=$!
+  for _ in $(seq 60); do
+    grep -q "MMIO PUSH" "$log" 2>/dev/null && break
+    kill -0 $p 2>/dev/null || break
+    sleep 0.5
+  done
+  kill $p 2>/dev/null; wait $p 2>/dev/null
+  if grep -q "MMIO PUSH OK" "$log" 2>/dev/null; then
+    echo "a word and a dword pushed from MMIO under WHPX arrived, the stack balanced"; return 0
+  fi
+  if grep -q "MMIO PUSH BAD" "$log" 2>/dev/null; then
+    echo "a push from MMIO under WHPX lost its value or unbalanced the stack"
+  else
+    echo "the MMIO push boot sector never reported"
+  fi
+  grep -i "unimplemented" "$qlog"; tail -3 "$log" 2>/dev/null
   return 1
 }
 

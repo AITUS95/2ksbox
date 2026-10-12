@@ -1111,6 +1111,22 @@ host resets came back with no xsave line (without the patch: the four
 lines at every restart), and a paused machine reset and continued boots.
 **Drop:** upstream sizes the area from the hypervisor's answer.
 
+### 93-whpx-emulate-push
+PUSH in the x86 emulator WHPX runs MMIO exits through (shared with HVF
+and MSHV, `target/i386/emulate/`). The decoder knew PUSH (`50+r`, `68`,
+`6a`, `ff /6`) but there was no handler, so `exec_instruction()` printed
+"Unimplemented handler ... for PUSH" and stepped over it: ESP never
+moved and the guest's stack came out one slot short. `push [mmio]` is
+what a compiler emits for a device register passed straight as an
+argument; our XP display driver's gamma ramp log does it
+(`DrvIcmSetDeviceGammaRamp`, `push [regs+0xa00]`), so Warcraft III,
+which sets a gamma ramp as it starts, bugchecked XP under WHPX (KVM's
+in-kernel emulator ran it). The handler pushes at the operand size (8
+for a 32-bit operand in 64-bit mode) on a stack as wide as SS says.
+**Test:** `test.sh`'s `whpx-i386` boots `tools/whpx-mmio-push.asm`,
+which pushes a word and a dword from VGA text memory; Warcraft III 1.0
+on the PC's XP machine. **Drop:** upstream's emulator implements PUSH.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;
