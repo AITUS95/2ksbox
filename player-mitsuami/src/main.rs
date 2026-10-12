@@ -40,10 +40,13 @@ struct Player {
     scale: f32,
     /// The pointer is over the guest's image, not the bars around it.
     pointer_inside: bool,
-    /// The guest's hardware cursor (the d3dpt-vga driver, doc 15), as the
-    /// surface's cursor, and the sequence number it came with.
-    guest_cursor: Option<Cursor>,
+    /// The guest's hardware cursor (the d3dpt-vga driver, doc 15), the
+    /// sequence number it came with, and it as the surface's cursor at the
+    /// picture's zoom and the surface's scale it was made for.
+    guest_shape: Option<Arc<player_core::qemu_vm::CursorImage>>,
     guest_cursor_seq: u64,
+    guest_cursor: Option<Cursor>,
+    guest_cursor_fit: (u32, f32),
     /// What the surface's cursor was last set to.
     cursor_applied: HostCursor,
     /// Raw moves have come while locked: `Motion` is then ignored, or the
@@ -77,8 +80,9 @@ enum HostCursor {
     #[default]
     Default,
     Hidden,
-    /// the guest's shape of this sequence number
-    Guest(u64),
+    /// the guest's shape of this sequence number, at this zoom and
+    /// surface scale
+    Guest(u64, (u32, f32)),
 }
 
 thread_local! {
@@ -134,8 +138,10 @@ fn main() {
             input: Input::default(),
             scale: 1.0,
             pointer_inside: false,
-            guest_cursor: None,
+            guest_shape: None,
             guest_cursor_seq: 0,
+            guest_cursor: None,
+            guest_cursor_fit: (0, 0.0),
             cursor_applied: HostCursor::Default,
             raw_motion: false,
             motion_rest: (0.0, 0.0),
@@ -692,29 +698,58 @@ fn host_cursor_possible(w: Window_) -> bool {
     !w.locked.get_untracked() && vm().is_some_and(|v| v.mouse_is_absolute())
 }
 
-/// Pick up a new guest cursor shape (a define or a clear).
+/// Pick up a new guest cursor shape (a define or a clear), and remake the
+/// host's from it when the picture's zoom or the surface's scale moved.
 fn update_guest_cursor(w: Window_) {
     let changed = with(|p| {
-        let display = p.session.as_ref().and_then(Session::display)?;
-        let (seq, shape) = display.cursor_if_newer(p.guest_cursor_seq)?;
-        p.guest_cursor_seq = seq;
-        let scale = p.scale;
-        p.guest_cursor = shape.map(|c| {
-            let mut rgba = Vec::with_capacity(c.argb.len() * 4);
-            for px in &c.argb {
-                rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, *px as u8, (px >> 24) as u8]);
-            }
-            // one guest pixel to one of the screen's, as the picture's 1x
-            Cursor::Image {
-                pixels: Pixels::new(c.width, c.height, rgba).scale(scale),
-                hotspot: Point::new(c.hot_x as f32 / scale, c.hot_y as f32 / scale),
-            }
-        });
-        Some(())
+        let newer = p.session.as_ref().and_then(Session::display).and_then(|d| d.cursor_if_newer(p.guest_cursor_seq));
+        let mut changed = false;
+        if let Some((seq, shape)) = newer {
+            p.guest_cursor_seq = seq;
+            p.guest_shape = shape;
+            changed = true;
+        }
+        let fit = (cursor_zoom(p), p.scale);
+        if fit != p.guest_cursor_fit {
+            p.guest_cursor_fit = fit;
+            changed = p.guest_shape.is_some();
+        }
+        if changed {
+            p.guest_cursor = p.guest_shape.as_deref().map(|c| host_cursor(c, fit.0, fit.1));
+        }
+        changed
     })
-    .flatten();
-    if changed.is_some() || with(|p| p.pointer_inside).unwrap_or(false) {
+    .unwrap_or(false);
+    if changed || with(|p| p.pointer_inside).unwrap_or(false) {
         apply_cursor(w);
+    }
+}
+
+/// Screen pixels per guest pixel in the picture on show, whole (the
+/// picture's scale is whole but for a free fit under 1x). The host cursor
+/// is drawn at it, as big as the guest's own would be in the picture.
+fn cursor_zoom(p: &Player) -> u32 {
+    let Some(gpu) = p.gpu.as_ref() else { return 1 };
+    let Some((_, rows)) = gpu.shown_size() else { return 1 };
+    let (_, _, _, vh) = gpu.viewport();
+    // a 32x32 shape at 8x is 256 pixels, the most X11 and Windows take
+    ((vh / rows.max(1) as f32).round() as u32).clamp(1, 8)
+}
+
+/// The guest's cursor as the surface's: each guest pixel `zoom` of the
+/// screen's, repeated rather than filtered, as the picture is.
+fn host_cursor(c: &player_core::qemu_vm::CursorImage, zoom: u32, scale: f32) -> Cursor {
+    let (width, height) = (c.width * zoom, c.height * zoom);
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let px = c.argb[((y / zoom) * c.width + x / zoom) as usize];
+            rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, px as u8, (px >> 24) as u8]);
+        }
+    }
+    Cursor::Image {
+        pixels: Pixels::new(width, height, rgba).scale(scale),
+        hotspot: Point::new((c.hot_x * zoom) as f32 / scale, (c.hot_y * zoom) as f32 / scale),
     }
 }
 
@@ -732,7 +767,7 @@ fn apply_cursor(w: Window_) {
         let want = if !p.pointer_inside || p.asking {
             HostCursor::Default
         } else if let (true, Some(_), Some(true)) = (possible, &p.guest_cursor, visible) {
-            HostCursor::Guest(p.guest_cursor_seq)
+            HostCursor::Guest(p.guest_cursor_seq, p.guest_cursor_fit)
         } else {
             HostCursor::Hidden
         };
@@ -745,7 +780,7 @@ fn apply_cursor(w: Window_) {
                 match &want {
                     HostCursor::Default => "default".to_string(),
                     HostCursor::Hidden => format!("hidden (shape {}, guest visible {visible:?})", p.guest_cursor.is_some()),
-                    HostCursor::Guest(s) => format!("the guest's shape #{s}"),
+                    HostCursor::Guest(s, (z, _)) => format!("the guest's shape #{s} at {z}x"),
                 }
             );
         }
@@ -753,7 +788,7 @@ fn apply_cursor(w: Window_) {
         Some(match want {
             HostCursor::Default => Cursor::Default,
             HostCursor::Hidden => Cursor::Hidden,
-            HostCursor::Guest(_) => p.guest_cursor.clone().unwrap_or(Cursor::Hidden),
+            HostCursor::Guest(..) => p.guest_cursor.clone().unwrap_or(Cursor::Hidden),
         })
     })
     .flatten();
