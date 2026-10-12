@@ -338,7 +338,8 @@ def resolve(arg):
         import tomllib
         with open(toml, "rb") as f:
             m = tomllib.load(f)
-        return m["disk"], m.get("video", "cirrus")
+        # A relative disk is the bundle's own (`Machine::load`).
+        return os.path.join(os.path.dirname(toml), m["disk"]), m.get("video", "cirrus")
     return os.path.expanduser(arg), "cirrus"
 
 

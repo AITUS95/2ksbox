@@ -165,6 +165,11 @@ bundle.rs`), usually its disk, and references to shelf discs:
 - **`[optimizations]` must stay the last field of `Machine`.** It is the
   one field that serialises as a TOML table, and a table swallows every
   key after it.
+- **A relative `disk` is the bundle's own**: `disk = "disk.qcow2"`
+  names the file beside `machine.toml`, whatever the working directory
+  (`Machine::load` makes it absolute). `save` writes a disk inside the
+  bundle's folder that way, so the folder can be moved whole; a disk
+  anywhere else keeps its absolute path (2026-10-11).
 - **Editing never renames the bundle directory**, so outside references
   and the disk inside stay valid. New directories are slugs of the name,
   deduplicated (`xp-test-box`, `xp-test-box-2`).

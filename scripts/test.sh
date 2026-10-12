@@ -578,6 +578,12 @@ clone_check() { # "Clone…", from the model to a disk our QEMU reads (doc 07)
   bundle="$($LAUNCHERX --wizard-new xp Original 1 2>/dev/null | tail -1)"
   [ -f "$bundle" ] || { echo "--wizard-new made no bundle"; return 1; }
   disk="$(dirname "$bundle")/disk.qcow2"
+  # A disk in the machine's folder is written relative to it, so a
+  # bundle copied elsewhere boots the disk beside it.
+  grep -qx 'disk = "disk.qcow2"' "$bundle" || { echo "the wizard did not write the disk relative:"; grep '^disk' "$bundle"; rc=1; }
+  mkdir -p "$dir/moved"; cp "$bundle" "$dir/moved/"
+  args="$($LAUNCHERX --print-args "$dir/moved/machine.toml")"
+  case "$args" in *"file=$dir/moved/disk.qcow2,"*) ;; *) echo "a relative disk is not the bundle's own: $args"; rc=1;; esac
   $io -c "write -P 0x5a 0 1M" "$disk" >/dev/null || { echo "qemu-io could not write the original"; return 1; }
   $LAUNCHERX --snapshots "$bundle" take before-clone >/dev/null 2>&1 \
     || { echo "--snapshots take failed"; return 1; }
