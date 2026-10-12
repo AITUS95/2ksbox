@@ -77,8 +77,10 @@ def bundle(machine):
     """The machine's copy in OUT: overlay, variables, TPM; no disc, no net."""
     src = open(os.path.join(machine, "machine.toml")).read()
     vals = dict(re.findall(r'^(\w+) = "(.*)"$', src, re.M))
-    # A relative disk is the bundle's own (`Machine::load`).
-    vals["disk"] = os.path.join(machine, vals["disk"])
+    # A relative path is the bundle's own (`Machine::load`).
+    for key in ("disk", "efi_vars", "tpm_state"):
+        if key in vals:
+            vals[key] = os.path.join(machine, vals[key])
     disk = os.path.join(OUT, "disk.qcow2")
     subprocess.run([QEMU_IMG, "create", "-q", "-f", "qcow2", "-b", vals["disk"], "-F", "qcow2", disk],
                    check=True)

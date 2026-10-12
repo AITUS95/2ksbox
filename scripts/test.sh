@@ -741,7 +741,9 @@ win11snap_check() { # a Windows 11 machine's offline snapshot holds its firmware
   clone="$($LAUNCHERX --clone "$bundle" "Same TPM" 2>/dev/null)" || { echo "--clone failed"; return 1; }
   cmp -s "$tpm" "$(dirname "$clone")/tpm.permall" || { echo "a plain clone did not copy the TPM's state"; rc=1; }
   [ -n "$(ls "$(dirname "$clone")"/tpm-snapshots 2>/dev/null)" ] || { echo "a plain clone did not copy the snapshot's TPM"; rc=1; }
-  normp <"$clone" | grep -q "tpm_state = [\"']$(dirname "$clone")/tpm.permall[\"']" || { echo "the clone's tpm_state does not name its own file"; rc=1; }
+  # Written relative to the bundle, as its disk and variable store are.
+  grep -qx 'tpm_state = "tpm.permall"' "$clone" || { echo "the clone's tpm_state does not name its own file"; grep '^tpm_state' "$clone"; rc=1; }
+  grep -qx 'efi_vars = "efivars.qcow2"' "$clone" || { echo "the clone's efi_vars does not name its own file"; grep '^efi_vars' "$clone"; rc=1; }
   clone="$($LAUNCHERX --clone "$bundle" --new-tpm "New TPM" 2>/dev/null)" || { echo "--clone --new-tpm failed"; return 1; }
   [ ! -e "$(dirname "$clone")/tpm.permall" ] || { echo "a new-TPM clone copied the TPM's state"; rc=1; }
   [ -z "$(ls "$(dirname "$clone")"/tpm-snapshots 2>/dev/null)" ] || { echo "a new-TPM clone copied the snapshots' TPM"; rc=1; }

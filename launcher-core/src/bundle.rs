@@ -1639,18 +1639,27 @@ impl Machine {
         self.disc.as_ref().or_else(|| self.discs.first())
     }
 
-    /// Reads a bundle. A relative `disk` names a file in the bundle's own
-    /// folder (`disk = "disk.qcow2"`), whatever the working directory, and
-    /// comes back absolute, so everything past here sees one spelling.
+    /// Reads a bundle. A relative `disk`, `efi_vars` or `tpm_state`
+    /// names a file in the bundle's own folder (`disk = "disk.qcow2"`),
+    /// whatever the working directory, and comes back absolute, so
+    /// everything past here sees one spelling.
     pub fn load(path: &Path) -> std::io::Result<Machine> {
         let text = std::fs::read_to_string(path)?;
         let mut machine: Machine = toml::from_str(&text).map_err(std::io::Error::other)?;
-        if machine.disk.is_relative() {
-            if let Some(dir) = std::path::absolute(path)?.parent() {
-                machine.disk = dir.join(&machine.disk);
+        if let Some(dir) = std::path::absolute(path)?.parent() {
+            for file in machine.own_files() {
+                if file.is_relative() {
+                    *file = dir.join(&*file);
+                }
             }
         }
         Ok(machine)
+    }
+
+    /// The files a bundle names relative to its own folder (`load`,
+    /// `save`).
+    fn own_files(&mut self) -> impl Iterator<Item = &mut PathBuf> {
+        [Some(&mut self.disk), self.efi_vars.as_mut(), self.tpm_state.as_mut()].into_iter().flatten()
     }
 
     /// Writes the bundle in the current format, which also migrates a
@@ -1660,17 +1669,20 @@ impl Machine {
     /// (`DiscLibrary::import_legacy`) before anything here can rewrite a
     /// bundle.
     ///
-    /// A disk inside the bundle's folder is written relative to it, as
-    /// `load` reads it, so the folder can be moved or copied whole and a
-    /// hand-written `disk = "disk.qcow2"` stays that way. A disk anywhere
-    /// else keeps its absolute path.
+    /// A disk, variable store or TPM state inside the bundle's folder is
+    /// written relative to it, as `load` reads it, so the folder can be
+    /// moved or copied whole and a hand-written `disk = "disk.qcow2"`
+    /// stays that way. One anywhere else keeps its absolute path.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let mut out = self.clone();
         out.disc = self.boot_disc().cloned();
         out.discs.clear();
-        if let (Some(dir), Ok(disk)) = (std::path::absolute(path)?.parent(), std::path::absolute(&self.disk)) {
-            if let Ok(rel) = disk.strip_prefix(dir) {
-                out.disk = rel.to_path_buf();
+        if let Some(dir) = std::path::absolute(path)?.parent() {
+            for file in out.own_files() {
+                let abs = std::path::absolute(&*file);
+                if let Some(rel) = abs.as_deref().ok().and_then(|f| f.strip_prefix(dir).ok()) {
+                    *file = rel.to_path_buf();
+                }
             }
         }
         let text = toml::to_string_pretty(&out).map_err(std::io::Error::other)?;
