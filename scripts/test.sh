@@ -2977,6 +2977,7 @@ win98_checks() { # the Win98 driver's Direct3D (M16 step 5): its own boots, what
      || [ ! -f "$OUT/g9-native.bmp" ]; then
     skip win98-dx9 "Linux, mtools, build/qemu, the executor and the host stage's native frames first"
     skip win98-winetest "the same"
+    skip win98-cursors "the same"
     return
   fi
   local m98="${WIN98_DX9_MACHINE:-base98-br}"
@@ -2993,6 +2994,18 @@ win98_checks() { # the Win98 driver's Direct3D (M16 step 5): its own boots, what
   else
     skip win98-dx9 "no launcher machine '$m98' (WIN98_DX9_MACHINE)"
     skip win98-winetest "no launcher machine '$m98' (WIN98_DX9_MACHINE)"
+  fi
+  # `win98-cursors`: the guest's standard cursors recognised by their
+  # pixels, so the player shows the host's own (tools/win98-cursor-test.sh,
+  # in a private headless sway; about 5 minutes more).
+  if [ -f "$d98" ] && [ -x "$TREL/player" ]; then
+    run_check win98-cursors win98-cursors.log env RAW="$OUT/w98.raw" OUT="$OUT/w98cursor" \
+      tools/win98-cursor-test.sh "$d98" || true
+    grep "^recognised" "$OUT/win98-cursors.log" | sed 's/^/     /'
+  elif [ -f "$d98" ]; then
+    skip win98-cursors "needs $TREL/player"
+  else
+    skip win98-cursors "no launcher machine '$m98' (WIN98_DX9_MACHINE)"
   fi
 }
 

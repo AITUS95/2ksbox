@@ -9,6 +9,7 @@ pub mod audio;
 pub mod boot_prompt;
 pub mod clipboard;
 pub mod companions;
+pub mod cursor_shape;
 #[cfg(target_os = "linux")]
 pub mod dmabuf;
 pub mod gpu;

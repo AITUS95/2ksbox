@@ -233,6 +233,20 @@ pub struct CursorImage {
     pub hot_y: u32,
 }
 
+impl CursorImage {
+    /// FNV-1a over the size, the hot spot and the pixels: what
+    /// `cursor_shape` recognises a guest's standard cursor by.
+    pub fn hash(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for word in [self.width, self.height, self.hot_x, self.hot_y].iter().chain(&self.argb) {
+            for b in word.to_le_bytes() {
+                h = (h ^ b as u64).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        h
+    }
+}
+
 pub struct Display(Arc<Mutex<Shared>>);
 
 impl Display {
@@ -370,7 +384,17 @@ unsafe extern "C" fn on_cursor(
         }))
     };
     s.cursor_seq += 1;
-    if s.cursor_seq <= 4 {
+    if std::env::var_os("PLAYER_CURSOR_LOG").is_some() {
+        match &s.cursor {
+            Some(c) => eprintln!(
+                "[cursor] guest shape #{} {w}x{h} hot {hot_x},{hot_y} hash {:016x} ({})",
+                s.cursor_seq,
+                c.hash(),
+                crate::cursor_shape::recognise(c).map_or("not a standard one".into(), |k| format!("{k:?}"))
+            ),
+            None => eprintln!("[cursor] guest shape #{} cleared", s.cursor_seq),
+        }
+    } else if s.cursor_seq <= 4 {
         let opaque = s.cursor.as_ref().map(|c| c.argb.iter().filter(|p| **p >> 24 != 0).count()).unwrap_or(0);
         eprintln!("[cursor] guest shape {}", if s.cursor.is_some() { format!("{w}x{h} hot {hot_x},{hot_y}, {opaque} opaque pixels") } else { "cleared".into() });
     }

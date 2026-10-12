@@ -251,7 +251,9 @@ player [--shader <preset.slangp>] [--shader-params <k=v,...>]
   cursor's republish) and a line per presented frame. Two sources taking
   turns is a flicker the picture alone does not show. Pair the presented
   slot with `PLAYER_SHOT_EVERY=1`'s shots.
-- `PLAYER_CURSOR_LOG=1` prints each change of the host cursor: default,
+- `PLAYER_CURSOR_LOG=1` prints every shape the guest defines, with its
+  hash and the standard cursor it is (`player-core/src/cursor_shape.rs`),
+  and each change of the host cursor: default,
   hidden, or the guest's shape.
 
 ### Keys, pointer and window

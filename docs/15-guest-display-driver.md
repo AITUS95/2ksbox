@@ -473,10 +473,19 @@ adds the sprite every card of the era had.
   the cursor unconditionally (`cursor_ref`), so NULL segfaults the
   player. "No cursor" is a hidden 1×1 transparent one
   (`fb_cursor_clear`).
-- **Player.** With the USB tablet, the host window's cursor takes the
-  guest's shape over the image at 1x; over a picture scaled up it is the
-  host's own cursor (the guest's, scaled, looked worse; user,
-  2026-10-11). It hides when the guest hides it. With a
+- **Player.** With the USB tablet, the host window's cursor stands in
+  for the guest's over the image. One of the guest's standard cursors
+  (the arrow, the I-beam, the hourglass, the resize arrows…) is the
+  host's own of the same meaning (user, 2026-10-12: the guest's, scaled
+  to the picture, looked worse): `player-core/src/cursor_shape.rs`
+  recognises it by a hash of its pixels and hot spot, measured with
+  `CURSORS.EXE` (`guest-tools/src/cursors.c`, each `IDC_*` in turn) and
+  checked by `tools/win98-cursor-test.sh`. Any other shape (a game's own,
+  `IDC_UPARROW`) is the guest's at the picture's zoom, each pixel
+  repeated. Windows 98's are in the table; XP's never reach the hardware
+  cursor (with the pointer shadow on and no `GCAPS2_ALPHACURSOR`, GDI
+  draws XP's pointer itself), so XP keeps its own in the frame. It hides
+  when the guest hides it. With a
   relative mouse (PS/2, the player's grab) the player composites the
   sprite into the frame, and a move alone republishes it; the headless
   dump takes that path, so a `PLAYER_DUMP_OUT` frame shows the cursor. A

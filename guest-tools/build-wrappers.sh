@@ -240,6 +240,12 @@ i686-w64-mingw32-gcc -O2 -Wall -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os \
 i686-w64-mingw32-gcc -O2 -Wall -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os \
   -march=pentium3 -mtune=generic -mwindows -o "$T/wavecaps.exe" \
   "$ROOT/guest-tools/src/wavecaps.c" -lwinmm
+# CURSORS.EXE: each standard cursor (IDC_*) in turn, its name to COM1
+# first, so PLAYER_CURSOR_LOG=1 gives the hash of each: the table
+# player-core's cursor_shape.rs recognises them by (doc 15 "Player").
+i686-w64-mingw32-gcc -O2 -Wall -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os \
+  -march=pentium3 -mtune=generic -mwindows -o "$T/cursors.exe" \
+  "$ROOT/guest-tools/src/cursors.c"
 
 # WAITFILE.EXE: wait for a file, then start something. A CHOICE loop in a
 # DOS box polls: it pegged the guest and made 3dfx's card initialisation
