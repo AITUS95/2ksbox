@@ -365,7 +365,10 @@ tracks, plus the items no track owns.
     the guest agent (`2ksbox\install.cmd` never run: with it, the agent
     takes ramfb's screen off at logon); a new machine now gets it at its
     first logon (the drivers disc's `autounattend.xml`, which also asks for
-    a local account), installed and checked on the Air. The launcher says
+    a local account), installed and checked on the Air. Its first pass
+    names no product key with the key page shown, or Windows 10's setup
+    stops at once ("cannot read the <ProductKey> setting"; 2026-10-15,
+    both setups checked to their key page under KVM). The launcher says
     nothing when a machine's disk is missing and has no way to delete a
     machine. Linux reads the screen's rate and blank through DRM
     (`screen.rs`; 59.996 Hz on the user's DP-1), on the screen the

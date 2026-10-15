@@ -10,13 +10,22 @@
      oobeSystem pass: every other page of setup stays the user's.
      install.cmd is not called: it ends in a pause, which would hold the
      logon.
-     The windowsPE pass holds one setting, at its default, and only so the
-     file is used at all: setup takes a file it finds on a disc only if it
-     has settings for the pass it is in ("does not meet criteria to be used
-     for this unattend pass" in setupact.log, Windows 11 26300 on Arm). -->
+     The windowsPE pass is there only so the file is used at all: setup
+     takes a file it finds on a disc only if it has settings for the pass
+     it is in ("does not meet criteria to be used for this unattend pass"
+     in setupact.log, Windows 11 26300 on Arm). It holds the product key as
+     none, with setup's own key page always shown: Windows 10's setup
+     refuses a windowsPE pass with no key ("Windows cannot read the
+     <ProductKey> setting from the unattend answer file"). -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
   <settings pass="windowsPE">
     <component name="Microsoft-Windows-Setup" processorArchitecture="@ARCH@" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <UserData>
+        <ProductKey>
+          <Key>00000-00000-00000-00000-00000</Key>
+          <WillShowUI>Always</WillShowUI>
+        </ProductKey>
+      </UserData>
       <UseConfigurationSet>false</UseConfigurationSet>
     </component>
   </settings>

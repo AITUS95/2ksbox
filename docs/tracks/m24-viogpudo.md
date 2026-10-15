@@ -409,6 +409,11 @@ Windows 11 test here.
   first version for nothing: it adopts a file it finds on a disc only if
   the file has settings for the pass it is in, the first (windowsPE), so
   the file holds one there at its default (`UseConfigurationSet` false).
+  Windows 10's setup refuses that pass with no product key ("Windows
+  cannot read the <ProductKey> setting from the unattend answer file",
+  2026-10-15), so it also holds the key as none
+  (`00000-00000-00000-00000-00000`) with `WillShowUI` `Always`: both
+  setups show their own key page, empty, as with no file.
   It also hides setup's Microsoft account screens (the user: "add it";
   Windows 11 Home offers no local account otherwise). Fresh install of
   26300 on the Air with the launcher (2026-10-09): every setup page as

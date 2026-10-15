@@ -172,7 +172,10 @@ logon of a machine installed with the disc in, and hides setup's
 Microsoft account screens, so setup asks for a local account (Windows
 11 Home offers none otherwise; the user: "add it"); setup adopts a
 disc's answer file only if it has settings for its first pass, so the
-file holds one there at its default (track M24, 2026-10-09:
+file holds one there at its default, and the product key as none with
+setup's key page always shown, since Windows 10's setup refuses a first
+pass with no key ("Windows cannot read the <ProductKey> setting", a
+Windows 10 disc on a Windows 11 machine, 2026-10-15) (track M24, 2026-10-09:
 a machine without the agent kept ramfb's screen beside ours, and a
 choppy desktop); on one installed without it, `2ksbox\install.cmd`
 installs it by hand
