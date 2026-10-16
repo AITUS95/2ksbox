@@ -931,6 +931,9 @@ fn on_input(w: Window_, input: SurfaceInput) {
             relative(w, dx, dy);
         }
         SurfaceInput::RawMotion { .. } => {}
+        // Text comes only to a surface that takes it, and this one doesn't:
+        // the guest gets keys, as scancodes.
+        SurfaceInput::Text(_) | SurfaceInput::Preedit { .. } | SurfaceInput::DeleteSurrounding { .. } => {}
         SurfaceInput::Motion { dx, dy } => {
             if !with(|p| p.raw_motion).unwrap_or(false) {
                 relative(w, dx, dy);
