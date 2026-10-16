@@ -109,6 +109,13 @@ ignored while the guest takes the window's size. Fit Window to Picture
 asks the window for the picture's size with no bars (`Gpu::picture_px`:
 the held scale, or the one on show).
 
+"The screen's real pixels" holds on a fractional display too (Windows at
+125 %, a Wayland output at 1.6): mitsuami sizes the surface by the
+display's own scale, never by a whole number above it, which would make
+the compositor shrink every frame and blur the scanlines (GTK on
+Wayland since mitsuami `73361cb`; on X11 and GTK before 4.12 the scale
+is still whole).
+
 Below 1x there is no whole scale, so the window's minimum inner size is
 the 1x picture in physical pixels (320×200 → 534×400), re-applied on
 every mode change and clamped to the monitor.
