@@ -751,14 +751,15 @@ fn Details() -> impl View {
                 <MenuButton menu=machine_actions(Rc::new(current))>"More"</MenuButton>
             }
     };
-    // On Windows the details are a shade darker than the list beside them
-    // (user): Fluent's secondary background, which follows the theme as the
-    // window's base one does, set as a style so it switches with it.
+    // On Windows the details are a shade apart from the list beside them
+    // (user): the window is on Mica, so a translucent layer over it, as
+    // Settings' content area is (Fluent's layer fill, which keeps Mica's
+    // tint), set as a style so it switches with the theme.
     let background = platform! {
         windows => mitsuami::winui::tweak(|view: &mitsuami::winui::bindings::ScrollViewer| {
             use mitsuami::winui::bindings as w;
             use mitsuami::winui::windows_core::Interface;
-            let markup = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ScrollViewer"><Setter Property="Background" Value="{ThemeResource SolidBackgroundFillColorSecondaryBrush}"/></Style>"#;
+            let markup = r#"<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ScrollViewer"><Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}"/></Style>"#;
             view.cast::<w::IFrameworkElement>()?.SetStyle(&w::XamlReader::Load(markup)?.cast::<w::Style>()?)
         }),
         _ => Tweak::none(),

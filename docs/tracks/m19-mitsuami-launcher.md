@@ -175,9 +175,12 @@ their column (user): Breeze gives a button an 80 px minimum and centres
 its label, and draws the label itself, so `about::hug` measures the name
 in the button's font (a `TextMetrics` in an invisible item: it has no
 parent of its own) and makes the button that wide
-plus a grid unit. On Windows its details are a shade darker there than the
-list beside them (Fluent's `SolidBackgroundFillColorSecondaryBrush`, a
-tweak on the details' `ScrollView`, user), and the machine form's
+plus a grid unit. On Windows its details are a shade apart from the
+list beside them (user), a tweak on the details' `ScrollView`: since
+mitsuami put windows on Mica (2026-10-16) Fluent's translucent
+`LayerFillColorDefaultBrush` over it, as Settings' content area, which
+keeps Mica's tint (the opaque `SolidBackgroundFillColorSecondaryBrush`
+before it hid Mica there), and the machine form's
 sidebar is half WinUI's default width (160, user), open from an 800-wide
 window rather than 1008, by a tweak in `Sections`. `LAUNCHER_SHOT` doesn't show the title bar; `PrintWindow`
 with `PW_RENDERFULLCONTENT` on the window's handle does, even behind
