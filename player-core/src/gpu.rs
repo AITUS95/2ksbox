@@ -161,8 +161,8 @@ impl Gpu {
         }
         // Two on Windows: at one, Direct3D 12's `get_current_texture` waited
         // out a whole vblank whenever the guest drew at 60 Hz, 16.5 ms of
-        // every frame on player-mitsuami's UI thread, so the pointer, the
-        // menus and Close lagged (user, 2026-10-16). At two the draw is
+        // every frame (then on player-mitsuami's UI thread, so the pointer,
+        // the menus and Close lagged; user, 2026-10-16). At two the draw is
         // 2.5 ms and publish→present p50 went from ~8 to ~1 ms.
         config.desired_maximum_frame_latency = if cfg!(windows) { 2 } else { 1 };
         surface.configure(&device, &config);
@@ -967,9 +967,45 @@ impl Gpu {
     /// Surface pixel → guest framebuffer coordinates (None outside the
     /// image): the point and the picture's own size.
     pub fn to_guest(&self, px: f64, py: f64) -> Option<(i32, i32, i32, i32)> {
-        let (_, _, tw, th) = self.current()?;
-        let (tw, th) = (*tw, *th);
-        let (x, y, w, h) = self.viewport();
+        self.view().to_guest(px, py)
+    }
+
+    /// What a window asks of the picture, as it stands: for a front end
+    /// that draws on a thread of its own and keeps this beside the window
+    /// (player-mitsuami's render thread).
+    pub fn view(&self) -> GpuView {
+        GpuView {
+            viewport: self.viewport(),
+            shown: self.shown_size(),
+            follows_window: self.follows_window,
+            picture_px: self.picture_px(),
+        }
+    }
+}
+
+/// The picture's place in the surface, copied out of a `Gpu` (`Gpu::view`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GpuView {
+    /// `Gpu::viewport`
+    pub viewport: (f32, f32, f32, f32),
+    /// `Gpu::shown_size`
+    pub shown: Option<(u32, u32)>,
+    /// `Gpu::follows_window`
+    pub follows_window: bool,
+    /// `Gpu::picture_px`
+    pub picture_px: Option<(u32, u32)>,
+}
+
+impl GpuView {
+    /// `Gpu::has_frame`
+    pub fn has_frame(&self) -> bool {
+        self.shown.is_some()
+    }
+
+    /// `Gpu::to_guest`
+    pub fn to_guest(&self, px: f64, py: f64) -> Option<(i32, i32, i32, i32)> {
+        let (tw, th) = self.shown?;
+        let (x, y, w, h) = self.viewport;
         let gx = ((px as f32 - x) / w * tw as f32) as i32;
         let gy = ((py as f32 - y) / h * th as f32) as i32;
         if gx < 0 || gy < 0 || gx >= tw as i32 || gy >= th as i32 {

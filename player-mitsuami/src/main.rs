@@ -11,8 +11,10 @@
 //! screen and the minimum size capped at the screen. The close question is
 //! the platform's alert, where the winit player draws its own.
 //!
-//! The picture is drawn on the UI thread when QEMU publishes (`wake.rs`),
-//! as the winit player draws on its event loop's wake. The surface is a
+//! The picture is drawn on a thread of its own when QEMU publishes
+//! (`render.rs`), so its wait for the screen is never the UI thread's; the
+//! UI thread hears of each draw (`wake.rs`) for the cursor, the pads and
+//! the window's floor. The surface is a
 //! desync Wayland subsurface on GTK, presented to in Mailbox: the spike
 //! (`track/player-gtk-spike`) measured that route at the winit window's
 //! latency, where GTK's own offload waited a refresh for its frame clock.
@@ -20,6 +22,7 @@
 //! It is **not** in the root workspace, like `launcher-mitsuami`: build it
 //! from this directory, so the root `cargo build` never needs GTK.
 
+mod render;
 mod wake;
 
 use mitsuami::core::{CurrentWindow, Ui};
@@ -27,16 +30,23 @@ use mitsuami::prelude::*;
 use player_core::cursor_shape::{self, CursorKind};
 use player_core::qemu_vm::CursorImage;
 use player_core::{Gpu, Input, MinSize, Qemu, Session};
+use render::Render;
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The machine and its picture. Kept out of the reactive graph: nothing
 /// here is shown by a widget, and the draw runs on every published frame.
 struct Player {
     args: player_core::Args,
-    gpu: Option<Gpu>,
-    session: Option<Session>,
+    /// The picture's thread, which owns the `Gpu` (`render.rs`).
+    render: Option<Render>,
+    /// Shared with the render thread, which draws it: held only briefly
+    /// here.
+    session: Option<Arc<Mutex<Session>>>,
+    /// The machine's handle while it may be called, kept here so input
+    /// never waits for the session's lock.
+    vm: Option<Qemu>,
     input: Input,
     /// The surface's scale: its pixels per point.
     scale: f32,
@@ -96,7 +106,12 @@ fn with<R>(f: impl FnOnce(&mut Player) -> R) -> Option<R> {
 }
 
 fn vm() -> Option<Qemu> {
-    with(|p| p.session.as_ref().and_then(Session::vm)).flatten()
+    with(|p| p.vm).flatten()
+}
+
+/// The session, locked for `f`.
+fn session<R>(p: &Player, f: impl FnOnce(&mut Session) -> R) -> Option<R> {
+    p.session.as_ref().map(|s| f(&mut s.lock().unwrap()))
 }
 
 /// The window's signals: what the platform shows, and what it changes back
@@ -135,8 +150,9 @@ fn main() {
     PLAYER.with(|p| {
         *p.borrow_mut() = Some(Player {
             args,
-            gpu: None,
+            render: None,
             session: None,
+            vm: None,
             input: Input::default(),
             scale: 1.0,
             pointer_inside: false,
@@ -190,9 +206,8 @@ fn main() {
     let status = PLAYER
         .with(|p| p.borrow_mut().take())
         .map(|mut p| {
-            let status = p.session.as_mut().map(Session::join).unwrap_or(0);
-            std::mem::forget(p.gpu.take());
-            status
+            std::mem::forget(p.render.as_mut().and_then(Render::stop));
+            session(&p, Session::join).unwrap_or(0)
         })
         .unwrap_or(0);
     // QEMU's atexit handlers run here, after its thread has completed
@@ -268,8 +283,10 @@ fn content(w: Window_) -> impl View {
     });
     // A lock ended (by the platform, or Ctrl+Alt+G): the pointer is the
     // host's again, with the right shape.
+    // And the frame carries the guest's cursor only while locked.
     effect(move || {
-        let _ = w.locked.get();
+        let locked = w.locked.get();
+        with(|p| p.render.as_ref().map(|r| r.set_locked(locked)));
         apply_cursor(w);
     });
     let ready = move |handle: SurfaceHandle| {
@@ -279,19 +296,30 @@ fn content(w: Window_) -> impl View {
         // without an error, the window empty); Direct3D 12's do.
         let backends = cfg!(windows).then_some(player_core::wgpu::Backends::DX12);
         let mut gpu = Gpu::with_backends(handle.clone(), (size.width.max(1), size.height.max(1)), backends);
-        let started = with(|p| {
+        let shared = render::Shared::new(wake.notifier());
+        with(|p| {
             p.input = Input::new(p.args.pad_mode);
             p.scale = if size.scale > 0.0 { size.scale } else { 1.0 };
             w.backing.set(p.scale);
-            let session = Session::start(&p.args, &mut gpu, Some(wake.notifier()));
-            let animates = session.animates();
-            let offscreen = session.offscreen();
+            let session = Session::start(&p.args, &mut gpu, Some(shared.notifier()));
+            // The test pattern at 60 Hz; the sweep and the calibration as
+            // fast as they go (each step exits the process when it is done).
+            let period = session
+                .animates()
+                .then(|| Duration::from_millis(if session.offscreen() { 1 } else { 16 }));
             session.tell_window_size(&gpu, (size.width, size.height), p.scale as f64);
+            p.vm = session.vm();
+            let session = Arc::new(Mutex::new(session));
+            let render = Render::start(shared, gpu, session.clone(), period);
+            // what the scale's and the lock's effects set before there was
+            // a thread to tell
+            render.set_fixed_scale(w.scale.get_untracked());
+            render.set_locked(w.locked.get_untracked());
+            render.draw();
+            p.render = Some(render);
             p.session = Some(session);
-            p.gpu = Some(gpu);
             p.surface = Some(handle.clone());
             tell_refresh(p);
-            (animates, offscreen)
         });
         // The screen's rate again every two seconds: a window dragged to
         // another screen is not resized
@@ -302,18 +330,6 @@ fn content(w: Window_) -> impl View {
                 with(tell_refresh);
             }
         });
-        // The test pattern at 60 Hz; the sweep and the calibration as fast
-        // as they go (each step exits the process when it is done).
-        if let Some((true, offscreen)) = started {
-            let period = Duration::from_millis(if offscreen { 1 } else { 16 });
-            let ticker = ui.clone();
-            ui.spawn_local(async move {
-                loop {
-                    draw(w);
-                    ticker.sleep(period).await;
-                }
-            });
-        }
         if w.want_grab.get_untracked() {
             w.grabbed.set(true);
         }
@@ -330,14 +346,13 @@ fn content(w: Window_) -> impl View {
         with(|p| {
             p.scale = backing;
             remember_size(p, (size.width as f32 / p.scale, size.height as f32 / p.scale), full);
-            if let (Some(gpu), Some(session)) = (p.gpu.as_mut(), p.session.as_ref()) {
-                gpu.resize(size.width, size.height);
-                session.tell_window_size(gpu, (size.width, size.height), p.scale as f64);
+            // drawn at the new size before this returns, never the old
+            // frame stretched
+            if let Some(render) = &p.render {
+                render.resize(size.width, size.height, p.scale as f64);
             }
             tell_refresh(p);
         });
-        // at the new size at once, never the old frame stretched
-        draw(w);
     };
     view! {
         <Column grow=1.0>
@@ -415,8 +430,7 @@ fn menus(w: Window_) -> MenuBar {
     // to the window around it.
     effect(move || {
         let held = w.scale.get();
-        with(|p| p.gpu.as_mut().map(|g| g.set_fixed_scale(held)));
-        draw(w);
+        with(|p| p.render.as_ref().map(|r| r.set_fixed_scale(held)));
     });
     view = view
         .submenu(scale)
@@ -475,10 +489,10 @@ fn menus(w: Window_) -> MenuBar {
         )
         .menu(
             view.item(MenuItem::new("Save Screenshot").shortcut(primary_alt('s')).on_select(|| {
-                    with(|p| p.gpu.as_ref().map(Gpu::screenshot));
+                    with(|p| p.render.as_ref().map(Render::screenshot));
                 }))
                 .item(MenuItem::new("Save Screenshot as Shown").shortcut(primary_alt('s').shift()).on_select(|| {
-                    with(|p| p.gpu.as_ref().map(Gpu::window_shot));
+                    with(|p| p.render.as_ref().map(Render::window_shot));
                 })),
         )
 }
@@ -534,7 +548,7 @@ fn send_ctrl_alt_del() {
 /// at once).
 fn close_request(w: Window_) {
     let Some((can_lose, asking)) = with(|p| {
-        let can_lose = p.gpu.as_ref().is_some_and(Gpu::has_frame) && p.session.as_ref().and_then(Session::vm).is_some();
+        let can_lose = p.render.as_ref().is_some_and(|r| r.view().has_frame()) && p.vm.is_some();
         (can_lose, p.asking)
     }) else {
         return;
@@ -576,76 +590,64 @@ fn close_request(w: Window_) {
 /// Pull the plug and close the window; `main` then joins QEMU's thread.
 fn close(w: Window_) {
     with(|p| {
-        if let Some(session) = p.session.as_mut() {
-            session.shut_down();
-        }
+        p.vm = None;
+        session(p, Session::shut_down);
     });
+    leave(w);
+}
+
+/// No more frames, then no more window: the render thread is done with
+/// the surface before the window that holds it goes.
+fn leave(w: Window_) {
+    let render = with(|p| p.render.take()).flatten();
+    if let Some(mut render) = render {
+        std::mem::forget(render.stop());
+    }
     w.open.set(false);
 }
 
-/// QEMU published a frame, or the guest's cursor changed.
+/// The render thread drew: a frame QEMU published, the guest's cursor
+/// changed, or the picture moved.
 fn on_wake(w: Window_) {
-    let stopped = with(|p| {
-        let (Some(gpu), Some(session)) = (p.gpu.as_mut(), p.session.as_mut()) else { return false };
-        // QEMU's main loop returned (guest power-off, `quit`): stop
-        // touching the handle and leave; `main` joins it.
-        if session.wake(gpu) {
-            return true;
+    let Some(Some((stopped, view, min, scale))) = with(|p| {
+        let render = p.render.as_ref()?;
+        let told = (render.stopped(), render.view(), render.take_min_size(), p.scale);
+        if !told.0 {
+            if let Some(session) = &p.session {
+                p.input.poll_pads(&session.lock().unwrap());
+            }
         }
-        p.input.poll_pads(session);
-        session.headless_tick(gpu);
-        false
-    })
-    .unwrap_or(false);
+        Some(told)
+    }) else {
+        return;
+    };
+    // QEMU's main loop returned (guest power-off, `quit`): stop touching
+    // the handle and leave; `main` joins it.
     if stopped {
-        w.open.set(false);
+        with(|p| p.vm = None);
+        leave(w);
         return;
     }
     update_guest_cursor(w);
-    draw(w);
-}
-
-/// Milliseconds since the first call, for the input log.
-fn t_ms() -> f64 {
-    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
-}
-
-/// One frame: the newest picture through the chain onto the surface.
-fn draw(w: Window_) {
-    let sprite = !host_cursor_possible(w);
-    let min = with(|p| {
-        let scale = p.scale;
-        let (Some(gpu), Some(session)) = (p.gpu.as_mut(), p.session.as_mut()) else { return None };
-        let frame = if session.offscreen() {
-            None
-        } else {
-            match gpu.acquire() {
-                Some(f) => Some(f),
-                None => return gpu.take_min_size().map(|m| (m, scale)),
-            }
-        };
-        let published = session.draw(gpu, frame.as_ref(), sprite);
-        if let Some(frame) = frame {
-            gpu.present(frame);
-        }
-        session.presented(gpu, published);
-        gpu.take_min_size().map(|m| (m, scale))
-    })
-    .flatten();
-    let fits = with(|p| p.gpu.as_ref().is_some_and(|g| !g.follows_window())).unwrap_or(false);
+    let fits = !view.follows_window;
     if w.fits.get_untracked() != fits {
         w.fits.set(fits);
     }
     // What the picture wants of the window's size; mitsuami caps it at the
     // screen and grows a window smaller than it.
-    if let Some((min, scale)) = min {
+    if let Some(min) = min {
         let size = match min {
             MinSize::Logical(width, height) => Size::new(width as f32, height as f32),
             MinSize::Physical(width, height) => Size::new(width as f32 / scale, height as f32 / scale),
         };
         w.min.set(size);
     }
+}
+
+/// Milliseconds since the first call, for the input log.
+fn t_ms() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
 }
 
 /// The refresh rate of the screen the window is on, as the guest's
@@ -657,7 +659,7 @@ fn tell_refresh(p: &mut Player) {
     let (Some(surface), Some(session)) = (p.surface.as_ref(), p.session.as_ref()) else { return };
     let host = player_core::screen::refresh_mhz(surface);
     if p.vblank.is_none() && std::env::var("PLAYER_HOST_VBLANK").as_deref() != Ok("0") {
-        p.vblank = session.vm().map(player_core::screen::HostVBlank::start);
+        p.vblank = p.vm.map(player_core::screen::HostVBlank::start);
     }
     if let Some(v) = &p.vblank {
         v.follow(surface, player_core::screen::divisor(host));
@@ -665,7 +667,7 @@ fn tell_refresh(p: &mut Player) {
     if player_core::screen::guest_refresh_mhz(host) == p.guest_mhz {
         return;
     }
-    p.guest_mhz = session.tell_screen_refresh(host);
+    p.guest_mhz = session.lock().unwrap().tell_screen_refresh(host);
     let hz = |m: u32| format!("{}.{:03}", m / 1000, m % 1000);
     match host {
         Some(h) => eprintln!("[display] host screen at {} Hz: the guest's blank at {} Hz", hz(h), hz(p.guest_mhz)),
@@ -682,7 +684,7 @@ fn fit_window(w: Window_) {
         return;
     }
     let ask = with(|p| {
-        let (pw, ph) = p.gpu.as_ref()?.picture_px()?;
+        let (pw, ph) = p.render.as_ref()?.view().picture_px?;
         let (ui, window) = p.window.clone()?;
         Some((ui, window, Size::new(pw as f32 / p.scale, ph as f32 / p.scale)))
     })
@@ -704,7 +706,8 @@ fn host_cursor_possible(w: Window_) -> bool {
 /// when the picture's zoom or the surface's scale moved.
 fn update_guest_cursor(w: Window_) {
     let changed = with(|p| {
-        let newer = p.session.as_ref().and_then(Session::display).and_then(|d| d.cursor_if_newer(p.guest_cursor_seq));
+        let seq = p.guest_cursor_seq;
+        let newer = session(p, |s| s.display().and_then(|d| d.cursor_if_newer(seq))).flatten();
         let mut changed = false;
         if let Some((seq, shape)) = newer {
             p.guest_cursor_seq = seq;
@@ -731,9 +734,9 @@ fn update_guest_cursor(w: Window_) {
 /// picture's scale is whole but for a free fit under 1x): a guest cursor
 /// the host has none for is drawn at it, as big as it is in the picture.
 fn cursor_zoom(p: &Player) -> u32 {
-    let Some(gpu) = p.gpu.as_ref() else { return 1 };
-    let Some((_, rows)) = gpu.shown_size() else { return 1 };
-    let (_, _, _, vh) = gpu.viewport();
+    let Some(view) = p.render.as_ref().map(Render::view) else { return 1 };
+    let Some((_, rows)) = view.shown else { return 1 };
+    let (_, _, _, vh) = view.viewport;
     // a 32x32 shape at 8x is 256 pixels, the most X11 and Windows take
     ((vh / rows.max(1) as f32).round() as u32).clamp(1, 8)
 }
@@ -790,7 +793,7 @@ fn apply_cursor(w: Window_) {
     }
     let possible = host_cursor_possible(w);
     let set = with(|p| {
-        let visible = p.session.as_ref().and_then(Session::display).and_then(|d| d.cursor_visible());
+        let visible = session(p, |s| s.display().and_then(|d| d.cursor_visible())).flatten();
         let want = if !p.pointer_inside || p.asking {
             HostCursor::Default
         } else if let (true, Some(_), Some(true)) = (possible, &p.guest_cursor, visible) {
@@ -858,7 +861,7 @@ fn on_input(w: Window_, input: SurfaceInput) {
             }
             let inside = with(|p| {
                 let s = p.scale as f64;
-                let at = p.gpu.as_ref()?.to_guest(position.x as f64 * s, position.y as f64 * s);
+                let at = p.render.as_ref()?.view().to_guest(position.x as f64 * s, position.y as f64 * s);
                 let changed = p.pointer_inside != at.is_some();
                 p.pointer_inside = at.is_some();
                 Some((at, changed))
@@ -982,7 +985,7 @@ fn chord(w: Window_, code: KeyCode, pressed: bool, repeat: bool, m: Modifiers) -
     match code {
         KeyCode::KeyG => w.locked.set(false),
         KeyCode::KeyS if !repeat => {
-            with(|p| p.gpu.as_ref().map(|g| if m.shift { g.window_shot() } else { g.screenshot() }));
+            with(|p| p.render.as_ref().map(|r| if m.shift { r.window_shot() } else { r.screenshot() }));
         }
         KeyCode::KeyK if !repeat => w.want_grab.set(!w.want_grab.get_untracked()),
         KeyCode::KeyF if m.shift && !repeat => w.full.set(!w.full.get_untracked()),

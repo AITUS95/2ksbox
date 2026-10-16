@@ -244,17 +244,27 @@ photons at 60 Hz, measured.
   `desired_maximum_frame_latency = 1`, but 2 on Windows. On Direct3D 12 at
   1, `get_current_texture` waited out a whole vblank whenever the guest
   drew at 60 Hz (16.5 ms of every frame), and in player-mitsuami that wait
-  is on the UI thread, so the pointer, the menus and Close lagged
+  was then on the UI thread, so the pointer, the menus and Close lagged
   (user, 2026-10-16). First seen after this PC's Windows updates of
   2026-10-13 and 15; the code had not changed since 10-03, so the cause on
-  the host's side is a guess. At 2 a draw is ~2.5 ms and publish→present p50 is ~1 ms
-  (`PLAYER_LATENCY=1`), lower than at 1.
+  the host's side is a guess. At 2 a draw is ~2.5 ms and publish→present
+  p50 is ~1 ms (`PLAYER_LATENCY=1`), lower than at 1.
+- **The draw's own thread.** player-mitsuami draws on a render thread
+  (`player-mitsuami/src/render.rs`, 2026-10-16), so no wait for the
+  screen is ever the UI thread's: it owns the `Gpu`, QEMU's waker wakes
+  it, and the window reads what it needs of the picture (where it is, its
+  size, for the pointer and Fit Window) from a `GpuView` copied out after
+  each draw. The UI thread asks for a size, a scale or a shot; a resize
+  waits up to 50 ms for the frame at the new size, so the old one is not
+  shown stretched. The session is shared under a lock the draw holds only
+  while it samples and draws, never while it acquires. The winit player
+  still draws on its event loop.
 - **Refresh mismatch.** Guests run 70 Hz (VGA text/DOS) and 60/75/85 Hz
   SVGA on 60/120/144 Hz/ProMotion hosts. The newest complete guest frame
   is presented at host vsync, never resampled. VRR passthrough is for
   later.
 - **Acquire before sampling.** The QEMU refresh tick wakes the event loop
-  (`EventLoopProxy`); the redraw first acquires the swapchain image, then
+  (`EventLoopProxy`; player-mitsuami's render thread); the redraw first acquires the swapchain image, then
   samples the newest guest frame, uploads and presents. Sampling first
   aged every frame by a vblank whenever the queue was saturated, which on
   Metal was always, since the 16 ms tick is slightly faster than 60 Hz

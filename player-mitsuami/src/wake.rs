@@ -1,9 +1,9 @@
-//! The QEMU thread's wake, as a future the UI thread awaits. QEMU calls
-//! the player's waker for every published frame and every cursor change,
-//! from its own thread; mitsuami's executor turns the UI thread's run loop
-//! when a task's waker fires from any thread, so the picture is drawn on
-//! the UI thread right after the publish, as the winit player draws on its
-//! event loop's wake. Wakes coalesce while one is pending.
+//! The render thread's wake, as a future the UI thread awaits. The render
+//! thread (`render.rs`) calls it after every draw, for what follows a
+//! publish on the UI thread (the cursor, the pads, the window's floor);
+//! mitsuami's executor turns the UI thread's run loop when a task's waker
+//! fires from any thread. Wakes coalesce while one is pending. (Until
+//! 2026-10-16 QEMU called it, and the UI thread drew.)
 //!
 //! Every wait goes through the executor, even when a wake came while the
 //! UI thread was busy: a draw waits about 16 ms for its drawable on macOS,

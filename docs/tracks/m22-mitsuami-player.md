@@ -80,9 +80,10 @@ embed library, as for the winit player, into a target dir of its own:
    and shots as before the split). `player-mitsuami`: an `App::open`
    `Window` (the title notes the lock and the shortcuts as winit's does,
    full screen, a minimum size from `take_min_size`, capped at the screen
-   by mitsuami), a `GpuSurface` presented to in Mailbox from the UI thread
-   on each QEMU wake (`wake.rs`, a future the QEMU thread's waker
-   resolves through mitsuami's executor), and the menus: Machine (Send
+   by mitsuami), a `GpuSurface` presented to in Mailbox on each QEMU
+   wake (from the UI thread then, `wake.rs`; from a render thread of its
+   own since 2026-10-16, `render.rs`, doc 03 "Latency budget", with
+   `wake.rs` waking the UI thread after each draw), and the menus: Machine (Send
    Ctrl+Alt+Del, its Ctrl+Alt+Shift+D shown and a tap where the window
    takes it, held while D is held where the surface does, user
    2026-10-08; Send Shortcuts to Guest, Release Mouse, Pause, Reset,

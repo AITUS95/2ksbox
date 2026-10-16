@@ -30,7 +30,7 @@ pub mod share;
 pub mod sweep;
 pub mod window_state;
 
-pub use gpu::{Gpu, MinSize};
+pub use gpu::{Gpu, GpuView, MinSize};
 pub use input::Input;
 pub use qemu_embed::Qemu;
 pub use session::Session;
