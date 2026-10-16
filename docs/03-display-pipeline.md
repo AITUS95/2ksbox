@@ -114,7 +114,8 @@ the held scale, or the one on show).
 display's own scale, never by a whole number above it, which would make
 the compositor shrink every frame and blur the scanlines (GTK on
 Wayland since mitsuami `73361cb`; on X11 and GTK before 4.12 the scale
-is still whole).
+is still whole). The launcher's shader preview renders at the same
+scale (mitsuami's metrics, fractional on GTK since `1217508`).
 
 Below 1x there is no whole scale, so the window's minimum inner size is
 the 1x picture in physical pixels (320×200 → 534×400), re-applied on
