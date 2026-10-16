@@ -128,8 +128,8 @@ Unfinished or unexplained things across tracks. A track's own open items
 live in its track doc; fixed things leave this list.
 
 - **The Flatpak's cargo sources are behind the mitsuami pin.** The pin
-  moved to mitsuami `f464309` on 2026-10-16 (`fa3cd613`) on the Windows
-  PC, which has no `uv`; run `scripts/gen-flatpak-cargo-sources.sh` on the
+  moved to mitsuami `f464309` and then `fad2cb5` (WinUI windows on Mica)
+  on 2026-10-16 on the Windows PC, which has no `uv`; run `scripts/gen-flatpak-cargo-sources.sh` on the
   Mac or a Linux box and commit `packaging/flatpak/cargo-sources.json`.
   The player's render thread (`render.rs`, same day) has run only on
   Windows so far: try it on the Air and on Linux.

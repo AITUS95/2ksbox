@@ -39,7 +39,7 @@ and bump `rev` to the pushed mitsuami commit before committing here.
 A dependency change, a new mitsuami `rev` included (it is a git
 dependency), means regenerating `packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami `a08b7c8` since 2026-10-12 (below): 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami `fad2cb5` since 2026-10-16 (below): 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -98,7 +98,14 @@ uses. Both crates built with no change. Then `a08b7c8` (2026-10-12),
 for the player: `Cursor::System`, a platform cursor by meaning (text,
 busy, link, resize…), which shows Windows 98's standard cursors as the
 host's own; with it two AppKit tab fixes. Both crates built with no
-change.
+change. Then `f464309` (2026-10-16), for the player: a WinUI window's
+size applied again after a menu closes only when the menu bar's height
+changed (each click on a menu shrank a resized player back to the
+picture), past mitsuami 1.2's text input on surfaces, which the player's
+takes none of. Then `fad2cb5` (2026-10-16): WinUI windows on Mica (Mica
+Alt with tabs in the title bar), as Windows 11's own apps; captures stay
+on Mica's solid colour, so `LAUNCHER_SHOT` looks as before. Both crates
+built with no change.
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:
