@@ -9,8 +9,8 @@
 # Three lock files, one vendor directory. `launcher-mitsuami/` and
 # `player-mitsuami/` are each their own cargo workspace (ADR-023,
 # ADR-025) and the launcher and player the Flatpak installs, so their
-# crates are declared too, mitsuami itself as a git source at its pinned
-# rev. The generator takes one lock file at a time, so it
+# crates are declared too, mitsuami among them (a crates.io release since
+# 2026-10-16, ADR-023). The generator takes one lock file at a time, so it
 # runs once per lock and the results are merged on their `dest`. They
 # share most crates at identical versions, and one `cargo/config` covers
 # all because `CARGO_HOME` is the same for every build.

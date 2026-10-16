@@ -33,7 +33,7 @@ player-core = { path = "../player-core", default-features = false }
 # DEP_QEMU_EMBED_LIBDIR (the rpath), which cargo gives only to a crate
 # that depends on the `links` crate directly.
 qemu-embed = { path = "../qemu-embed" }
-# Pinned to a commit (user decision, ADR-023), the launcher's rev: bump
+# The crates.io release, exact (ADR-023), the launcher's version: bump
 # both together. For work on both repositories at once, a `[patch]` in a
 # local, uncommitted `.cargo/config.toml` (docs/tracks/m19-mitsuami-launcher.md).
-mitsuami = { git = "https://github.com/Roboport-Tecnologia/mitsuami", rev = "1217508a8bb2b16162d3bfd6fe20cdc822e20144", default-features = false }
+mitsuami = { version = "=1.3.1", default-features = false }

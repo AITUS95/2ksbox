@@ -26,20 +26,23 @@ cd launcher-mitsuami && cargo build              # a debug build
 cargo build --no-default-features --features kde # Kirigami
 ```
 
-mitsuami comes from a pinned `rev` in `Cargo.toml`. To work on both
+mitsuami comes from crates.io, its release pinned exact
+(`version = "=1.3.1"` in `Cargo.toml`; ADR-023's 2026-10-16
+amendment, before that a git `rev`). To work on both
 repositories at once, override it in an uncommitted
 `launcher-mitsuami/.cargo/config.toml`:
 
 ```toml
-[patch."https://github.com/Roboport-Tecnologia/mitsuami"]
+[patch.crates-io]
 mitsuami = { path = "/path/to/mitsuami/crates/mitsuami" }
 ```
 
-and bump `rev` to the pushed mitsuami commit before committing here.
-A dependency change, a new mitsuami `rev` included (it is a git
-dependency), means regenerating `packaging/flatpak/cargo-sources.json`
+and bump the version to the published mitsuami release before
+committing here (the launcher and the player together). A dependency
+change, a new mitsuami version included, means regenerating
+`packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami `fad2cb5` since 2026-10-16 (below): 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami 1.3.1 from crates.io since 2026-10-16 (below): 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -105,7 +108,11 @@ picture), past mitsuami 1.2's text input on surfaces, which the player's
 takes none of. Then `fad2cb5` (2026-10-16): WinUI windows on Mica (Mica
 Alt with tabs in the title bar), as Windows 11's own apps; captures stay
 on Mica's solid colour, so `LAUNCHER_SHOT` looks as before. Both crates
-built with no change.
+built with no change. Then `73361cb` and `1217508` (2026-10-16): a GTK
+GPU surface sized by the fractional scale on Wayland, and the fractional
+monitor scale in the platform metrics (doc 03). Then, the same day, the
+crates.io release 1.3.1 (`67c22cc`, those two and a version bump), the
+first pin that is not a git `rev`. Both crates built with no change.
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:

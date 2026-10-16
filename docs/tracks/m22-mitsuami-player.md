@@ -35,7 +35,7 @@ cd player-mitsuami && cargo build --release        # GTK 4 (4.10+)
 cargo build --release --no-default-features --features kde,gilrs --target-dir target/kde   # Kirigami (step 3)
 ```
 
-mitsuami comes from the same pinned `rev` as `launcher-mitsuami`; bump
+mitsuami comes from the same crates.io version as `launcher-mitsuami`; bump
 both together. `--features qemu-x86_64` (or `qemu-aarch64`) links the other
 embed library, as for the winit player, into a target dir of its own:
 `--target-dir target/qemu-x86_64`, where the launcher looks for it.

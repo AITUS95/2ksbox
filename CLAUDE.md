@@ -67,7 +67,8 @@ Detail in each one's ADR (`docs/10-decisions.md`) or design doc.
   were deleted** (ADR-017, ADR-023, user decisions); don't bring either
   back.
 - **`launcher-mitsuami/` is the only launcher** (ADR-023, track M19:
-  native widgets through mitsuami, pinned by git rev; user, 2026-10-02):
+  native widgets through mitsuami, the crates.io release pinned exact
+  (`=1.3.1`; user, 2026-10-02, crates.io since 2026-10-16):
   AppKit, WinUI 3, GTK 4 (Kirigami with `kde`). Every package ships it as
   `2ksbox`; `scripts/build.sh` has a `mitsuami` stage. It is outside the
   root workspace, so `cargo build` never needs GTK. Every packager opens

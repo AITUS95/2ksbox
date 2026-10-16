@@ -816,7 +816,8 @@ the user's own Rust toolkit): AppKit on macOS, WinUI 3 on Windows, GTK 4
 on Linux by default, and Kirigami with the `kde` feature. It is a second
 thin view over `launcher-core` until it has every window, then it replaces
 `launcher-qt` in every package, as egui went (ADR-017). It depends on
-mitsuami by a **pinned git revision** (user decision), bumped by hand.
+mitsuami by a **pinned git revision** (user decision), bumped by hand;
+since 2026-10-16 by its crates.io release instead (amendment below).
 
 **Why.** Each platform's own controls, not Qt Quick's approximation of
 them; no Qt to carry on macOS and Windows; the toolkit is written against
@@ -842,6 +843,14 @@ machines. Since an add-on runs on the app's GNOME runtime, it carries
 the Qt and KDE Frameworks the Kirigami launcher needs, built from source,
 and the app's `2ksbox` starts it only in a Plasma session (user: the GTK
 launcher everywhere else). `docs/development.md` "Flatpak".
+
+**Amendment (2026-10-16, user).** mitsuami comes from crates.io, its
+official release pinned exact (`mitsuami = "=1.3.1"`), not a git
+revision; the launcher and the player name the same version. A
+release is a reviewed version bump, and the Flatpak's offline sources
+are plain crate archives with checksums, with no git checkout copied
+into the vendor directory. Work on both repositories at once still goes
+through a local, uncommitted `[patch]`.
 
 **Unchanged.** ADR-014: every rule and every sentence stays in
 `launcher-core`. wgpu stays in `launcher-core` for the preview (mitsuami
