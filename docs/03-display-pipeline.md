@@ -241,7 +241,14 @@ photons at 60 Hz, measured.
 - **In-process handoff.** The display listener publishes surface + dirty
   rects; the render thread uploads immediately. No encode, no copy chain.
 - **Present mode.** Mailbox where available, else FIFO;
-  `desired_maximum_frame_latency = 1`.
+  `desired_maximum_frame_latency = 1`, but 2 on Windows. On Direct3D 12 at
+  1, `get_current_texture` waited out a whole vblank whenever the guest
+  drew at 60 Hz (16.5 ms of every frame), and in player-mitsuami that wait
+  is on the UI thread, so the pointer, the menus and Close lagged
+  (user, 2026-10-16). First seen after this PC's Windows updates of
+  2026-10-13 and 15; the code had not changed since 10-03, so the cause on
+  the host's side is a guess. At 2 a draw is ~2.5 ms and publish→present p50 is ~1 ms
+  (`PLAYER_LATENCY=1`), lower than at 1.
 - **Refresh mismatch.** Guests run 70 Hz (VGA text/DOS) and 60/75/85 Hz
   SVGA on 60/120/144 Hz/ProMotion hosts. The newest complete guest frame
   is presented at host vsync, never resampled. VRR passthrough is for

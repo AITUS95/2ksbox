@@ -159,7 +159,12 @@ impl Gpu {
         if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
             config.present_mode = wgpu::PresentMode::Mailbox;
         }
-        config.desired_maximum_frame_latency = 1;
+        // Two on Windows: at one, Direct3D 12's `get_current_texture` waited
+        // out a whole vblank whenever the guest drew at 60 Hz, 16.5 ms of
+        // every frame on player-mitsuami's UI thread, so the pointer, the
+        // menus and Close lagged (user, 2026-10-16). At two the draw is
+        // 2.5 ms and publish→present p50 went from ~8 to ~1 ms.
+        config.desired_maximum_frame_latency = if cfg!(windows) { 2 } else { 1 };
         surface.configure(&device, &config);
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {

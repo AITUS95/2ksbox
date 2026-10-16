@@ -491,6 +491,12 @@ to one subsystem lives in its design doc; pointers are at the end.
   release handshake before `qemu_embed_destroy`.
 - **An occluded window gets no swapchain image.** Per-frame work that
   must not stall (importing zero-copy slots) runs on the wake event.
+- **A whole player that lags (pointer, menus, Close) with a guest that
+  is fine is a draw waiting on the swapchain.** player-mitsuami draws on
+  its UI thread, so a vblank's wait per frame leaves it nothing for
+  input. On Windows (Direct3D 12) the frame latency is 2 since
+  2026-10-16; at 1 every draw took 16.5 ms (doc 03 "Latency budget").
+  Measure before guessing: time `draw` and a 10 ms UI timer's lateness.
 - **A crackle report: ask for the lines first.** `[audio] device asks for
   N frames`, `qemu-embed: audio:` and `[audio] the guest's mix went past
   full scale`. A timing fault and a clipping fault sound alike and read
