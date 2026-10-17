@@ -668,6 +668,19 @@ void put_obj(Run &r, uint32_t id, uint32_t kind, IUnknown *p, HRESULT hr, uint32
     r.c.objs[id] = { kind, p, stage };
 }
 
+/* a resource the guest names where only a buffer may go (constant,
+ * vertex, index, stream output): anything else is refused, never cast */
+ID3D11Buffer *buf_ref(Run &r, uint32_t h)
+{
+    if (!h) return nullptr;
+    D11Res *x = res_of(r.d, h);
+    if (!x || x->d.dim != 1) {
+        r.fail(E_INVALIDARG);
+        return nullptr;
+    }
+    return static_cast<ID3D11Buffer *>(x->res);
+}
+
 /* the host is about to write the resource: VRAM's copy goes stale */
 void mark(Run &r, uint32_t h)
 {
@@ -699,10 +712,14 @@ ID3D11Resource *res_ref(Run &r, uint32_t h)
 
 void create_shader(Run &r, const d3dpt_d11_shader *s, uint32_t size)
 {
-    uint64_t need = sizeof(*s) + (uint64_t)s->code_dwords * 4 + (uint64_t)(s->nin + s->nout) * sizeof(d3dpt_d11_sig) +
-                    (uint64_t)s->nso * sizeof(d3dpt_d11_so);
+    /* the API's limits first (32 signature registers a side, a few entries
+     * per register; 64 stream output entries), then sizes in 64 bits */
+    if (s->nin > 128 || s->nout > 128 || s->nso > 64) { r.fail(E_INVALIDARG); return; }
+    uint64_t need = sizeof(*s) + (uint64_t)s->code_dwords * 4 + (uint64_t)s->nin * sizeof(d3dpt_d11_sig) +
+                    (uint64_t)s->nout * sizeof(d3dpt_d11_sig) + (uint64_t)s->nso * sizeof(d3dpt_d11_so);
     if (need > size || s->code_dwords < 2 || s->stage >= D3DPT_D11S_COUNT) { r.fail(E_INVALIDARG); return; }
     const uint32_t *code = (const uint32_t *)(s + 1);
+    if (code[1] != s->code_dwords) { r.fail(E_INVALIDARG); return; }    /* the program's own length (dword 1) */
     const d3dpt_d11_sig *in = (const d3dpt_d11_sig *)(code + s->code_dwords), *out = in + s->nin;
     const d3dpt_d11_so *so = (const d3dpt_d11_so *)(out + s->nout);
     uint32_t major = (code[0] >> 4) & 0xf;
@@ -1023,12 +1040,14 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         IUnknown *p = nullptr;
         if (pred) { ID3D11Predicate *x = nullptr; hr = d.dev->CreatePredicate(&q, &x); p = x; }
         else { ID3D11Query *x = nullptr; hr = d.dev->CreateQuery(&q, &x); p = x; }
-        put_obj(r, a->id, D3DPT_D11K_QUERY, p, hr);
+        put_obj(r, a->id, D3DPT_D11K_QUERY, p, hr, pred ? 1 : 0);    /* stage: 1 for a predicate */
         return;
     }
     case D3DPT_D11_SET_SHADER: {
         NEED(d3dpt_d11_ref);
         IUnknown *s = a->b ? obj<IUnknown>(r, a->b, D3DPT_D11K_SHADER) : nullptr;
+        /* a shader of that stage only: another stage's is another type */
+        if (s && r.c.objs[a->b].stage != a->a) { r.fail(E_INVALIDARG); return; }
         switch (a->a) {
         case D3DPT_D11S_VS: ctx->VSSetShader((ID3D11VertexShader *)s, nullptr, 0); break;
         case D3DPT_D11S_PS: ctx->PSSetShader((ID3D11PixelShader *)s, nullptr, 0); break;
@@ -1047,7 +1066,7 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         const uint32_t *ids = (const uint32_t *)(a + 1);
         void *p[128];
         for (uint32_t i = 0; i < a->n; i++) {
-            if (t->op == D3DPT_D11_SET_CB) p[i] = ids[i] ? static_cast<ID3D11Buffer *>(res_ref(r, ids[i])) : nullptr;
+            if (t->op == D3DPT_D11_SET_CB) p[i] = buf_ref(r, ids[i]);
             else if (t->op == D3DPT_D11_SET_SRV) p[i] = obj<ID3D11ShaderResourceView>(r, ids[i], D3DPT_D11K_SRV);
             else p[i] = obj<ID3D11SamplerState>(r, ids[i], D3DPT_D11K_SAMPLER);
         }
@@ -1079,7 +1098,7 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         ID3D11Buffer *b[32];
         UINT strides[32], offs[32];
         for (uint32_t i = 0; i < a->n; i++) {
-            b[i] = static_cast<ID3D11Buffer *>(res_ref(r, v[i].res));
+            b[i] = buf_ref(r, v[i].res);
             strides[i] = v[i].stride;
             offs[i] = v[i].offset;
         }
@@ -1088,7 +1107,7 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
     }
     case D3DPT_D11_SET_IB: {
         NEED(d3dpt_d11_vb);
-        ctx->IASetIndexBuffer(static_cast<ID3D11Buffer *>(res_ref(r, a->res)), (DXGI_FORMAT)a->stride, a->offset);
+        ctx->IASetIndexBuffer(buf_ref(r, a->res), (DXGI_FORMAT)a->stride, a->offset);
         return;
     }
     case D3DPT_D11_SET_TOPOLOGY: { NEED(uint32_t); ctx->IASetPrimitiveTopology((D3D11_PRIMITIVE_TOPOLOGY)*a); return; }
@@ -1133,13 +1152,15 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         const d3dpt_d11_ref *e = (const d3dpt_d11_ref *)(a + 1);
         ID3D11Buffer *b[4];
         UINT offs[4];
-        for (uint32_t i = 0; i < a->n; i++) { b[i] = static_cast<ID3D11Buffer *>(res_ref(r, e[i].a)); offs[i] = e[i].b; }
+        for (uint32_t i = 0; i < a->n; i++) { b[i] = buf_ref(r, e[i].a); offs[i] = e[i].b; }
         ctx->SOSetTargets(a->n, b, offs);
         return;
     }
     case D3DPT_D11_SET_PREDICATION: {
         NEED(d3dpt_d11_ref);
-        ctx->SetPredication(a->a ? obj<ID3D11Predicate>(r, a->a, D3DPT_D11K_QUERY) : nullptr, a->b);
+        ID3D11Predicate *pr = a->a ? obj<ID3D11Predicate>(r, a->a, D3DPT_D11K_QUERY) : nullptr;
+        if (pr && r.c.objs[a->a].stage != 1) { r.fail(E_INVALIDARG); return; }    /* a plain query is no predicate */
+        ctx->SetPredication(pr, a->b);
         return;
     }
     case D3DPT_D11_DRAW: { NEED_N(8); const uint32_t *v = (const uint32_t *)body; mark_targets(r); ctx->Draw(v[0], v[1]); return; }
