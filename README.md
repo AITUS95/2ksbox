@@ -60,8 +60,9 @@ your own discs.
 
 ## Getting 2ksbox
 
-Ready-to-run 2ksbox comes through the app stores: the Mac App Store
-and the Microsoft Store (not yet published). This repository is the
+Ready-to-run 2ksbox comes through the app stores: the
+[Mac App Store](https://apps.apple.com/app/2ksbox/id6819470979) and the
+[Microsoft Store](https://apps.microsoft.com/detail/9NVNN81VKF05). This repository is the
 source, and building it yourself is supported on every platform: once
 the tools are installed the build is one command, and it produces the
 same launcher, player and guest-tools disc as the store builds.

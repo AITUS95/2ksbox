@@ -407,10 +407,11 @@ tracks, plus the items no track owns.
     with `-Check` and through the certification kit:
     `OVERALL_RESULT=PASS`, the two optional FAILs of `build-windows.md`).
     Windows' and Linux's icons lost the teal plate that day; only macOS
-    keeps it. Its listing, Store ID `9NVNN81VKF05`
-    (<https://apps.microsoft.com/detail/9NVNN81VKF05>), is live once
-    the submission is published; then `README.md` and the manual's
-    `install.mdx` link it. Left: the Microsoft submission, the Air's
+    keeps it. `README.md` and the manual's `install.mdx` link both
+    listings since 2026-10-17 (user): the Microsoft Store's, Store ID
+    `9NVNN81VKF05` (<https://apps.microsoft.com/detail/9NVNN81VKF05>),
+    and the Mac App Store's, `id6819470979`
+    (<https://apps.apple.com/app/2ksbox/id6819470979>). Left: the Microsoft submission, the Air's
     gate, the App Store package, then the tag, which the user makes on
     the commit both packages come from.
     The manual's release notes are the stores' *What's New*. Every
