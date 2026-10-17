@@ -424,8 +424,12 @@ it; `package-windows.sh --msix` runs it after the zip's checks.
 - `2ksbox-debug.bat` is left out: an installed package's folder is
   read-only. The launcher's log is where it always is.
 
-Packing needs `makeappx.exe`, which is the Windows SDK's (the script
-finds the newest one under `Windows Kits`). `makeappx` validates the manifest and every path it names, so a
+Packing needs `makeappx.exe` and `makepri.exe`, which are the Windows
+SDK's (the script finds the newest under `Windows Kits`). `makepri`
+writes the `resources.pri` through which Windows finds the taskbar's
+own sizes of the 44 px logo, `Square44x44Logo.targetsize-N_altform-unplated`
+(and `lightunplated`, the light taskbar's): without them the taskbar
+scales the 44 and draws it on a plate of the accent colour (2026-10-17). `makeappx` validates the manifest and every path it names, so a
 pack that succeeds is structurally what the Store's upload check
 accepts.
 

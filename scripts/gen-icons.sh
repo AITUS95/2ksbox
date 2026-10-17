@@ -52,7 +52,8 @@
 # names (`scripts/package-msix.sh`), from the Windows master, at the
 # exact sizes the Store checks:
 #
-#   Square44x44Logo   44x44    the taskbar, the Start list: the icon whole
+#   Square44x44Logo   44x44    the Start list: the icon whole, and
+#     .targetsize-N_altform-[light]unplated (16/24/32/48/256) the taskbar's
 #   StoreLogo         50x50    the Store listing and the installer
 #   Square150x150Logo 150x150  the Start tile: the icon at three quarters,
 #   Wide310x150Logo   310x150  centred, on the tile's own background
@@ -141,6 +142,15 @@ logo() { # name, w, h, icon
     -gravity center -extent "${2}x${3}" -strip "PNG32:$aout/$1.png"
 }
 logo Square44x44Logo   44  44  44
+# The taskbar's sizes, "unplated": without them Windows draws the 44 on a
+# plate of the accent colour there (user, 2026-10-17). `lightunplated`
+# is the light taskbar's; the picture is the same. Windows finds them by
+# their qualifiers through the package's resources.pri (package-msix.sh).
+for s in 16 24 32 48 256; do
+  logo "Square44x44Logo.targetsize-${s}_altform-unplated" "$s" "$s" "$s"
+  cp "$aout/Square44x44Logo.targetsize-${s}_altform-unplated.png" \
+    "$aout/Square44x44Logo.targetsize-${s}_altform-lightunplated.png"
+done
 logo StoreLogo         50  50  50
 logo Square150x150Logo 150 150 112
 logo Wide310x150Logo   310 150 112
