@@ -90,4 +90,5 @@ sends neither anywhere else.
 
 Changes to this policy are made in the repository, where its history is
 public: <https://github.com/Roboport-Tecnologia/2ksbox/blob/main/docs/privacy.md>.
-Questions go to the repository's issue tracker.
+Questions go to the repository's issue tracker or to
+<contato@roboport.com.br>.
