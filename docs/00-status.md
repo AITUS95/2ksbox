@@ -474,6 +474,13 @@ to one subsystem lives in its design doc; pointers are at the end.
 
 ### Running on a Mac
 
+- **A GNU-only command in `test.sh` can end the run early with a green
+  summary.** macOS has no `nproc`; the `cpus` check's `$(( $(nproc) …
+  ))` was an arithmetic error, and bash drops the whole top-level `case`
+  for that, so from 04d6e9cc to 2026-10-17 `test.sh all` on the Air
+  stopped after `machine-details`. The summary still printed "0 failed"
+  and the script exited 0. Count the stages (`==> guest stage`, `win98`, `win7`) in the
+  log, and use `getconf _NPROCESSORS_ONLN` for a core count.
 - **`/opt/homebrew/lib` on `DYLD_LIBRARY_PATH` kills every image
   decode** (`SIGBUS` at `0xbad4007` in `IIO_Reader_GIF`). dyld searches
   it by leaf name first, and on a case-insensitive disk it answers

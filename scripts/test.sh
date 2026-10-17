@@ -540,7 +540,7 @@ cpus_check() { # the processor count: XP and 7 under hardware virtualization, Wi
   edit() { local b=$1 accel=$2 cpus=$3; $LAUNCHERX --wizard-edit "$b" - - "$accel" - - - - - - - - - - - "$cpus" >/dev/null 2>&1; }
   smp() { $LAUNCHERX --print-args "$1" | grep -o -- '-smp [0-9]*' | cut -d' ' -f2; }
   # The host's own count is the ceiling.
-  n=$(( $(nproc) < 4 ? $(nproc) : 4 ))
+  n=$(getconf _NPROCESSORS_ONLN); n=$(( n < 4 ? n : 4 ))
   xp="$($LAUNCHERX --new xp XP "$dir/disk.qcow2")" || { echo "--new xp failed"; return 1; }
   [ -z "$(smp "$xp")" ] || { echo "a new XP machine has -smp $(smp "$xp")"; rc=1; }
   edit "$xp" kvm 4 || { echo "--wizard-edit kvm 4 failed"; return 1; }
