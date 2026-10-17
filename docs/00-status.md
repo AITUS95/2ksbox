@@ -393,15 +393,16 @@ tracks, plus the items no track owns.
     the readback's wait (`tracks/m17-driver-perf.md`, `tools/w98-mp2.sh`).
 12. **Release 1.0.0** (`docs/release.md`, `scripts/release.sh`). The
     Linux gate passed on 2026-10-16 (`test.sh all`: 73 pass, the known
-    `pit-guest`; `package-linux.sh`). The PC's passed on 2026-10-17
-    (`test.sh all`: 64 pass, the known `pit-guest`, 17 skips that need
-    Linux, a display, Wine or a Windows 7 disc; `package-windows.sh
-    --msix`; the Store MSIX, 1.0.0.0 with Partner Center's identity
-    `RoboportTecnologia.2ksbox`, sideloaded with `-Check` and through the
-    certification kit: `OVERALL_RESULT=PASS`, the two optional FAILs of
-    `build-windows.md`; re-packed the same day with Windows' icons
-    without the teal plate, not yet re-certified; Linux's icon lost the
-    plate on 2026-10-17 too, and only macOS keeps it). Its listing, Store ID `9NVNN81VKF05`
+    `pit-guest`; `package-linux.sh`). The PC's passed on 2026-10-17 from
+    `86057b78` (`test.sh all`: 65 pass, 0 fail, `pit-guest` included
+    this time (an earlier run that day failed it as on Linux), 18 skips
+    that need Linux, macOS, a display, Wine, the winetests or a Windows
+    7 disc; `package-windows.sh --msix`; the Store MSIX, 1.0.0.0 with
+    Partner Center's identity `RoboportTecnologia.2ksbox`, sideloaded
+    with `-Check` and through the certification kit:
+    `OVERALL_RESULT=PASS`, the two optional FAILs of `build-windows.md`).
+    Windows' and Linux's icons lost the teal plate that day; only macOS
+    keeps it. Its listing, Store ID `9NVNN81VKF05`
     (<https://apps.microsoft.com/detail/9NVNN81VKF05>), is live once
     the submission is published; then `README.md` and the manual's
     `install.mdx` link it. Left: the Microsoft submission, the Air's
