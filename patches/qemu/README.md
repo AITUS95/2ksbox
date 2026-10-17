@@ -1141,7 +1141,11 @@ fence interrupt per submission, lost it within a minute of a
 full-window repaint: a TDR with every fence done on the host, the last
 never reported and the device's `IRQ_STATUS` pending, then a restart.
 The exit now takes the BQL around the broadcast. **Test:** the PC's
-Windows 11 test machine, `LOAD\anim.ps1` maximized (track M25).
+Windows 11 test machine (`D:\vms\win11-test`, track M25), `LOAD\anim.ps1`
+maximized at 1600x1200 on the WDDM driver from before the NOOVERWRITE
+change (a submission and a fence interrupt per DWM draw): a TDR within
+30-40 s in three runs of three without the patch, none in three runs of
+180 s with it.
 **Drop:** upstream locks it.
 
 ## Dropped in M21

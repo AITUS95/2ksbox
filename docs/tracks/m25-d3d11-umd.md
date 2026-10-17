@@ -296,7 +296,7 @@ inside the present.
 
 ## Open
 
-- **A TDR under a full-screen repaint** (`LOAD\anim.ps1` maximized at
+- ~~**A TDR under a full-screen repaint**~~ (fixed by QEMU patch 94) (`LOAD\anim.ps1` maximized at
   1600x1200, before the NOOVERWRITE change; not seen in one run after
   it): `CollectDbgInfo` with every fence done on the host and the last
   one never reported (`fences submitted 0xbb37 done 0xbb37 notified
@@ -308,10 +308,11 @@ inside the present.
   interleave so that neither delivers (patch 94, `94-whpx-eoi-bql`, which
   takes the BQL; every guest's level-triggered INTx under WHPX could lose
   its line so, an XP's sound or USB card on an APIC HAL included; KVM's
-  IOAPIC is in the kernel and TCG's EOI holds the BQL). The check, in
-  progress: the old Direct3D 9 driver (a submission per draw, the most
+  IOAPIC is in the kernel and TCG's EOI holds the BQL). Checked
+  2026-10-17: the old Direct3D 9 driver (a submission per draw, the most
   interrupts), which hit the TDR within ~30-40 s three runs of three,
-  under the same load on the patched QEMU for minutes.
+  ran the same load on the patched QEMU three times 180 s with no TDR and
+  no restart. Fixed.
 - **DWM back on d3d10level9** in the `m25` overlay (above): which of its
   devices the runtime refuses on this driver.
 
