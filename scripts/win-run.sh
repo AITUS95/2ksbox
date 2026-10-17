@@ -58,6 +58,12 @@ DXVK="$ROOT/build/win/dxvk/src/d3d9/d3d9.dll"
 if [ -f "$EXEC" ] && [ -f "$DXVK" ]; then
   RENAMED="$ROOT/build/win/d3dpt/dxvk_d3d9.dll"
   cmp -s "$DXVK" "$RENAMED" || cp "$DXVK" "$RENAMED"
+  # its d3d11 and dxgi beside it, which the executor's Direct3D 10 / 11
+  # side looks for there (track M25)
+  for n in d3d11 dxgi; do
+    [ ! -f "$ROOT/build/win/dxvk/src/$n/$n.dll" ] || cmp -s "$ROOT/build/win/dxvk/src/$n/$n.dll" "$ROOT/build/win/d3dpt/dxvk_$n.dll" ||
+      cp "$ROOT/build/win/dxvk/src/$n/$n.dll" "$ROOT/build/win/d3dpt/dxvk_$n.dll"
+  done
   [ -n "${D3DPT_EXEC_LIB:-}" ] || export D3DPT_EXEC_LIB="$(win "$EXEC")"
   [ -n "${D3DPT_DXVK_LIB:-}" ] || export D3DPT_DXVK_LIB="$(win "$RENAMED")"
 else

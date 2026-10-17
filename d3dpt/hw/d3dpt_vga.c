@@ -143,6 +143,7 @@ struct D3dptVgaState {
     uint32_t cmd_offset;        /* 0 = VRAM too small for a window */
     const D3dptExecLib *lib;
     d3dpt_exec_t *exec;
+    bool d3d11;                 /* the executor runs Direct3D 11 (CAP_D3D11, M25) */
     bool exec_tried;
     uint32_t d3d_err;           /* last D3DPT_ERR_* of the doorbell */
     uint32_t batches;
@@ -763,7 +764,10 @@ static bool d3d_load(D3dptVgaState *s)
     }
     s->lib->set_vram(s->exec, memory_region_get_ram_ptr(&s->vga.vram), s->cmd_offset);
     s->lib->attach(s->exec, 1);
-    info_report("d3dpt-vga: Direct3D executor ready, window at %u MiB", s->cmd_offset >> 20);
+    /* register set v10: Direct3D 11 when the executor opens it (M25) */
+    s->d3d11 = s->lib->features && (s->lib->features(s->exec) & D3DPT_EXEC_FEAT_D3D11);
+    info_report("d3dpt-vga: Direct3D executor ready, window at %u MiB%s", s->cmd_offset >> 20,
+                s->d3d11 ? ", Direct3D 11 too" : "");
     return true;
 }
 
@@ -1012,7 +1016,8 @@ static uint64_t d3dpt_vga_regs_read(void *opaque, hwaddr addr, unsigned size)
     case D3DPT_FB_REG_CAPS:
         return D3DPT_FB_CAP_BPP8 | D3DPT_FB_CAP_BPP16 | D3DPT_FB_CAP_BPP32 |
                D3DPT_FB_CAP_CURSOR | D3DPT_FB_CAP_GAMMA | (s->cmd_offset ? D3DPT_FB_CAP_D3D : 0) |
-               (s->irq ? D3DPT_FB_CAP_IRQ : 0) | (s->cmd_offset ? D3DPT_FB_CAP_DMA : 0) | D3DPT_FB_CAP_FILL | D3DPT_FB_CAP_COPY;
+               (s->irq ? D3DPT_FB_CAP_IRQ : 0) | (s->cmd_offset ? D3DPT_FB_CAP_DMA : 0) | D3DPT_FB_CAP_FILL | D3DPT_FB_CAP_COPY |
+               (s->d3d11 ? D3DPT_FB_CAP_D3D11 : 0);
     case D3DPT_FB_REG_IRQ_ENABLE:
         return s->irq_enable;
     case D3DPT_FB_REG_IRQ_STATUS:

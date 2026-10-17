@@ -64,6 +64,7 @@
   <ItemGroup>
     <ClCompile Include="d3dptumd.c" />
     <ClCompile Include="umd_core.c" />
+    <ClCompile Include="..\umd_log.c" />
     <ClCompile Include="..\..\core\core_caps.c">
       <!-- the core includes <windef.h> first, which MSVC's SDK takes only
            after <windows.h> -->

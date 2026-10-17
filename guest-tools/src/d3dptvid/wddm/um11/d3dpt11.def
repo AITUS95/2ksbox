@@ -1,0 +1,3 @@
+LIBRARY d3dpt11
+EXPORTS
+    OpenAdapter10_2

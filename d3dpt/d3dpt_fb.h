@@ -91,6 +91,11 @@
  * in rows when COPY_ROWS says so (a present blit's rectangle), or VRAM to
  * VRAM.
  *
+ * Version 10 (CAP_D3D11, M25): the host's executor runs the D11 records
+ * (d3dpt_proto.h v25), Direct3D 10 and 11. Without it the WDDM driver's
+ * Direct3D 11 user-mode driver refuses to open, and Windows puts Direct3D
+ * 11 on the Direct3D 9 driver (d3d10level9) as before.
+ *
  * **Versions only add.** Every driver (the XP miniport, the 9x display
  * driver and mini-VDD) accepts any VERSION at or above the one it was
  * built with and refuses only an older one, because a newer register set is
@@ -111,7 +116,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_FB_VERSION      9u
+#define D3DPT_FB_VERSION      10u
 #define D3DPT_FB_MAGIC        0x42463344u          /* "D3FB" at REG_MAGIC */
 
 /* PCI identity: QEMU/Bochs pseudo vendor, our device id ("3D00"). The INF
@@ -230,5 +235,6 @@
 #define D3DPT_FB_CAP_DMA         0x80u   /* version 7: DMA_* and FENCE (with a command window) */
 #define D3DPT_FB_CAP_FILL        0x100u  /* version 9: the FILL registers */
 #define D3DPT_FB_CAP_COPY        0x200u  /* version 9: the COPY registers */
+#define D3DPT_FB_CAP_D3D11       0x400u  /* version 10: the executor runs Direct3D 11 (the D11 records) */
 
 #endif

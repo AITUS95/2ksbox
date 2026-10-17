@@ -1,13 +1,18 @@
 # wddm-install.ps1: the WDDM display driver on 64-bit Windows 11, test
 # signed (track M20). 64-bit Windows loads no unsigned kernel driver, so
 # this turns test mode on, makes a code-signing certificate of this
-# machine's own, signs d3dptkmd.sys and both user-mode drivers (d3dptumd.dll,
-# and d3dptumd32.dll for 32-bit processes) with it, writes the
-# package's catalog and signs that, trusts the certificate, and installs
-# the package on d3dpt-vga. Test mode starts at the next boot, and so
-# does the driver. Run it elevated from the folder with the driver's
-# four files; it copies them to a work folder first (the disc is
-# read-only). Secure Boot must be off (the default with no keys enrolled).
+# machine's own, signs d3dptkmd.sys and the user-mode drivers (Direct3D
+# 9's d3dptumd.dll, Direct3D 10 and 11's d3dpt11.dll, and their 32-bit
+# copies for 32-bit processes) with it, writes the package's catalog and
+# signs that, trusts the certificate, and installs the package on
+# d3dpt-vga. Test mode starts at the next boot, and so does the driver.
+# Run it elevated from the folder with the driver's six files; it copies
+# them to a work folder first (the disc is read-only). Secure Boot must be
+# off (the default with no keys enrolled).
+#
+# DWM stays on Direct3D 9's driver (d3d10level9) until track M25's step
+# 4: HKLM\SOFTWARE\2ksbox's D3D11Exclude names it, and d3dpt11.dll refuses
+# the processes it names.
 #
 #   powershell -ep bypass -f wddm-install.ps1        then restart
 #
@@ -17,7 +22,7 @@ $src = Split-Path -Parent $MyInvocation.MyCommand.Path
 $work = Join-Path $env:SystemRoot "Temp\2ksbox-wddm"
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $work | Out-Null
-foreach ($f in "d3dptkmd.sys", "d3dptumd.dll", "d3dptumd32.dll", "d3dptkmd.inf") {
+foreach ($f in "d3dptkmd.sys", "d3dptumd.dll", "d3dptumd32.dll", "d3dpt11.dll", "d3dpt11_32.dll", "d3dptkmd.inf") {
     Copy-Item (Join-Path $src $f) $work
     # a disc's files come over read-only, and signing rewrites them
     (Get-Item (Join-Path $work $f)).IsReadOnly = $false
@@ -43,8 +48,14 @@ function Sign($path) {
 Sign (Join-Path $work "d3dptkmd.sys")
 Sign (Join-Path $work "d3dptumd.dll")
 Sign (Join-Path $work "d3dptumd32.dll")
+Sign (Join-Path $work "d3dpt11.dll")
+Sign (Join-Path $work "d3dpt11_32.dll")
 New-FileCatalog -Path $work -CatalogFilePath (Join-Path $work "d3dptkmd.cat") -CatalogVersion 2.0 | Out-Null
 Sign (Join-Path $work "d3dptkmd.cat")
+
+# (no New-Item -Force on a key that is there: it empties the key)
+if (-not (Test-Path "HKLM:\SOFTWARE\2ksbox")) { New-Item "HKLM:\SOFTWARE\2ksbox" | Out-Null }
+New-ItemProperty -Force "HKLM:\SOFTWARE\2ksbox" -Name D3D11Exclude -PropertyType MultiString -Value @("dwm.exe") | Out-Null
 
 pnputil /add-driver (Join-Path $work "d3dptkmd.inf") /install | Out-Host
 Write-Host "wddm-install: done; restart Windows (test mode and the driver start then)"

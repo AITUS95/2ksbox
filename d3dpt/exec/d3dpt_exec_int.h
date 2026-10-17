@@ -57,6 +57,7 @@ inline const char *env(const char *name)
 
 struct Exec;
 void exec_ddi_release(Exec &x);
+void exec_d11_release(Exec &x);
 
 enum Kind : uint8_t { K_NONE, K_QUERY };
 
@@ -82,6 +83,7 @@ struct Exec {
     uint8_t *vram = nullptr;
     uint32_t vram_size = 0;
     struct Ddi *ddi = nullptr;
+    void *d11 = nullptr;            /* M25: the Direct3D 11 side (d3dpt_exec_d11.cpp), made at its first record */
 
     /* A scene, opened by the executor rather than by whatever it is
      * executing. The display driver's DP2 stream carries no scene at all
@@ -114,6 +116,7 @@ struct Exec {
     }
     void release_all() {
         scene_end();
+        exec_d11_release(*this);
         exec_ddi_release(*this);
         for (auto &kv : objs) if (kv.second.p) kv.second.p->Release();
         objs.clear();
@@ -156,6 +159,23 @@ bool exec_ddi_op(Batch &b, const d3dpt_cmd *c);
  * its next use. The surfaces stay registered: the guest driver sends a
  * VRAM_SURFACE once and never again. */
 void exec_ddi_device_reset(Exec &x);
+
+/* M25, the Direct3D 11 side (d3dpt_exec_d11.cpp): a D11 record; an
+ * allocation the kernel driver released; a guest context it destroyed
+ * (true if it was a Direct3D 11 one) */
+bool exec_d11_op(Batch &b, const d3dpt_cmd *c);
+bool exec_d11_available(Exec &x);
+void exec_d11_sync(Exec &x, uint32_t handle);
+void exec_d11_vram_release(Exec &x, uint32_t handle);
+bool exec_d11_ctx_destroy(Exec &x, uint32_t ctx);
+/* ... and what it asks of the display driver's side (d3dpt_exec_ddi.cpp):
+ * an allocation's VRAM range by its registration; the host wrote it (the
+ * Direct3D 9 object re-reads it); bring VRAM up to date with a Direct3D 9
+ * object that drew into it, true if the allocation is a Direct3D 9
+ * surface whose pixels VRAM now holds */
+bool exec_ddi_vram(Exec &x, uint32_t handle, uint32_t *offset, uint32_t *bytes);
+void exec_ddi_vram_written(Exec &x, uint32_t handle);
+bool exec_ddi_vram_sync(Exec &x, uint32_t handle);
 
 /* CreateDevice for both backends (d3dpt_exec.cpp) */
 HRESULT exec_create_device(Exec &x, UINT adapter, DWORD flags, D3DPRESENT_PARAMETERS &pp, IDirect3DDevice9 **dev);

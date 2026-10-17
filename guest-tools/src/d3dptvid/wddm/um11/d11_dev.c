@@ -1,0 +1,315 @@
+/*
+ * d11_dev.c: the Direct3D 11 driver's device (track M25): its creation,
+ * the entries no other file has, and DXGI's functions (present, display
+ * mode, a swap chain's identities and its copies).
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+#include "d3dpt11.h"
+
+SIZE_T APIENTRY d11_calc_device_size(D3D10DDI_HADAPTER h, const D3D10DDIARG_CALCPRIVATEDEVICESIZE *a)
+{ D11_TRACE("d11_calc_device_size");
+    (void)h; (void)a;
+    return sizeof(D11_DEV);
+}
+
+static void APIENTRY d11_flush(D3D10DDI_HDEVICE h)
+{ D11_TRACE("d11_flush");
+    cmd_flush(DEV(h));
+}
+
+static void APIENTRY d11_destroy_device(D3D10DDI_HDEVICE h)
+{ D11_TRACE("d11_destroy_device");
+    D11_DEV *d = DEV(h);
+
+    umd_log("d3d11: DestroyDevice");
+    cmd_flush(d);
+    d11_pipe_destroy(d);
+    if (d->ctx) {
+        D3DDDICB_DESTROYCONTEXT dc;
+
+        /* the kernel driver destroys the host's context with it */
+        dc.hContext = d->ctx;
+        d->kt.pfnDestroyContextCb(d->rt.handle, &dc);
+        d->ctx = NULL;
+    }
+}
+
+static void APIENTRY d11_check_format(D3D10DDI_HDEVICE h, DXGI_FORMAT f, UINT *out)
+{ D11_TRACE("d11_check_format");
+    (void)h;
+    *out = fmt_support((UINT)f);
+    if (g_d11_verbose) {
+        umd_log("d3d11: CheckFormatSupport %u -> 0x%x", f, *out);
+    }
+}
+
+static void APIENTRY d11_check_ms(D3D10DDI_HDEVICE h, DXGI_FORMAT f, UINT count, UINT *levels)
+{ D11_TRACE("d11_check_ms");
+    (void)h;
+    *levels = count == 1 ? 1 : 0;                 /* no multisampling yet (fmt_support) */
+    if (g_d11_verbose) {
+        umd_log("d3d11: CheckMultisampleQualityLevels %u x%u -> %u", f, count, *levels);
+    }
+}
+
+static void APIENTRY d11_counter_info(D3D10DDI_HDEVICE h, D3D10DDI_COUNTER_INFO *c)
+{ D11_TRACE("d11_counter_info");
+    (void)h;
+    ZeroMemory(c, sizeof(*c));                    /* no device-dependent counters */
+}
+
+static void APIENTRY d11_check_counter(D3D10DDI_HDEVICE h, D3D10DDI_QUERY q, D3D10DDI_COUNTER_TYPE *type, UINT *active, LPSTR name,
+                                       UINT *name_len, LPSTR units, UINT *units_len, LPSTR desc, UINT *desc_len)
+{ D11_TRACE("d11_check_counter");
+    (void)q; (void)type; (void)active; (void)name; (void)name_len; (void)units; (void)units_len; (void)desc; (void)desc_len;
+    set_error(DEV(h), E_INVALIDARG);
+}
+
+static void APIENTRY d11_text_filter(D3D10DDI_HDEVICE h, UINT w, UINT ht)
+{ D11_TRACE("d11_text_filter");
+    (void)h; (void)w; (void)ht;
+}
+
+static void APIENTRY d11_relocate(D3D10DDI_HDEVICE h, struct D3D11DDI_DEVICEFUNCS *f)
+{ D11_TRACE("d11_relocate");
+    (void)h; (void)f;                             /* nothing keeps the table's address */
+}
+
+/* deferred contexts and command lists: the runtime records them itself
+ * (no D3D11DDICAPS_COMMANDLISTS), so none of these is called */
+static void APIENTRY d11_cl_execute(D3D10DDI_HDEVICE h, D3D11DDI_HCOMMANDLIST l) { D11_TRACE("d11_cl_execute"); (void)h; (void)l; D11_TODO("CommandListExecute"); }
+static void APIENTRY d11_dc_handle_sizes(D3D10DDI_HDEVICE h, UINT *n, D3D11DDI_HANDLESIZE *s) { D11_TRACE("d11_dc_handle_sizes"); (void)h; (void)s; *n = 0; }
+static SIZE_T APIENTRY d11_dc_handle_size(D3D10DDI_HDEVICE h, D3D11DDI_HANDLETYPE t, VOID *p) { D11_TRACE("d11_dc_handle_size"); (void)h; (void)t; (void)p; return 0; }
+static SIZE_T APIENTRY d11_dc_size(D3D10DDI_HDEVICE h, const D3D11DDIARG_CALCPRIVATEDEFERREDCONTEXTSIZE *a) { D11_TRACE("d11_dc_size"); (void)h; (void)a; return 0; }
+static void APIENTRY d11_dc_create(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEDEFERREDCONTEXT *a) { D11_TRACE("d11_dc_create"); (void)a; set_error(DEV(h), E_NOTIMPL); }
+static HRESULT APIENTRY d11_dc_recycle_create(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEDEFERREDCONTEXT *a) { D11_TRACE("d11_dc_recycle_create"); (void)h; (void)a; return E_NOTIMPL; }
+static void APIENTRY d11_cl_abandon(D3D10DDI_HDEVICE h) { D11_TRACE("d11_cl_abandon"); (void)h; }
+static SIZE_T APIENTRY d11_cl_size(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATECOMMANDLIST *a) { D11_TRACE("d11_cl_size"); (void)h; (void)a; return 0; }
+static void APIENTRY d11_cl_create(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATECOMMANDLIST *a, D3D11DDI_HCOMMANDLIST l, D3D11DDI_HRTCOMMANDLIST rt) { D11_TRACE("d11_cl_create"); (void)a; (void)l; (void)rt; set_error(DEV(h), E_NOTIMPL); }
+static void APIENTRY d11_cl_destroy(D3D10DDI_HDEVICE h, D3D11DDI_HCOMMANDLIST l) { D11_TRACE("d11_cl_destroy"); (void)h; (void)l; }
+static void APIENTRY d11_cl_recycle(D3D10DDI_HDEVICE h, D3D11DDI_HCOMMANDLIST l) { D11_TRACE("d11_cl_recycle"); (void)h; (void)l; }
+static HRESULT APIENTRY d11_cl_recycle_create(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATECOMMANDLIST *a, D3D11DDI_HCOMMANDLIST l, D3D11DDI_HRTCOMMANDLIST rt) { D11_TRACE("d11_cl_recycle_create"); (void)h; (void)a; (void)l; (void)rt; return E_NOTIMPL; }
+
+/* ---------------------------------------------------------------- DXGI */
+
+#define DXGI_DEV(p) ((D11_DEV *)(p)->hDevice)
+#define DXGI_RES(x) ((D11_RES *)(x))
+
+/* Present: the host's pixels of the buffer into its VRAM, then the
+ * kernel driver's Present copies them where they go (DWM's redirection
+ * surface, or the primary full screen), as for Direct3D 9 */
+static HRESULT APIENTRY dxgi_present(DXGI_DDI_ARG_PRESENT *p)
+{ D11_TRACE("dxgi_present");
+    D11_DEV *d = DXGI_DEV(p);
+    D11_RES *src = DXGI_RES(p->hSurfaceToPresent), *dst = DXGI_RES(p->hDstResource);
+    DXGIDDICB_PRESENT pc;
+    HRESULT hr;
+    static ULONG logged;
+
+    if (src && src->vram) {
+        res_ref(d, D3DPT_D11_RES_READBACK, src, p->SrcSubResourceIndex);
+    }
+    cmd_flush(d);
+    ZeroMemory(&pc, sizeof(pc));
+    pc.hSrcAllocation = src ? src->kmt : 0;
+    pc.hDstAllocation = dst ? dst->kmt : 0;
+    pc.pDXGIContext = p->pDXGIContext;
+    pc.hContext = d->ctx;
+    hr = d->dxgi->pfnPresentCb(d->rt.handle, &pc);
+    if (logged < 16 || FAILED(hr)) {
+        logged++;
+        umd_log("d3d11: Present flags 0x%x src %p (%ux%u fmt %u) sub %u dst %p interval %u -> 0x%08x", p->Flags.Value, src,
+                src ? src->r.width : 0, src ? src->r.height : 0, src ? src->r.format : 0, p->SrcSubResourceIndex, dst,
+                p->FlipInterval, hr);
+    }
+    return hr;
+}
+
+static HRESULT APIENTRY dxgi_gamma_caps(DXGI_DDI_ARG_GET_GAMMA_CONTROL_CAPS *g)
+{ D11_TRACE("dxgi_gamma_caps");
+    ZeroMemory(g->pGammaCapabilities, sizeof(*g->pGammaCapabilities));
+    return S_OK;
+}
+
+static HRESULT APIENTRY dxgi_set_display_mode(DXGI_DDI_ARG_SETDISPLAYMODE *m)
+{ D11_TRACE("dxgi_set_display_mode");
+    D11_DEV *d = DXGI_DEV(m);
+    D11_RES *r = DXGI_RES(m->hResource);
+    D3DDDICB_SETDISPLAYMODE s;
+    HRESULT hr;
+
+    if (r && r->vram) {
+        res_ref(d, D3DPT_D11_RES_READBACK, r, m->SubResourceIndex);
+    }
+    cmd_flush(d);
+    ZeroMemory(&s, sizeof(s));
+    s.hPrimaryAllocation = r ? r->kmt : 0;
+    hr = d->kt.pfnSetDisplayModeCb(d->rt.handle, &s);
+    umd_log("d3d11: SetDisplayMode %ux%u fmt %u -> 0x%08x", r ? r->r.width : 0, r ? r->r.height : 0, r ? r->r.format : 0, hr);
+    return hr;
+}
+
+static HRESULT APIENTRY dxgi_set_priority(DXGI_DDI_ARG_SETRESOURCEPRIORITY *p)
+{ D11_TRACE("dxgi_set_priority");
+    (void)p;
+    return S_OK;
+}
+
+static HRESULT APIENTRY dxgi_residency(DXGI_DDI_ARG_QUERYRESOURCERESIDENCY *q)
+{ D11_TRACE("dxgi_residency");
+    SIZE_T i;
+
+    for (i = 0; i < q->Resources; i++) {
+        q->pStatus[i] = DXGI_DDI_RESIDENCY_FULLY_RESIDENT;
+    }
+    return S_OK;
+}
+
+/* A flip model's buffers trade places: each takes the next one's
+ * allocation, host object and layout (they share one description) */
+static HRESULT APIENTRY dxgi_rotate(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *a)
+{ D11_TRACE("dxgi_rotate");
+    D11_RES *first;
+    SIZE_T bytes;
+    BYTE *tmp;
+    UINT i;
+
+    if (a->Resources < 2) {
+        return S_OK;
+    }
+    first = DXGI_RES(a->pResources[0]);
+    bytes = FIELD_OFFSET(D11_RES, sub) + first->nsub * sizeof(D11_SUB) - sizeof(D3D10DDI_HRTRESOURCE);
+    tmp = (BYTE *)HeapAlloc(GetProcessHeap(), 0, bytes);
+    if (!tmp) {
+        return E_OUTOFMEMORY;
+    }
+    /* everything after the runtime's handle */
+    CopyMemory(tmp, (BYTE *)first + sizeof(D3D10DDI_HRTRESOURCE), bytes);
+    for (i = 0; i + 1 < a->Resources; i++) {
+        D11_RES *r = DXGI_RES(a->pResources[i]), *next = DXGI_RES(a->pResources[i + 1]);
+
+        CopyMemory((BYTE *)r + sizeof(D3D10DDI_HRTRESOURCE), (BYTE *)next + sizeof(D3D10DDI_HRTRESOURCE), bytes);
+    }
+    CopyMemory((BYTE *)DXGI_RES(a->pResources[a->Resources - 1]) + sizeof(D3D10DDI_HRTRESOURCE), tmp, bytes);
+    HeapFree(GetProcessHeap(), 0, tmp);
+    return S_OK;
+}
+
+/* a copy between a swap chain's buffers (and DWM's), scaled and
+ * converted on the host */
+static HRESULT APIENTRY dxgi_blt(DXGI_DDI_ARG_BLT *b)
+{ D11_TRACE("dxgi_blt");
+    D11_DEV *d = DXGI_DEV(b);
+    d3dpt_d11_blt *t = (d3dpt_d11_blt *)tok(d, D3DPT_D11_BLT, sizeof(*t), 2);
+    static ULONG logged;
+
+    if (logged++ < 16) {
+        umd_log("d3d11: Blt flags 0x%x %u,%u..%u,%u rotate %u", b->Flags.Value, b->DstLeft, b->DstTop, b->DstRight, b->DstBottom,
+                b->Rotate);
+    }
+    if (!t) {
+        return E_OUTOFMEMORY;
+    }
+    patch_res(d, &t->dst, DXGI_RES(b->hDstResource));
+    t->dst_sub = b->DstSubresource;
+    t->left = b->DstLeft;
+    t->top = b->DstTop;
+    t->right = b->DstRight;
+    t->bottom = b->DstBottom;
+    patch_res(d, &t->src, DXGI_RES(b->hSrcResource));
+    t->src_sub = b->SrcSubresource;
+    return S_OK;
+}
+
+static HRESULT APIENTRY dxgi_resolve_shared(DXGI_DDI_ARG_RESOLVESHAREDRESOURCE *r)
+{ D11_TRACE("dxgi_resolve_shared");
+    (void)r;
+    return S_OK;
+}
+
+/* ---------------------------------------------------------------- device */
+
+HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE *c)
+{ D11_TRACE("d11_create_device");
+    static LONG devices;
+    D11_ADAPTER *a = (D11_ADAPTER *)h.pDrvPrivate;
+    D11_DEV *d = DEV(c->hDrvDevice);
+    D3D11DDI_DEVICEFUNCS *f = c->p11DeviceFuncs;
+    D3DDDICB_CREATECONTEXT cc;
+    D3DPT_CTX_PRIV priv;
+    HRESULT hr;
+
+    umd_log("d3d11: CreateDevice interface 0x%x version 0x%x flags 0x%x", c->Interface, c->Version, c->Flags);
+    if (c->Interface != D3D11_0_7_DDI_INTERFACE_VERSION) {
+        return E_INVALIDARG;
+    }
+    ZeroMemory(d, sizeof(*d));
+    d->rt = c->hRTDevice;
+    d->core = c->hRTCoreLayer;
+    d->ad = a;
+    d->kt = *c->pKTCallbacks;
+    d->um = c->p11UMCallbacks;
+    d->dxgi = c->DXGIBaseDDI.pDXGIBaseCallbacks;
+    /* the host's context: a Direct3D 11 one, apart from the Direct3D 9
+     * driver's (which are this process's id << 8 and a count) */
+    d->host_ctx = 0x80000000u | ((GetCurrentProcessId() & 0xffffffu) << 7) | ((ULONG)InterlockedIncrement(&devices) & 0x7f);
+
+    ZeroMemory(&cc, sizeof(cc));
+    priv.magic = D3DPT_CTX_MAGIC;
+    priv.host_ctx = d->host_ctx;
+    cc.pPrivateDriverData = &priv;
+    cc.PrivateDriverDataSize = sizeof(priv);
+    hr = d->kt.pfnCreateContextCb(d->rt.handle, &cc);
+    umd_log("d3d11: context 0x%08x -> 0x%08x, buffer %u bytes, lists %u / %u", d->host_ctx, hr, cc.CommandBufferSize,
+            cc.AllocationListSize, cc.PatchLocationListSize);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    d->ctx = cc.hContext;
+    d->buf = (BYTE *)cc.pCommandBuffer;
+    d->buf_size = cc.CommandBufferSize;
+    d->al = cc.pAllocationList;
+    d->al_size = cc.AllocationListSize;
+    d->pl = cc.pPatchLocationList;
+    d->pl_size = cc.PatchLocationListSize;
+    cmd_reset(d);
+
+    d11_res_funcs(f);
+    d11_pipe_funcs(f);
+    f->pfnFlush = d11_flush;
+    f->pfnDestroyDevice = d11_destroy_device;
+    f->pfnCheckFormatSupport = d11_check_format;
+    f->pfnCheckMultisampleQualityLevels = d11_check_ms;
+    f->pfnCheckCounterInfo = d11_counter_info;
+    f->pfnCheckCounter = d11_check_counter;
+    f->pfnSetTextFilterSize = d11_text_filter;
+    f->pfnRelocateDeviceFuncs = d11_relocate;
+    f->pfnCommandListExecute = d11_cl_execute;
+    f->pfnCheckDeferredContextHandleSizes = d11_dc_handle_sizes;
+    f->pfnCalcDeferredContextHandleSize = d11_dc_handle_size;
+    f->pfnCalcPrivateDeferredContextSize = d11_dc_size;
+    f->pfnCreateDeferredContext = d11_dc_create;
+    f->pfnAbandonCommandList = d11_cl_abandon;
+    f->pfnCalcPrivateCommandListSize = d11_cl_size;
+    f->pfnCreateCommandList = d11_cl_create;
+    f->pfnDestroyCommandList = d11_cl_destroy;
+    f->pfnRecycleCommandList = d11_cl_recycle;
+    f->pfnRecycleCreateCommandList = d11_cl_recycle_create;
+    f->pfnRecycleCreateDeferredContext = d11_dc_recycle_create;
+    f->pfnRecycleDestroyCommandList = d11_cl_destroy;
+
+    /* DXGI 1.1's functions with the Windows 7 interface (Version's low
+     * word: the runtime's DXGI DDI revision, 9 = DXGI_RESOLVE_SHARED_RESOURCE) */
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnPresent = dxgi_present;
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnGetGammaCaps = dxgi_gamma_caps;
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnSetDisplayMode = dxgi_set_display_mode;
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnSetResourcePriority = dxgi_set_priority;
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnQueryResourceResidency = dxgi_residency;
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnRotateResourceIdentities = dxgi_rotate;
+    c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnBlt = dxgi_blt;
+    if ((c->Version & 0xffff) >= DXGI_RESOLVE_SHARED_RESOURCE) {
+        c->DXGIBaseDDI.pDXGIDDIBaseFunctions2->pfnResolveSharedResource = dxgi_resolve_shared;
+    }
+    return S_OK;
+}

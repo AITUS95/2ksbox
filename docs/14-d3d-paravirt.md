@@ -401,6 +401,40 @@ its full-screen window (`tools/xp-game-test.sh`, M4 track).
   apps; builds with mingw.
 - **Commercial titles** (doc 04's matrix) are the acceptance bar.
 
+## The executor's Direct3D 10 / 11 side (M25)
+
+Since protocol v25 (ADR-029) the same window carries a second kind of
+work: the D11 record, a guest device's run of Direct3D 11 tokens from the
+WDDM driver's Direct3D 11 user-mode driver (`guest-tools/src/d3dptvid/
+wddm/um11`). `d3dpt/exec/d3dpt_exec_d11.cpp` runs them on one d3d11
+device for the whole guest: DXVK's, opened through
+`D3D11CoreCreateDevice` with DXVK's own DXGI adapter (on Windows
+`dxvk_d3d11.dll` and `dxvk_dxgi.dll` beside `dxvk_d3d9.dll`, by file
+name: the process holds Windows' `dxgi.dll` already), or the system's
+d3d11 where the Direct3D 9 side runs on the system's d3d9.
+
+- Each guest device is an `ID3DDeviceContextState`, swapped in when its
+  record runs; its views, states, shaders, input layouts and queries are
+  its own, by ids the guest picks. Resources are the guest's, by the
+  allocation's host handle, so a shared one is one object for every
+  process.
+- The values on the wire are the Direct3D 11 API's (the driver
+  translates the few DDI enums that differ). Shaders are the runtime's
+  tokens and signatures; the host writes the DXBC container (register-
+  named semantics, DXBC's MD5 hash, which DXVK checks).
+- A resource lives on the host; its allocation holds the subresources
+  only where the guest's CPU or Direct3D 9 code reads them (staging, a
+  swap chain's buffer, a shared one). The two sides' copies of one
+  allocation meet in VRAM: this side marks what it drew newer, and the
+  Direct3D 9 side reads it back before using it (`exec_d11_sync`).
+- `d3dpt_exec_features` says whether the d3d11 device opens; the adapter
+  reports it as register set v10's `CAP_D3D11`, without which the guest
+  driver does not open and Windows keeps Direct3D 11 on the Direct3D 9
+  driver (d3d10level9, feature level 9_3).
+
+The token set and its rules are `d3dpt_proto.h`'s; the track doc has
+what was found on the way.
+
 ## Risks
 
 - **Host Vulkan.** MoltenVK lacks DXVK's required features; KosmicKrisp

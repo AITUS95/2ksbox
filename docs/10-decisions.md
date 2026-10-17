@@ -36,6 +36,7 @@ The roadmap is doc 08.
 | 026 | Windows builds natively with MSVC; QEMU and the old guests stay on mingw | accepted, done 2026-10-03; amended 2026-10-03 and twice 2026-10-04 (DXVK, the executor and the package's QEMU are MSVC too) |
 | 027 | Shared folders through an SMB server in the player; the clipboard through QEMU's vdagent | accepted, work in M23 |
 | 028 | Binaries only through app stores; GitHub carries the source; the name is a trademark | accepted (2026-10-06) |
+| 029 | Direct3D 10 and 11 through a user-mode driver of our own on the WDDM driver | accepted, work in M25 (2026-10-16); reverses ADR-008's "a D3D11 UMD, if ever" |
 
 ## ADR-001: QEMU as the base (2026-08-31)
 
@@ -217,6 +218,8 @@ harness). WineD3D in the guest as the DX7 fallback *(retired by
 ADR-018)*.
 
 **Rejected.** WDDM (Vista/7/10) now: a D3D11 UMD is VBoxDX-sized.
+*(WDDM came with ADR-022, and the D3D11 user-mode driver with ADR-029,
+2026-10-16.)*
 
 **Stages.** M7a framebuffer driver, M7b DirectDraw DDI, M7c Direct3D DDI
 (the doc 04 matrix through Microsoft's own d3d8/d3d9 with no DLL in the
@@ -1113,3 +1116,53 @@ non-sandboxed app, and for anyone building from source; the Intel app
 likewise. Flathub is not submitted to by the project
 (`docs/00-status.md`); the Flatpak manifest and its add-ons stay for
 whoever packages it.
+
+## ADR-029: Direct3D 10 and 11 through a user-mode driver of our own on the WDDM driver (2026-10-16)
+
+**Status.** Accepted (user decision, 2026-10-16: "let's do it from
+scratch ourselves ... first milestone feature level 10_0"). Work in
+track M25 (`docs/tracks/m25-d3d11-umd.md`).
+
+**Decision.** The WDDM driver (ADR-022, M18; on Windows 11 since M20
+step 5) gets a second user-mode driver: **Direct3D 11's DDI**, written
+by us, beside the Direct3D 9 one. `d3d11.dll` and `d3d10.dll` load it
+instead of putting Direct3D 11 on top of our Direct3D 9 driver through
+Microsoft's `d3d10level9`. It implements the Windows 7 interface
+(`D3D11_0_7_DDI`), which a WDDM 1.1 kernel driver may pair with, and
+reports its 3D pipeline level through `D3D11DDICAPS_3DPIPELINESUPPORT`:
+**10_0 first**, then 10_1 and 11_0 as the pieces arrive (compute,
+tessellation, unordered access views). The kernel driver and the
+transport stay as they are: the new driver writes `d3dpt_proto.h`
+records into the runtime's command buffer, as the Direct3D 9 one does.
+
+On the host the executor gets a second front end on **DXVK's d3d11**
+(ADR-007: DXVK is the executor everywhere), one device for the whole
+guest, each guest device a context state of its own
+(`ID3DDeviceContextState`). Shaders are not translated: the DDI hands
+the driver the program's tokens and its signatures, the host rebuilds
+the DXBC container around them and DXVK compiles it as it would an
+application's.
+
+**Why.** Through `d3d10level9` the adapter tops out at feature level
+9_3 (M20 step 5): Edge and every Chromium draw in software ("Software
+only", they want 10_0), no Direct3D 10 or 11 game gets a device, and
+everything Windows 11 itself composes goes through a translation layer
+meant for low-end hardware. A Direct3D 11 driver serves 10_0 to 11_0 on
+the kernel driver we have; only Direct3D 12 needs more (below).
+
+**Written from scratch.** No code from VirtualBox's VBoxDX (its
+license is unlikely to be compatible, user) or from Mesa's `d3d10umd`
+(a Gallium frontend, which would need a Gallium driver under it). The
+WDK's headers are read from the kit, never copied (ADR-022's amendment).
+
+**Rejected.** Direct3D 12 and Microsoft's 11on12 / 9on12 on top of it:
+a D3D12 driver needs a WDDM 2.0 kernel driver with GPU virtual
+addressing, a far larger step; it may come later as its own ADR. The
+Direct3D 11.1 DDI for now: Microsoft pairs it with WDDM 1.2 kernel
+drivers, and 11_0 needs nothing from it.
+
+**Costs.** About a hundred DDI entry points and a second executor front
+end. The 11.0 DDI's signatures carry no component types, so the host
+declares the non-system-value interfaces between stages as float, as
+DXVK does for a shader with no signature; an integer one passed between
+stages is the case to watch (M25's open items).

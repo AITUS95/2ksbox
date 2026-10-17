@@ -1,7 +1,8 @@
 ; d3dptkmd.inf - 2ksbox paravirtual display adapter (d3dpt-vga), WDDM,
 ; Windows 7 32-bit (M18 step 2, ADR-022) and Windows 11 x64 (M20; test
 ; signed in the guest by wddm-install.ps1, which writes the catalog). Kernel-mode driver d3dptkmd.sys,
-; Direct3D 9's user-mode driver d3dptumd.dll (plan step 6). The XP-model driver
+; Direct3D 9's user-mode driver d3dptumd.dll (plan step 6); on x64 also Direct3D 10
+; and 11's, d3dpt11.dll (track M25, ADR-029). The XP-model driver
 ; (../../nt/d3dptvid.inf) matches the same device and stays the fallback:
 ; Device Manager > Update Driver > "Let me pick" brings it back.
 
@@ -10,12 +11,13 @@ Signature="$WINDOWS NT$"
 Class=Display
 ClassGUID={4d36e968-e325-11ce-bfc1-08002be10318}
 Provider=%Provider%
-DriverVer=10/10/2026,0.3.33.0
+DriverVer=10/16/2026,0.4.0.0
 CatalogFile.NTamd64=d3dptkmd.cat
 
 [DestinationDirs]
 DefaultDestDir=12
 d3dpt.UserMode=11
+d3dpt.UserMode64=11
 d3dpt.UserModeWow=10,SysWOW64
 
 [SourceDisksNames]
@@ -25,6 +27,8 @@ d3dpt.UserModeWow=10,SysWOW64
 d3dptkmd.sys=1
 d3dptumd.dll=1
 d3dptumd32.dll=1
+d3dpt11.dll=1
+d3dpt11_32.dll=1
 
 [Manufacturer]
 %Mfg%=d3dpt.Mfg,NTx86,NTamd64
@@ -48,22 +52,26 @@ FeatureScore=F8
 CopyFiles=d3dpt.Miniport, d3dpt.UserMode
 AddReg=d3dpt_SoftwareDeviceSettings
 
-; x64: also the 32-bit user-mode driver, which d3d9.dll loads in a 32-bit
-; process (WoW64) by UserModeDriverNameWow from SysWOW64; without it a
-; 32-bit Direct3D program (most of the era's games) has no HAL device
+; x64: also the 32-bit user-mode drivers, which d3d9.dll and d3d11.dll load
+; in a 32-bit process (WoW64) by UserModeDriverNameWow from SysWOW64;
+; without them a 32-bit Direct3D program (most of the era's games) has no
+; HAL device. And Direct3D 10 and 11's driver (track M25): the names after
+; the first are Direct3D 10's, 10.1's and 11's, which Windows 7's section
+; does not list yet (its Aero stays on Direct3D 9's driver).
 [d3dpt_Install64]
 FeatureScore=F8
-CopyFiles=d3dpt.Miniport, d3dpt.UserMode, d3dpt.UserModeWow
-AddReg=d3dpt_SoftwareDeviceSettings, d3dpt_SoftwareDeviceSettingsWow
+CopyFiles=d3dpt.Miniport, d3dpt.UserMode64, d3dpt.UserModeWow
+AddReg=d3dpt_SoftwareDeviceSettings64, d3dpt_SoftwareDeviceSettingsWow
 
 [d3dpt_Install64.Services]
 AddService=d3dptkmd, 0x00000002, d3dpt_Service_Inst
 
 [d3dpt.UserModeWow]
 d3dptumd32.dll
+d3dpt11_32.dll
 
 [d3dpt_SoftwareDeviceSettingsWow]
-HKR,,UserModeDriverNameWow,%REG_MULTI_SZ%,d3dptumd32.dll
+HKR,,UserModeDriverNameWow,%REG_MULTI_SZ%,d3dptumd32.dll,d3dpt11_32.dll,d3dpt11_32.dll,d3dpt11_32.dll
 
 [d3dpt.Miniport]
 d3dptkmd.sys
@@ -71,8 +79,15 @@ d3dptkmd.sys
 [d3dpt.UserMode]
 d3dptumd.dll
 
+[d3dpt.UserMode64]
+d3dptumd.dll
+d3dpt11.dll
+
 [d3dpt_SoftwareDeviceSettings]
 HKR,,UserModeDriverName,%REG_MULTI_SZ%,d3dptumd.dll
+
+[d3dpt_SoftwareDeviceSettings64]
+HKR,,UserModeDriverName,%REG_MULTI_SZ%,d3dptumd.dll,d3dpt11.dll,d3dpt11.dll,d3dpt11.dll
 
 [d3dpt_Install.Services]
 AddService=d3dptkmd, 0x00000002, d3dpt_Service_Inst

@@ -43,7 +43,7 @@ if [ "${1:-}" = "--windows" ]; then
   ( cd "$OUT" && cl -nologo -std:c++17 -O2 -EHsc -MT -W3 -LD -utf-8 \
       -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS -Fe"$(cygpath -w "$DLL")" \
       "$(cygpath -w "$ROOT/d3dpt/exec/d3dpt_exec.cpp")" "$(cygpath -w "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp")" \
-      user32.lib )
+      "$(cygpath -w "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp")" user32.lib )
   echo "==> $DLL"
   exit 0
 fi
@@ -65,7 +65,8 @@ CC="${CC:-cc}"
 if [ $WINE_ONLY = 0 ]; then
   if [ $IN_PROCESS = 1 ]; then
     "$CXX" -std=c++17 -O2 -fPIC -fvisibility=hidden -Wall -Wno-unused-function "${SHARED[@]}" -o "$LIB" \
-      "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp" -I"$DX" -I"$DX/windows" -I"$DX/directx" -ldl
+      "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp" \
+      -I"$DX" -I"$DX/windows" -I"$DX/directx" -ldl
     echo "==> $LIB"
   else
     echo "==> the Intel build: no in-process executor (no Vulkan on an Intel Mac)"
@@ -90,7 +91,7 @@ if command -v "$WCXX" >/dev/null && command -v "$WCC" >/dev/null; then
   # Fedora's does not, and the DLL must stand alone beside the .exe.
   "$WCXX" -std=c++17 -O2 -fvisibility=hidden -Wall -Wno-unused-function -shared \
     -D__USE_MINGW_ANSI_STDIO=1 -static -static-libgcc -static-libstdc++ -o "$WOUT/d3dpt_exec.dll" \
-    "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp"
+    "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp"
   "$WCC" -O2 -Wall -static -o "$WOUT/d3dpt-exec-host.exe" "$ROOT/d3dpt/exec/d3dpt_exec_host.c" -I"$ROOT/d3dpt/exec"
   echo "==> $WOUT/d3dpt_exec.dll + d3dpt-exec-host.exe (the executor on Wine)"
 else

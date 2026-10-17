@@ -370,8 +370,11 @@ if [ -f "$WDDM64_OUT/d3dptkmd.sys" ] && [ -f "$WDDM64_OUT/d3dptumd.dll" ]; then
   mkdir -p "$OUT/iso/WDDM64"
   cp "$WDDM64_OUT/d3dptkmd.sys" "$WDDM64_OUT/d3dptumd.dll" "$ROOT/guest-tools/src/d3dptvid/wddm/km/d3dptkmd.inf" \
      "$ROOT/guest-tools/src/d3dptvid/wddm/wddm-install.ps1" "$OUT/iso/WDDM64/"
-  # the 32-bit user-mode driver, for 32-bit Direct3D programs (WoW64)
-  if [ -f "$WDDM64_OUT/d3dptumd32.dll" ]; then cp "$WDDM64_OUT/d3dptumd32.dll" "$OUT/iso/WDDM64/"; fi
+  # the 32-bit user-mode driver, for 32-bit Direct3D programs (WoW64);
+  # Direct3D 10 and 11's driver and its 32-bit copy (track M25)
+  for f in d3dptumd32.dll d3dpt11.dll d3dpt11_32.dll; do
+    if [ -f "$WDDM64_OUT/$f" ]; then cp "$WDDM64_OUT/$f" "$OUT/iso/WDDM64/"; fi
+  done
 fi
 sed -e "s/@REV@/$REV/" "$ROOT/guest-tools/README-ISO.txt" \
   | crlf > "$OUT/iso/README.TXT"

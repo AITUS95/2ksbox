@@ -328,7 +328,14 @@ if want exec; then
     if [ ! -f build/win/dxvk/build.ninja ] || [ "$(cat build/win/dxvk/.2ksbox-cc 2>/dev/null)" != msvc ]; then
       scripts/configure-dxvk.sh --windows
     fi
-    ( . scripts/msvc-env.sh && ninja -C build/win/dxvk ${JOBS[@]+"${JOBS[@]}"} src/d3d9/d3d9.dll )
+    ( . scripts/msvc-env.sh && ninja -C build/win/dxvk ${JOBS[@]+"${JOBS[@]}"} src/d3d9/d3d9.dll src/d3d11/d3d11.dll src/dxgi/dxgi.dll )
+    # beside the executor under the package's names (never Windows' own
+    # d3d9.dll / d3d11.dll / dxgi.dll): the Direct3D 10 / 11 side (track
+    # M25) looks for its pair beside dxvk_d3d9.dll
+    for n in d3d9 d3d11 dxgi; do
+      cmp -s "build/win/dxvk/src/$n/$n.dll" "build/win/d3dpt/dxvk_$n.dll" 2>/dev/null ||
+        { mkdir -p build/win/d3dpt && cp "build/win/dxvk/src/$n/$n.dll" "build/win/d3dpt/dxvk_$n.dll"; }
+    done
     say "exec: d3dpt_exec.dll (the Direct3D decoder + executor, MSVC)"
     scripts/build-d3dpt-exec.sh --windows
     # The WGL probe (tools/wgl-probe.c) rides along as one more compile,

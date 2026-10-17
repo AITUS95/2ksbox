@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  d3dpt11.dll: the WDDM user-mode display driver for Direct3D 10 and 11
+  (track M25, ADR-029). Built by guest-tools/build-wddm.cmd inside the
+  EWDK beside the Direct3D 9 driver, the same way: VS 2019's v142
+  user-mode toolset, the C runtime linked in statically.
+  docs/build-windows.md "The WDDM driver".
+-->
+<Project DefaultTargets="Build" ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6D3A2B1E-7C44-4E0B-9B57-3D00D3D7A011}</ProjectGuid>
+    <RootNamespace>d3dpt11</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>d3dpt11</TargetName>
+    <OutDir>$(D3DPT_OUT)\</OutDir>
+    <IntDir>$(D3DPT_OUT)\obj-um11\</IntDir>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <Optimization>MaxSpeed</Optimization>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <!-- the Direct3D 9 driver's CPU floor (no SSE2 in the 32-bit build) -->
+      <EnableEnhancedInstructionSet Condition="'$(Platform)'=='Win32'">NoExtensions</EnableEnhancedInstructionSet>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WIN32_WINNT=0x0601;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- 4201: the kit's nameless unions; 4214: its bit fields of other types than int -->
+      <DisableSpecificWarnings>4201;4214;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <!-- C, compiled as C++: d3d10umddi.h defines its constants at file
+           scope (const UINT D3D10_...), which C links as one symbol per
+           file, and the link then finds each defined in every file -->
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
+    <Link>
+      <ModuleDefinitionFile>d3dpt11.def</ModuleDefinitionFile>
+      <AdditionalDependencies>gdi32.lib;kernel32.lib;user32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <SubSystem>Windows</SubSystem>
+      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="d3dpt11.c" />
+    <ClCompile Include="d11_res.c" />
+    <ClCompile Include="d11_pipe.c" />
+    <ClCompile Include="d11_dev.c" />
+    <ClCompile Include="..\umd_log.c" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

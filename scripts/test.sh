@@ -93,10 +93,13 @@ fi
 if [ "$OS" = Windows ]; then
   # the package's names (scripts/win-run.sh): DXVK only as dxvk_d3d9.dll,
   # never plain d3d9.dll, which is Windows' own
-  if [ -f build/win/dxvk/src/d3d9/d3d9.dll ]; then
-    cmp -s build/win/dxvk/src/d3d9/d3d9.dll build/win/d3dpt/dxvk_d3d9.dll \
-      || cp build/win/dxvk/src/d3d9/d3d9.dll build/win/d3dpt/dxvk_d3d9.dll
-  fi
+  # (and its d3d11 and dxgi as dxvk_d3d11.dll and dxvk_dxgi.dll, track M25)
+  for n in d3d9 d3d11 dxgi; do
+    if [ -f build/win/dxvk/src/$n/$n.dll ]; then
+      cmp -s build/win/dxvk/src/$n/$n.dll build/win/d3dpt/dxvk_$n.dll \
+        || cp build/win/dxvk/src/$n/$n.dll build/win/d3dpt/dxvk_$n.dll
+    fi
+  done
   export D3DPT_EXEC_LIB="${D3DPT_EXEC_LIB:-$ROOT/build/win/d3dpt/d3dpt_exec.dll}"
   export D3DPT_DXVK_LIB="${D3DPT_DXVK_LIB:-$ROOT/build/win/d3dpt/dxvk_d3d9.dll}"
 else

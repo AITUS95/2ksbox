@@ -18,7 +18,7 @@
  * (core/core_caps.c, linked in): the host is the same executor.
  *
  * Its log goes to the kernel-mode driver through an escape and from there
- * to the device's DEBUG register, the QEMU log (doc 15's rule).
+ * to the device's DEBUG register, the QEMU log (doc 15's rule; ../umd_log.c).
  *
  * Build: guest-tools/build-wddm.cmd (the EWDK's MSBuild, Win32, static
  * C runtime; docs/build-windows.md "The WDDM driver").
@@ -38,65 +38,6 @@
 #include "../../../../../d3dpt/d3dpt_proto.h"
 #include "../d3dpt_wddm.h"
 #include "umd_core.h"
-
-/* ------------------------------------------------------------------ log */
-
-static D3DKMT_HANDLE g_kmt_adapter;
-static ULONG g_log_lines;
-
-#define UMD_LOG_MAX 4000          /* lines per process; a frame loop must not drown the QEMU log */
-
-static NTSTATUS umd_escape_log(D3DKMT_HANDLE adapter, D3DPT_ESC *m)
-{
-    D3DKMT_ESCAPE e;
-
-    ZeroMemory(&e, sizeof(e));
-    e.hAdapter = adapter;
-    e.Type = D3DKMT_ESCAPE_DRIVERPRIVATE;
-    e.pPrivateDriverData = m;
-    e.PrivateDriverDataSize = sizeof(*m);
-    return D3DKMTEscape(&e);
-}
-
-void umd_log(const char *fmt, ...)
-{
-    D3DPT_ESC m;
-    va_list ap;
-
-    if (g_log_lines >= UMD_LOG_MAX) {
-        return;
-    }
-    g_log_lines++;
-    ZeroMemory(&m, sizeof(m));
-    m.magic = D3DPT_ESC_MAGIC;
-    m.op = D3DPT_ESC_LOG;
-    va_start(ap, fmt);
-    _vsnprintf_s(m.text, sizeof(m.text), _TRUNCATE, fmt, ap);
-    va_end(ap);
-    if (g_kmt_adapter) {
-        umd_escape_log(g_kmt_adapter, &m);
-        return;
-    }
-    /* Ours is the adapter that takes the escape: on Windows 11 the
-     * standard VGA's Basic Display is a display of its own, often the
-     * first, and refuses a private escape (track M20 step 5). */
-    for (int i = 1; i <= 16; i++) {
-        D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME o;
-        D3DKMT_CLOSEADAPTER ca;
-
-        ZeroMemory(&o, sizeof(o));
-        wsprintfW(o.DeviceName, L"\\\\.\\DISPLAY%d", i);
-        if (D3DKMTOpenAdapterFromGdiDisplayName(&o) != 0) {
-            continue;
-        }
-        if (umd_escape_log(o.hAdapter, &m) == 0) {
-            g_kmt_adapter = o.hAdapter;
-            return;
-        }
-        ca.hAdapter = o.hAdapter;
-        D3DKMTCloseAdapter(&ca);
-    }
-}
 
 /* -------------------------------------------------------------- adapter */
 

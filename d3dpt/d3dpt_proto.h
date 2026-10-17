@@ -31,6 +31,10 @@
  * DRAW8's 32-bit indices and vertex ranges past 65536 (Direct3D 11's
  * feature level 9_2).
  *
+ * v25 (M25, ADR-029): Direct3D 10 and 11: the D11 record (op 109), a
+ * context's run of Direct3D 11 tokens from the WDDM driver's Direct3D 11
+ * user-mode driver, and D3DPT_VS_D3D11 for the allocations behind them.
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT_PROTO_H
@@ -38,7 +42,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_PROTO_VERSION   24u
+#define D3DPT_PROTO_VERSION   25u
 
 #define D3DPT_SHM_SIZE        0x04000000u          /* 64 MiB */
 #define D3DPT_CMD_OFFSET      0x00001000u          /* records start after the header page */
@@ -117,6 +121,7 @@ enum d3dpt_op {
     D3DPT_OP_VRAM_MIP_LEVEL = 108,      /* body: d3dpt_u32x4 (level handle, texture handle, level 1.., 0): the runtime's handle
                                          * of a render-target texture's mip level, after the texture's VRAM_SURFACE; a
                                          * SETRENDERTARGET / READBACK / VRAM_DIRTY of it is that level of the texture (v19) */
+    D3DPT_OP_D11 = 109,                 /* body: d3dpt_d11 + tokens: a Direct3D 11 context's run (v25; see below) */
     D3DPT_OP_MAX
 };
 
@@ -170,6 +175,11 @@ typedef struct d3dpt_vram_surface {
                                           * one; with D3DPT_VS_TEXTURE, and D3DPT_VS_RENDER_TARGET for a target):
                                           * levels 1, the guest keeps level 0 alone. The DP2 stream's
                                           * GENERATEMIPSUBLEVELS (hSurface, D3DTEXTUREFILTERTYPE) makes them again */
+#define D3DPT_VS_D3D11          0x2000u  /* v25: a Direct3D 10 / 11 resource's allocation (the D11 record's RES_CREATE
+                                          * describes it): without D3DPT_VS_RENDER_TARGET / PRIMARY the record is a
+                                          * VRAM range like a buffer's (width = pitch = bytes, height 1, format 0) and
+                                          * the host makes no Direct3D 9 object for it; with them (a swap chain's
+                                          * buffer, a shared surface) it is also a Direct3D 9 surface as described */
 
 typedef struct d3dpt_ctx_create {
     uint32_t handle, ret_off;       /* the context handle the guest chose; ret: d3dpt_ret */
@@ -300,5 +310,222 @@ typedef struct d3dpt_dp2_draw8_stream { /* v10: one more stream of a DRAW8 */
     uint32_t flags;                     /* D3DPT_DRAW8_VRAM_VB: its vertices in a VRAM buffer */
     uint32_t freq;                      /* v16: its SetStreamSourceFreq value, 0 = per vertex (was padding) */
 } d3dpt_dp2_draw8_stream;
+
+/* --- v25 (M25, ADR-029): Direct3D 10 and 11 ---
+ *
+ * The WDDM driver's Direct3D 11 user-mode driver (guest-tools/src/
+ * d3dptvid/wddm/um11) writes D11 records: one guest device's run of the
+ * tokens below, executed on the host's one d3d11 device (DXVK) with that
+ * device's own pipeline state (an ID3DDeviceContextState per ctx). ctx is
+ * the host context the kernel driver knows (D3DPT_CTX_PRIV, ../guest-
+ * tools/src/d3dptvid/wddm/d3dpt_wddm.h): CTX_DESTROY of it releases every
+ * object below of that context. ret_off: a d3dpt_ret, and after it the
+ * payload of the record's QUERY_GET token (the last one) if it has one;
+ * hr is the first failure of the record's tokens, S_OK otherwise.
+ *
+ * Every token is a d3dpt_d11_tok and its body; size is the whole token,
+ * a multiple of 4. The values are the Direct3D 11 API's (DXGI_FORMAT,
+ * D3D11_BIND_*, D3D11_USAGE, D3D11_*_DIMENSION, D3D11_BLEND, ...): the
+ * user-mode driver translates the DDI's where they differ.
+ *
+ * Names: a resource is its allocation's host handle (the kernel driver
+ * patches it in, D3DPT_PATCH_HANDLE), so every process that opens a
+ * shared one names the same object; views, states, shaders, input
+ * layouts and queries are the context's, by non-zero ids the guest picks.
+ * An id of 0 in a binding unbinds.
+ *
+ * A resource lives on the host. Its allocation (D3DPT_VS_D3D11) holds its
+ * subresources at the offsets RES_CREATE lists when the guest's CPU may
+ * see them (a dynamic or staging resource, a swap chain's buffer, a
+ * shared one); RES_DIRTY uploads one after the guest wrote it, RES_READBACK
+ * writes the host's back. A resource with no layout is the host's alone.
+ */
+typedef struct d3dpt_d11 {
+    uint32_t ctx, ret_off;
+    uint32_t bytes;                     /* token bytes after this */
+    uint32_t flags;                     /* 0 */
+} d3dpt_d11;
+
+typedef struct d3dpt_d11_tok {
+    uint16_t op;                        /* D3DPT_D11_* */
+    uint16_t pad;
+    uint32_t size;                      /* the whole token, this header included */
+} d3dpt_d11_tok;
+
+enum d3dpt_d11_op {
+    /* resources */
+    D3DPT_D11_RES_CREATE = 1,           /* d3dpt_d11_res + nsub d3dpt_d11_sub (initial data follows as RES_UPDATEs) */
+    D3DPT_D11_RES_UPDATE = 2,           /* d3dpt_d11_update + bytes: UpdateSubresource */
+    D3DPT_D11_RES_DIRTY = 3,            /* d3dpt_d11_ref: the guest wrote the subresource's VRAM (sub ~0: all) */
+    D3DPT_D11_RES_READBACK = 4,         /* d3dpt_d11_ref: the host's subresource into its VRAM (sub ~0: all) */
+    D3DPT_D11_COPY = 5,                 /* d3dpt_d11_ref {dst, src}: CopyResource */
+    D3DPT_D11_COPY_REGION = 6,          /* d3dpt_d11_copy */
+    D3DPT_D11_RESOLVE = 7,              /* d3dpt_d11_resolve */
+    D3DPT_D11_GEN_MIPS = 8,             /* u32 srv */
+    D3DPT_D11_BLT = 9,                  /* d3dpt_d11_blt: a DXGI present's copy, scaled and converted */
+    /* objects */
+    D3DPT_D11_SRV_CREATE = 16,          /* d3dpt_d11_view */
+    D3DPT_D11_RTV_CREATE = 17,          /* d3dpt_d11_view */
+    D3DPT_D11_DSV_CREATE = 18,          /* d3dpt_d11_view */
+    D3DPT_D11_DESTROY = 19,             /* d3dpt_d11_ref {kind (D3DPT_D11K_*), id} */
+    D3DPT_D11_BLEND_CREATE = 20,        /* d3dpt_d11_blend */
+    D3DPT_D11_DEPTH_CREATE = 21,        /* d3dpt_d11_depth */
+    D3DPT_D11_RASTER_CREATE = 22,       /* d3dpt_d11_raster */
+    D3DPT_D11_SAMPLER_CREATE = 23,      /* d3dpt_d11_sampler */
+    D3DPT_D11_SHADER_CREATE = 24,       /* d3dpt_d11_shader, the code, the signatures, the stream output */
+    D3DPT_D11_LAYOUT_CREATE = 25,       /* d3dpt_d11_list {id, n} + n d3dpt_d11_element */
+    D3DPT_D11_QUERY_CREATE = 26,        /* d3dpt_d11_query */
+    /* bindings */
+    D3DPT_D11_SET_SHADER = 32,          /* d3dpt_d11_ref {stage, id} */
+    D3DPT_D11_SET_CB = 33,              /* d3dpt_d11_bind + n resources */
+    D3DPT_D11_SET_SRV = 34,             /* d3dpt_d11_bind + n ids */
+    D3DPT_D11_SET_SAMPLERS = 35,        /* d3dpt_d11_bind + n ids */
+    D3DPT_D11_SET_LAYOUT = 36,          /* u32 id */
+    D3DPT_D11_SET_VB = 37,              /* d3dpt_d11_bind {0, start, n} + n d3dpt_d11_vb */
+    D3DPT_D11_SET_IB = 38,              /* d3dpt_d11_vb {res, format, offset} */
+    D3DPT_D11_SET_TOPOLOGY = 39,        /* u32 D3D11_PRIMITIVE_TOPOLOGY */
+    D3DPT_D11_SET_TARGETS = 40,         /* d3dpt_d11_list {dsv id, n} + n rtv ids */
+    D3DPT_D11_SET_BLEND = 41,           /* d3dpt_d11_set_blend */
+    D3DPT_D11_SET_DEPTH = 42,           /* d3dpt_d11_ref {id, stencil ref} */
+    D3DPT_D11_SET_RASTER = 43,          /* u32 id */
+    D3DPT_D11_SET_VIEWPORTS = 44,       /* u32 n, then n {x, y, w, h, min z, max z} floats */
+    D3DPT_D11_SET_SCISSORS = 45,        /* u32 n, then n {left, top, right, bottom} */
+    D3DPT_D11_SET_SO = 46,              /* d3dpt_d11_bind {0, 0, n} + n d3dpt_d11_ref {res, offset} */
+    D3DPT_D11_SET_PREDICATION = 47,     /* d3dpt_d11_ref {query id, value} */
+    /* work */
+    D3DPT_D11_DRAW = 48,                /* u32 [2] {vertices, first} */
+    D3DPT_D11_DRAW_INDEXED = 49,        /* u32 [3] {indices, first, base vertex (signed)} */
+    D3DPT_D11_DRAW_INSTANCED = 50,      /* u32 [4] {vertices, instances, first, first instance} */
+    D3DPT_D11_DRAW_INDEXED_INSTANCED = 51, /* u32 [5] {indices, instances, first, base vertex, first instance} */
+    D3DPT_D11_DRAW_AUTO = 52,           /* no body */
+    D3DPT_D11_CLEAR_RTV = 53,           /* u32 id, float [4] */
+    D3DPT_D11_CLEAR_DSV = 54,           /* u32 id, flags (D3D11_CLEAR_*), float depth, u32 stencil */
+    D3DPT_D11_QUERY_BEGIN = 55,         /* u32 id */
+    D3DPT_D11_QUERY_END = 56,           /* u32 id */
+    D3DPT_D11_QUERY_GET = 57,           /* d3dpt_d11_ref {id, size}: GetData (no wait) into the record's return payload */
+};
+
+/* D3DPT_D11_DESTROY's kinds */
+enum { D3DPT_D11K_SRV = 1, D3DPT_D11K_RTV, D3DPT_D11K_DSV, D3DPT_D11K_BLEND, D3DPT_D11K_DEPTH, D3DPT_D11K_RASTER,
+       D3DPT_D11K_SAMPLER, D3DPT_D11K_SHADER, D3DPT_D11K_LAYOUT, D3DPT_D11K_QUERY };
+/* shader stages */
+enum { D3DPT_D11S_VS = 0, D3DPT_D11S_PS, D3DPT_D11S_GS, D3DPT_D11S_HS, D3DPT_D11S_DS, D3DPT_D11S_CS, D3DPT_D11S_COUNT };
+
+typedef struct d3dpt_d11_ref { uint32_t a, b; } d3dpt_d11_ref;
+typedef struct d3dpt_d11_list { uint32_t id, n; } d3dpt_d11_list;
+typedef struct d3dpt_d11_bind { uint32_t stage, start, n; } d3dpt_d11_bind;
+
+typedef struct d3dpt_d11_res {
+    uint32_t res;                       /* the allocation's host handle */
+    uint32_t dim;                       /* D3D11_RESOURCE_DIMENSION */
+    uint32_t format;                    /* DXGI_FORMAT */
+    uint32_t usage, bind, cpu, misc;    /* D3D11_USAGE, D3D11_BIND_*, D3D11_CPU_ACCESS_*, D3D11_RESOURCE_MISC_* */
+    uint32_t width, height, depth;      /* a buffer's width is its bytes */
+    uint32_t mips, array;               /* a cube's array counts faces */
+    uint32_t samples, quality;
+    uint32_t stride;                    /* a structured buffer's */
+    uint32_t nsub;                      /* subresources in VRAM (0: the host's alone); D3D11 order, mip-major per slice */
+    uint32_t opened;                    /* 1: another process's resource this context opened: ignored if the host has
+                                         * it, else (a Direct3D 9 surface) made from its VRAM */
+} d3dpt_d11_res;
+typedef struct d3dpt_d11_sub {
+    uint32_t offset;                    /* inside the allocation */
+    uint32_t row_pitch, depth_pitch;
+} d3dpt_d11_sub;
+
+typedef struct d3dpt_d11_update {
+    uint32_t res, sub;
+    uint32_t has_box;
+    uint32_t box[6];                    /* D3D11_BOX: left, top, front, right, bottom, back */
+    uint32_t row_pitch, depth_pitch;    /* of the bytes that follow */
+    uint32_t bytes;
+} d3dpt_d11_update;
+
+typedef struct d3dpt_d11_copy {
+    uint32_t dst, dst_sub, x, y, z;
+    uint32_t src, src_sub;
+    uint32_t has_box;
+    uint32_t box[6];
+} d3dpt_d11_copy;
+
+typedef struct d3dpt_d11_resolve { uint32_t dst, dst_sub, src, src_sub, format; } d3dpt_d11_resolve;
+
+typedef struct d3dpt_d11_blt {
+    uint32_t dst, dst_sub;
+    uint32_t left, top, right, bottom;  /* in the destination */
+    uint32_t src, src_sub;
+} d3dpt_d11_blt;
+
+typedef struct d3dpt_d11_view {
+    uint32_t id, res;
+    uint32_t format;                    /* DXGI_FORMAT */
+    uint32_t dim;                       /* D3D11_SRV / RTV / DSV_DIMENSION */
+    uint32_t u[4];                      /* the dimension's union of the API's desc, in its order */
+    uint32_t flags;                     /* a DSV's D3D11_DSV_READ_ONLY_*; a raw buffer SRV's D3D11_BUFFEREX_SRV_FLAG_RAW */
+} d3dpt_d11_view;
+
+typedef struct d3dpt_d11_blend {        /* D3D11_BLEND_DESC */
+    uint32_t id;
+    uint32_t alpha_to_coverage, independent;
+    struct {
+        uint32_t enable, src, dst, op, src_a, dst_a, op_a, mask;
+    } rt[8];
+} d3dpt_d11_blend;
+
+typedef struct d3dpt_d11_depth {        /* D3D11_DEPTH_STENCIL_DESC */
+    uint32_t id;
+    uint32_t depth_enable, write_mask, func;
+    uint32_t stencil_enable, read_mask, write_mask8;
+    uint32_t front[4], back[4];         /* fail, depth fail, pass, func */
+} d3dpt_d11_depth;
+
+typedef struct d3dpt_d11_raster {       /* D3D11_RASTERIZER_DESC */
+    uint32_t id;
+    uint32_t fill, cull, front_ccw;
+    int32_t bias;
+    float bias_clamp, slope_bias;
+    uint32_t depth_clip, scissor, multisample, aa_lines;
+} d3dpt_d11_raster;
+
+typedef struct d3dpt_d11_sampler {      /* D3D11_SAMPLER_DESC */
+    uint32_t id;
+    uint32_t filter, address[3];
+    float lod_bias;
+    uint32_t max_aniso, func;
+    float border[4];
+    float min_lod, max_lod;
+} d3dpt_d11_sampler;
+
+/* A shader: its tokens as the runtime gave them (the D3D10 tokenized
+ * program, the DXBC's SHDR / SHEX chunk; dword 1 is its length), the
+ * input and output signatures by register (the DDI's, nothing else: the
+ * host writes the DXBC container around them), and a geometry shader's
+ * stream output declaration. */
+typedef struct d3dpt_d11_shader {
+    uint32_t id, stage;
+    uint32_t code_dwords;
+    uint32_t nin, nout;                 /* d3dpt_d11_sig entries after the code */
+    uint32_t nso;                       /* d3dpt_d11_so entries after them (a geometry shader with stream output) */
+    uint32_t so_strides[4], so_rast;    /* the buffers' strides; the rasterized stream (D3D11_SO_NO_RASTERIZED_STREAM: none) */
+} d3dpt_d11_shader;
+typedef struct d3dpt_d11_sig {
+    uint32_t sv;                        /* D3D10_SB_NAME (0: none) */
+    uint32_t reg;
+    uint32_t mask;                      /* xyzw in bits 0..3 */
+    uint32_t stream;
+} d3dpt_d11_sig;
+typedef struct d3dpt_d11_so { uint32_t stream, slot, reg, mask; } d3dpt_d11_so;  /* reg ~0: a gap of popcount(mask) */
+
+typedef struct d3dpt_d11_element {      /* an input element, by the register it feeds */
+    uint32_t slot, offset, format;
+    uint32_t per_instance, step;
+    uint32_t reg;
+} d3dpt_d11_element;
+
+typedef struct d3dpt_d11_query { uint32_t id, type, misc; } d3dpt_d11_query;   /* D3D11_QUERY, D3D11_QUERY_MISC_* */
+
+typedef struct d3dpt_d11_vb { uint32_t res, stride, offset; } d3dpt_d11_vb;   /* SET_IB: {res, DXGI_FORMAT, offset} */
+
+typedef struct d3dpt_d11_set_blend { uint32_t id, mask; float factor[4]; } d3dpt_d11_set_blend;
 
 #endif /* D3DPT_PROTO_H */

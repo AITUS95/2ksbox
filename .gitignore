@@ -18,7 +18,9 @@ build
 .playwright-mcp/
 /guest-tools/out/
 /guest-tools/tools/
-# DXVK writes <exe>_d3d9.log next to the cwd
+# DXVK writes <exe>_d3d9.log next to the cwd (and _d3d11 / _dxgi, M25)
 *_d3d9.log
+*_d3d11.log
+*_dxgi.log
 __pycache__/
 *.pyc

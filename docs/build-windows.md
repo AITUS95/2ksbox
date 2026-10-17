@@ -68,8 +68,8 @@ are unused and can be deleted.
 | `qemu-msvc` | `build/win/qemu-msvc/{qemu-system-i386,qemu-img,qemu-io}.exe`, `libqemu-embed-i386.dll`, and `libqemu-embed-x86_64.dll` (Windows 11's) | the package's QEMU: prepares the tree, `build-deps.sh`, then `configure-qemu.sh` when it never has or its inputs moved, then `ninja` ("QEMU under MSVC"); a directory from another QEMU release configures afresh; WHPX in i386 through patch 84 (Acceleration) |
 | `rust` | `target/x86_64-pc-windows-msvc/release/{launcherx,discx,synthx}.exe` | the tools are MSVC (`scripts/cargo-msvc.sh`, rustup's `stable-x86_64-pc-windows-msvc`), skipped without it |
 | `mitsuami` | `launcher-mitsuami/target/release/launcher-mitsuami.exe`, `player-mitsuami/target/release/player-mitsuami.exe`, `player-mitsuami/target/qemu-x86_64/release/player-mitsuami.exe` | the package's `2ksbox.exe`, `2ksbox-player.exe` and `2ksbox-player-x86_64.exe` (ADR-023, track M22; the last `--features qemu-x86_64`, Windows 11's, track M20); their own workspaces; MSVC ("The launcher") |
-| `exec` | `build/win/dxvk/src/d3d9/d3d9.dll`, `build/win/d3dpt/d3dpt_exec.dll`, `build/win/d3dpt-dp2-test.exe`, `build/win/wgl-probe.exe` | DXVK (patch 08's headless WSI), the executor and the offscreen-GL probe, MSVC; the executor's host test (mingw, so it proves the C-only boundary across two C runtimes). Skipped without Visual Studio's C++ tools |
-| `wddm` | `build/wddm/x86/{d3dptkmd.sys,d3dptumd.dll,d3dptkmd.inf}`, and `build/wddm/x64` for Windows 11 with the x86 user-mode driver beside it as `d3dptumd32.dll` for 32-bit processes (WoW64; unsigned; `wddm-install.ps1` test signs it in the guest) | Windows 7's WDDM driver through a mounted EWDK, or the published build for these sources without one ("The WDDM driver") |
+| `exec` | `build/win/dxvk/src/{d3d9/d3d9,d3d11/d3d11,dxgi/dxgi}.dll` (copied beside the executor as `dxvk_d3d9.dll`, `dxvk_d3d11.dll`, `dxvk_dxgi.dll`; the last two are the executor's Direct3D 10 / 11 side, M25), `build/win/d3dpt/d3dpt_exec.dll`, `build/win/d3dpt-dp2-test.exe`, `build/win/wgl-probe.exe` | DXVK (patch 08's headless WSI), the executor and the offscreen-GL probe, MSVC; the executor's host test (mingw, so it proves the C-only boundary across two C runtimes). Skipped without Visual Studio's C++ tools |
+| `wddm` | `build/wddm/x86/{d3dptkmd.sys,d3dptumd.dll,d3dpt11.dll,d3dptkmd.inf}`, and `build/wddm/x64` for Windows 11 with the x86 user-mode drivers beside them as `d3dptumd32.dll` and `d3dpt11_32.dll` for 32-bit processes (WoW64; unsigned; `wddm-install.ps1` test signs it in the guest) | Windows 7's WDDM driver through a mounted EWDK, or the published build for these sources without one ("The WDDM driver") |
 | `edk2` | `qemu/pc-bios/2ksbox-x86_64-{code,vars}.fd` | Windows 11's firmware (`build-edk2.sh x86_64`, track M20): OvmfPkgX64 with Secure Boot and no SMM, which WHPX lacks, built with Visual Studio 2022 (EDK2's `VS2022` toolchain in a batch file of the script's), MINGW64's nasm, iasl built once from ACPICA's pinned source with msbuild (MSYS2's bison and flex), and the Python launcher's 3.12 (EDK2's BaseTools refuse MINGW64's). Fetches EDK2 and its submodules (~400 MB) once; its own stamp |
 | `virtio` | `build/virtio-win/2ksbox-drivers-x64.iso` | Windows 11's drivers disc (`build-virtio-win.sh x64`), as on Linux. Downloads virtio-win's ISO once; needs xorriso and the agent's `x86_64-pc-windows-gnu` target |
 | `guest` | `guest-tools/out/guest-tools-*.iso` | host-independent, rebuilt when its sources move (`build.sh`'s stamp) |
@@ -848,10 +848,12 @@ code's Pentium III floor, the C runtime linked in statically because
 Windows 7 has none of VS 2019's (its own SSE2 routines are picked by a
 CPU check at run time, so the ISO stages the DLL after its pentium3
 check), subsystem 6.01; the
-shared core's `core_caps.c` / `core_surf.c` compiled in), into
-`build/wddm/x86/`: `d3dptkmd.sys`, `d3dptumd.dll` and `d3dptkmd.inf`
-(which installs both). The drivers are unsigned; 32-bit Windows 7 loads
-them after a prompt. Notes:
+shared core's `core_caps.c` / `core_surf.c` compiled in), and on
+`wddm/um11/d3dpt11.vcxproj`, Direct3D 10 and 11's user-mode driver (track
+M25; the same toolset and settings, compiled as C++), into
+`build/wddm/x86/`: `d3dptkmd.sys`, `d3dptumd.dll`, `d3dpt11.dll` and
+`d3dptkmd.inf`. The drivers are unsigned; 32-bit Windows 7 loads them after
+a prompt (its INF section installs Direct3D 9's alone so far). Notes:
 
 - The kernel-mode include path has no `<stdint.h>`, which
   `d3dpt/d3dpt_fb.h` includes, and MSVC's own pulls in the user-mode CRT:
@@ -867,6 +869,10 @@ them after a prompt. Notes:
   `<windows.h>` (forced in for those two files).
 - MSBuild's "'pwsh.exe' is not recognized" after the link is a WDK
   post-build step looking for PowerShell 7; it changes nothing.
+- `d3dpt11.dll` is C compiled as C++ (`CompileAs`): `d3d10umddi.h` defines
+  its constants at file scope (`const UINT D3D10_...`), which C links as
+  one symbol per file, and the link then finds each one defined in every
+  file (LNK2005).
 
 ## Running it there
 

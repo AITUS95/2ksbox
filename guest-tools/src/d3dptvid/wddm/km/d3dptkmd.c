@@ -947,12 +947,29 @@ static NTSTATUS APIENTRY d3dpt_escape(IN_CONST_HANDLE h, IN_CONST_PDXGKARG_ESCAP
         return STATUS_INVALID_PARAMETER;
     }
     switch (m->op) {
-    case D3DPT_ESC_LOG:
+    case D3DPT_ESC_LOG: {
+        /* one line at a time: several processes log at once (Windows 11's
+         * shell opens the adapter from a dozen), and the register takes a
+         * character per write */
+        static KSPIN_LOCK lock;
+        static LONG lock_ready;
+        KIRQL irql;
+
+        if (InterlockedCompareExchange(&lock_ready, 1, 0) == 0) {
+            KeInitializeSpinLock(&lock);
+            InterlockedExchange(&lock_ready, 2);
+        }
+        while (lock_ready != 2) {
+            YieldProcessor();
+        }
         m->text[D3DPT_ESC_TEXT - 1] = 0;
+        KeAcquireSpinLock(&lock, &irql);
         dbg_puts("d3dptumd: ");
         dbg_puts(m->text);
         dbg_puts("\n");
+        KeReleaseSpinLock(&lock, irql);
         return STATUS_SUCCESS;
+    }
     default:
         return STATUS_INVALID_PARAMETER;
     }

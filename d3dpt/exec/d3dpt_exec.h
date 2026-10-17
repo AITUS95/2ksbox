@@ -69,6 +69,11 @@ D3DPT_EXEC_API void d3dpt_exec_set_vram(d3dpt_exec_t *x, void *vram, uint32_t si
  *     registers the mapping of, so the executor's other process reads and
  *     writes the guest's own bytes. */
 D3DPT_EXEC_API int d3dpt_exec_probe(void);
+/* Optional too: what this executor runs besides the display driver's
+ * Direct3D 9 records, D3DPT_EXEC_FEAT_*; asking opens what it names (M25:
+ * the Direct3D 11 device). The adapter turns it into its CAP bits. */
+#define D3DPT_EXEC_FEAT_D3D11 0x1u
+D3DPT_EXEC_API uint32_t d3dpt_exec_features(d3dpt_exec_t *x);
 D3DPT_EXEC_API int d3dpt_exec_shared_alloc(const char *name, uint64_t size, uint64_t *offset);
 D3DPT_EXEC_API void d3dpt_exec_shared_map(uint64_t offset, void *ptr);
 

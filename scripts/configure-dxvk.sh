@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # meson setup for the native DXVK d3d9 library (the D3D executor, doc 14 /
-# ADR-007) into build/dxvk. Only d3d9 is built, and only against patch 04's
-# window-less WSI (DXVK_WSI_DRIVER=Headless). Neither the executor nor the
-# native oracles present, so no windowing toolkit is built or linked.
+# ADR-007) into build/dxvk, and its d3d11 and dxgi (the executor's
+# Direct3D 10 / 11 side, track M25). Only against patch 04's window-less
+# WSI (DXVK_WSI_DRIVER=Headless). Neither the executor nor the native
+# oracles present, so no windowing toolkit is built or linked.
 # Then: ninja -C build/dxvk
 #   macOS: brew install vulkan-headers vulkan-loader glslang meson ninja
 #          (+ the LunarG SDK for the KosmicKrisp ICD on macOS 26)
@@ -47,7 +48,9 @@ if [ "$(uname -s)" = Darwin ]; then
   darwin=(-Dc_args="-mmacosx-version-min=$T" -Dcpp_args="-mmacosx-version-min=$T"
           -Dc_link_args="-mmacosx-version-min=$T" -Dcpp_link_args="-mmacosx-version-min=$T")
 fi
-opts=(--buildtype release -Denable_dxgi=false -Denable_d3d8=false -Denable_d3d10=false -Denable_d3d11=false
+# d3d11 and its dxgi too since track M25 (the executor's Direct3D 10 / 11
+# side, d3dpt/exec/d3dpt_exec_d11.cpp)
+opts=(--buildtype release -Denable_dxgi=true -Denable_d3d8=false -Denable_d3d10=false -Denable_d3d11=true
       -Dnative_sdl2=disabled -Dnative_glfw=disabled -Dnative_sdl3=disabled ${darwin[@]+"${darwin[@]}"})
 # A meson build directory holds absolute paths and cannot be relocated. In
 # a renamed or moved checkout its --reconfigure walks into directories that

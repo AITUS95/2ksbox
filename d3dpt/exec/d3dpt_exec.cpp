@@ -454,6 +454,15 @@ uint32_t d3dpt_exec_submit(d3dpt_exec_t *xp, void *shm, uint32_t shm_size)
     return b.err;
 }
 
+uint32_t d3dpt_exec_features(d3dpt_exec_t *xp)
+{
+    Exec *x = (Exec *)xp;
+    if (!x) return 0;
+    uint32_t f = 0;
+    try { if (exec_d11_available(*x)) f |= D3DPT_EXEC_FEAT_D3D11; } catch (...) {}
+    return f;
+}
+
 static void probe_log(void *, const char *msg) { fprintf(stderr, "d3dpt: probe: %s\n", msg); }
 
 /* Is there a Direct3D 9 to run on here at all? A create and a destroy,

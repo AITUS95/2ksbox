@@ -578,7 +578,11 @@ static uint32_t texel_argb(uint32_t f, uint32_t raw, const Palette *pal, bool pa
 static VramSurf *surf(Exec &x, uint32_t h) {
     if (!x.ddi || !h) return nullptr;
     auto it = x.ddi->surfs.find(h);
-    return it == x.ddi->surfs.end() ? nullptr : &it->second;
+    if (it == x.ddi->surfs.end()) return nullptr;
+    /* v25: a Direct3D 11 resource this side may see too (a shared surface
+     * DWM composes): what Direct3D 11 drew into it comes through VRAM */
+    if (it->second.d.caps & D3DPT_VS_D3D11) exec_d11_sync(x, h);
+    return &it->second;
 }
 
 static bool ensure_device(Exec &x, uint32_t w, uint32_t h) {
@@ -624,6 +628,7 @@ static uint32_t target_samples(Exec &x, const VramSurf &s) {
 static bool ensure_object(Exec &x, VramSurf &s) {
     if (s.tex || s.rt || s.cube || s.vol) return true;
     if (s.d.caps & D3DPT_VS_BUFFER) return false;       /* a vertex / index buffer: read from VRAM at each draw, no host object */
+    if ((s.d.caps & (D3DPT_VS_D3D11 | D3DPT_VS_RENDER_TARGET | D3DPT_VS_PRIMARY)) == D3DPT_VS_D3D11) return false;   /* v25: Direct3D 11's */
     if (s.mip_root) {
         /* a level of a render-target texture (v19): its surface of the
          * texture's host object */
@@ -3213,12 +3218,16 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
     case D3DPT_OP_VRAM_SURFACE: {
         auto *a = body<d3dpt_vram_surface>(c, 0, b); if (!a) return true;
         if (!x.vram) { b.err = D3DPT_ERR_NO_DEVICE; return true; }
-        if (a->caps & D3DPT_VS_BUFFER) {
+        /* v25: a Direct3D 11 resource's allocation that is no Direct3D 9
+         * surface is a VRAM range as a buffer is (d3dpt_exec_d11.cpp keeps
+         * the object) */
+        const uint32_t d11_range = (a->caps & (D3DPT_VS_D3D11 | D3DPT_VS_RENDER_TARGET | D3DPT_VS_PRIMARY)) == D3DPT_VS_D3D11 ? D3DPT_VS_D3D11 : 0;
+        if ((a->caps & D3DPT_VS_BUFFER) || d11_range) {
             /* v9: a vertex / index buffer in VRAM: width = pitch = bytes,
              * height 1, no format, no levels, nothing else; no host object
              * (a DRAW8 reads its range from VRAM) */
             if (!a->handle || !a->width || a->height != 1 || a->pitch != a->width || a->format || a->levels > 1 ||
-                (a->caps & ~D3DPT_VS_BUFFER) || (uint64_t)a->offset + a->width > x.vram_size ||
+                (a->caps & ~(D3DPT_VS_BUFFER | d11_range)) || (uint64_t)a->offset + a->width > x.vram_size ||
                 c->size < sizeof(d3dpt_cmd) + sizeof *a) {
                 if (ddi(x).warn_once(0x72000000u | (a->handle & 0xffffffu)))
                     x.log("ddi: buffer %u refused: %u bytes pitch %u height %u format %u levels %u caps 0x%x offset 0x%x", a->handle,
@@ -3425,6 +3434,7 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
     }
     case D3DPT_OP_VRAM_RELEASE: {
         auto *a = body<d3dpt_handle>(c, 0, b); if (!a) return true;
+        exec_d11_vram_release(x, a->handle);
         if (!x.ddi) return true;
         auto it = x.ddi->surfs.find(a->handle);
         if (it == x.ddi->surfs.end()) return true;
@@ -3554,6 +3564,7 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
     }
     case D3DPT_OP_CTX_DESTROY: {
         auto *a = body<d3dpt_handle>(c, 0, b); if (!a) return true;
+        if (exec_d11_ctx_destroy(x, a->handle)) return true;
         if (x.ddi) {
             auto it = x.ddi->ctxs.find(a->handle);
             if (it != x.ddi->ctxs.end()) {
@@ -3663,9 +3674,42 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
         }
         break;
     }
+    case D3DPT_OP_D11:
+        return exec_d11_op(b, c);
     default:
         return false;
     }
+    return true;
+}
+
+/* M25: what the Direct3D 11 side asks of this one (d3dpt_exec_int.h) */
+bool exec_ddi_vram(Exec &x, uint32_t handle, uint32_t *offset, uint32_t *bytes)
+{
+    VramSurf *s = surf(x, handle);
+    if (!s) return false;
+    *offset = s->d.offset;
+    if ((s->d.caps & D3DPT_VS_BUFFER) || (s->d.caps & (D3DPT_VS_D3D11 | D3DPT_VS_RENDER_TARGET | D3DPT_VS_PRIMARY)) == D3DPT_VS_D3D11)
+        *bytes = s->d.width;
+    else
+        *bytes = s->d.pitch * fmt_rows(s->d.format, s->d.height);
+    return true;
+}
+
+void exec_ddi_vram_written(Exec &x, uint32_t handle)
+{
+    VramSurf *s = surf(x, handle);
+    if (!s) return;
+    s->dirty = true;
+    s->rendered = false;
+    s->shadow.clear();
+}
+
+bool exec_ddi_vram_sync(Exec &x, uint32_t handle)
+{
+    VramSurf *s = surf(x, handle);
+    if (!s || (s->d.caps & D3DPT_VS_BUFFER) || (s->d.caps & (D3DPT_VS_D3D11 | D3DPT_VS_RENDER_TARGET | D3DPT_VS_PRIMARY)) == D3DPT_VS_D3D11)
+        return false;
+    if (s->rendered && s->rt && x.ddi) readback(x, *x.ddi, *s);
     return true;
 }
 

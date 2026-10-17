@@ -14,10 +14,11 @@ The driver came in three stages, which still name the parts: **M7a** the
 framebuffer driver, **M7b** the DirectDraw DDI, **M7c** the Direct3D DDI
 (a DirectX 7 HAL, grown into a DirectX 8 DDI with hardware T&L, and
 since M16 a DirectX 9 DDI with shader model 3.0). The
-register set is **v9** (`D3DPT_FB_VERSION`; v6 to v9 added only the
-WDDM driver's interrupt, fence, DMA append, CURSOR_FLAGS and VRAM fill and copy,
-which this driver never touches) and the protocol **v24**
-(`D3DPT_PROTO_VERSION`). FIFA 2000, Max Payne, Diablo, Moto Racer 1997,
+register set is **v10** (`D3DPT_FB_VERSION`; v6 to v10 added only the
+WDDM driver's interrupt, fence, DMA append, CURSOR_FLAGS, VRAM fill and copy
+and the Direct3D 11 executor's `CAP_D3D11`, which this driver never
+touches) and the protocol **v25** (`D3DPT_PROTO_VERSION`; v25 is the WDDM
+driver's Direct3D 11 records, track M25). FIFA 2000, Max Payne, Diablo, Moto Racer 1997,
 GTA 2 and GTA Vice City run on it with no DLL in their folders.
 
 ## Shape (M7a)
@@ -123,6 +124,8 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
 | 6 | interrupts: IRQ_ENABLE / IRQ_STATUS (0xb8 / 0xbc), `CAP_IRQ` (M18) |
 | 7 | the WDDM driver's DMA_* append and FENCE (0xc0..0xd4), `CAP_DMA` (M18) |
 | 8 | CURSOR_FLAGS (0xd8): `CURSOR_OWNED` turns off the flip hiding below (M18) |
+| 9 | the host's VRAM FILL_* and COPY_* (0xdc..), `CAP_FILL`, `CAP_COPY` (M20) |
+| 10 | `CAP_D3D11`: the executor runs the D11 records (protocol v25), so the WDDM driver's Direct3D 11 user-mode driver opens (M25) |
 
 The BAR has `valid.min_access_size = 4`, so every access is 32-bit,
 which matters to the 16-bit 9x driver (doc 19).

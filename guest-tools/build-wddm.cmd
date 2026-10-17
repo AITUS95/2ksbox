@@ -1,10 +1,11 @@
 @echo off
 rem guest-tools\build-wddm.cmd: the WDDM display driver for Windows 7
-rem (M18 step 2, ADR-022) into build\wddm\x86: d3dptkmd.sys and its INF;
-rem and the same pair for 64-bit Windows 11 into build\wddm\x64 (track M20),
-rem with the 32-bit user-mode driver beside it as d3dptumd32.dll (WoW64:
-rem 32-bit Direct3D programs), unsigned: wddm-install.ps1 test signs it in
-rem the guest.
+rem (M18 step 2, ADR-022) into build\wddm\x86: d3dptkmd.sys, Direct3D 9's
+rem user-mode driver d3dptumd.dll, Direct3D 10 and 11's d3dpt11.dll (track
+rem M25, ADR-029) and the INF; and the same set for 64-bit Windows 11 into
+rem build\wddm\x64 (track M20), with the 32-bit user-mode drivers beside
+rem them as d3dptumd32.dll and d3dpt11_32.dll (WoW64: 32-bit Direct3D
+rem programs), unsigned: wddm-install.ps1 test signs it in the guest.
 rem
 rem It builds with the Enterprise WDK for Windows 10 2004 (10.0.19041, VS
 rem 2019 Build Tools 16.7): the last kit that targets Windows 7 and still
@@ -52,11 +53,15 @@ if errorlevel 1 exit /b 1
 msbuild "%ROOT%\guest-tools\src\d3dptvid\wddm\um\d3dptumd.vcxproj" -nologo -v:minimal ^
   -p:Configuration=Release -p:Platform=%1 "-p:D3DPT_OUT=%OUT%"
 if errorlevel 1 exit /b 1
+msbuild "%ROOT%\guest-tools\src\d3dptvid\wddm\um11\d3dpt11.vcxproj" -nologo -v:minimal ^
+  -p:Configuration=Release -p:Platform=%1 "-p:D3DPT_OUT=%OUT%"
+if errorlevel 1 exit /b 1
 copy /y "%ROOT%\guest-tools\src\d3dptvid\wddm\km\d3dptkmd.inf" "%OUT%\" >nul
 if "%2"=="x64" copy /y "%ROOT%\guest-tools\src\d3dptvid\wddm\wddm-install.ps1" "%OUT%\" >nul
-rem the x86 pair is built first: its user-mode driver serves WoW64
+rem the x86 set is built first: its user-mode drivers serve WoW64
 if "%2"=="x64" copy /y "%ROOT%\build\wddm\x86\d3dptumd.dll" "%OUT%\d3dptumd32.dll" >nul
-echo ==^> %OUT%\d3dptkmd.sys, %OUT%\d3dptumd.dll
+if "%2"=="x64" copy /y "%ROOT%\build\wddm\x86\d3dpt11.dll" "%OUT%\d3dpt11_32.dll" >nul
+echo ==^> %OUT%\d3dptkmd.sys, %OUT%\d3dptumd.dll, %OUT%\d3dpt11.dll
 exit /b 0
 
 :find_ewdk
