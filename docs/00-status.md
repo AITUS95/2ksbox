@@ -405,8 +405,10 @@ tracks, plus the items no track owns.
     7 disc; `package-windows.sh --msix`; the Store MSIX, 1.0.0.0 with
     Partner Center's identity `RoboportTecnologia.2ksbox`, sideloaded
     with `-Check` and through the certification kit:
-    `OVERALL_RESULT=PASS`, the two optional FAILs of `build-windows.md`).
-    Windows' and Linux's icons lost the teal plate that day; only macOS
+    `OVERALL_RESULT=PASS`, the two optional FAILs of `build-windows.md`),
+    and from `775833c6` (docs only since `a5a18ece`, so no `test.sh`):
+    the build, the packages, the sideload and the certification kit,
+    the same results. Windows' and Linux's icons lost the teal plate that day; only macOS
     keeps it. `README.md` and the manual's `install.mdx` link both
     listings since 2026-10-17 (user): the Microsoft Store's, Store ID
     `9NVNN81VKF05` (<https://apps.microsoft.com/detail/9NVNN81VKF05>),
