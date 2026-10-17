@@ -175,7 +175,8 @@ live in its track doc; fixed things leave this list.
 
 - **Known failures on the Linux box** (M21's run on 11.1, 2026-10-02):
   `pit-guest` (the 15.6 ms-wait cases run the guest clock at 13 %, the
-  same on a QEMU built without patch 56). (`exec-no-device` failed until
+  same on a QEMU built without patch 56; on the PC the run as built is
+  at 13 % too, since Windows' own waits are 15.6 ms). (`exec-no-device` failed until
   DXVK patch 16 on 2026-10-09: DXVK's exception crossed into the executor
   and aborted in the unwinder. `package`
   failed there too, on `build/` being a symlink, until `package-linux.sh`
@@ -392,13 +393,20 @@ tracks, plus the items no track owns.
     the readback's wait (`tracks/m17-driver-perf.md`, `tools/w98-mp2.sh`).
 12. **Release 1.0.0** (`docs/release.md`, `scripts/release.sh`). The
     Linux gate passed on 2026-10-16 (`test.sh all`: 73 pass, the known
-    `pit-guest`; `package-linux.sh`). Left: the PC's and the Air's
-    gates, the store packages, then the tag, which the user makes on
-    the commit both packages come from. The manual's release notes are
-    the stores' *What's New*. Every package carries `licenses/` beside
-    THIRD-PARTY-NOTICES.md (`tools/third-party-notices.py stage`, which
-    fails on a missing text; run on Linux, not yet on the Air or the
-    PC), and App Store re-uploads take `package-macos.sh --build N`.
+    `pit-guest`; `package-linux.sh`). The PC's passed on 2026-10-17
+    (`test.sh all`: 64 pass, the known `pit-guest`, 17 skips that need
+    Linux, a display, Wine or a Windows 7 disc; `package-windows.sh
+    --msix` with the development identity). Left: the Store MSIX with
+    Partner Center's identity (not yet read off Partner Center) and the
+    certification kit on it, the Air's gate, the App Store package, then
+    the tag, which the user makes on the commit both packages come from.
+    The manual's release notes are the stores' *What's New*. Every
+    package carries `licenses/` beside THIRD-PARTY-NOTICES.md
+    (`tools/third-party-notices.py stage`, which fails on a missing text;
+    run on Linux and the PC, not yet on the Air; glib's text is
+    `LICENSES/LGPL-2.1-or-later.txt`, since Windows' unpack turns the
+    `COPYING` symlink into a `.lnk`), and App Store re-uploads take
+    `package-macos.sh --build N`.
     THIRD-PARTY-NOTICES.md carries the written source offer (GPL-2
     §3(b); contato@roboport.com.br), About links this version's tag,
     and its Licences button shows every text the package carries

@@ -96,7 +96,8 @@ COMPONENTS = [
     # QEMU's libraries, static in libqemu-embed (scripts/build-deps.sh). On
     # Linux only glib, pcre2, libslirp, libcrypto and libtpms are ours; the
     # rest are the distribution's.
-    ("glib", ["{glib}/COPYING"], ALL),
+    # COPYING is a symlink to this, which Windows' unpack makes a .lnk
+    ("glib", ["{glib}/LICENSES/LGPL-2.1-or-later.txt"], ALL),
     ("pcre2", ["{pcre2}/LICENCE.md"], ALL),
     ("libslirp", ["{libslirp}/COPYRIGHT", "{libslirp}/LICENSE"], ALL),
     ("openssl", ["{openssl}/LICENSE.txt"], ALL),
