@@ -472,8 +472,14 @@ for version 1.0.1's first, so a re-upload never needs a new version.
 
 First run (2026-10-06, `--no-build`): the staging and every check
 pass, the plist says 26.0, and a profile for another App ID is refused.
-The signing, the `.pkg` and an upload have not run yet: they wait for
-the account's App Store certificates and profile.
+First signed run (2026-10-17, the 1.0.0 gate, with the account's
+profile): the app signed as Apple Distribution, every executable
+sandboxed, the `.pkg` signed as 3rd Party Mac Developer Installer. Two
+things only a real signature found: codesign (AMFI) refuses a `--`
+inside an XML comment in an entitlements file, which `plutil -lint`
+passes (the script now runs `xmllint` over them first), and the `.app`'s
+own signature must carry the launcher's entitlements, or it re-signs
+the launcher without its sandbox. No upload yet.
 
 Ad hoc signed with the sandbox (2026-10-06), the launcher's library
 moves into its container, a path no panel granted is refused

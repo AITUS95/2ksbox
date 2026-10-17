@@ -733,6 +733,11 @@ if [ "$APP_STORE" = 1 ]; then
     || { echo "package-macos.sh: $PROVISION lists devices: a development profile, not a Mac App Store one" >&2; exit 1; }
   echo "profile        $(pb Name) ($APP_ID, expires $(pb ExpirationDate))"
   cp "$PROVISION" "$C/embedded.provisionprofile"
+  # codesign's parser (AMFI) is stricter than plutil: it refuses a "--"
+  # inside a comment, which plutil -lint passes. xmllint refuses it too.
+  for f in packaging/macos/*.entitlements; do
+    xmllint --noout "$f" || { echo "package-macos.sh: $f is not well-formed XML; codesign will refuse it" >&2; exit 1; }
+  done
   launcher_ents=$(mktemp)
   sed -e "s/@APP_ID@/$APP_ID/" -e "s/@TEAM@/$TEAM/" packaging/macos/app-store.entitlements > "$launcher_ents"
   pick() { security find-identity -v -p "$1" | sed -n "s/.*\"\($2: .*($TEAM)\)\"/\1/p" | head -1; }
@@ -749,7 +754,9 @@ fi
 signing_entitlements() {
   if [ "$APP_STORE" = 0 ]; then entitlements_of "$1"; return; fi
   case "$1" in
-    "$C"/MacOS/2ksbox) echo "$launcher_ents" ;;
+    # The bundle's signature is its main executable's: signing the .app
+    # without them strips the launcher's sandbox and App ID again.
+    "$C"/MacOS/2ksbox|"$APP") echo "$launcher_ents" ;;
     */MacOS/2ksbox-player-aarch64) echo packaging/macos/app-store-hypervisor.entitlements ;;
     */MacOS/2ksbox-player) echo packaging/macos/app-store-player.entitlements ;;
     */libexec/2ksbox/qemu-img) echo packaging/macos/app-store-helper.entitlements ;;
