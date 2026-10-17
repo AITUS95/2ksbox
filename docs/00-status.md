@@ -399,7 +399,8 @@ tracks, plus the items no track owns.
     --msix`; the Store MSIX, 1.0.0.0 with Partner Center's identity
     `RoboportTecnologia.2ksbox`, sideloaded with `-Check` and through the
     certification kit: `OVERALL_RESULT=PASS`, the two optional FAILs of
-    `build-windows.md`). Its listing, Store ID `9NVNN81VKF05`
+    `build-windows.md`; re-packed the same day with Windows' icons
+    without the teal plate, not yet re-certified). Its listing, Store ID `9NVNN81VKF05`
     (<https://apps.microsoft.com/detail/9NVNN81VKF05>), is live once
     the submission is published; then `README.md` and the manual's
     `install.mdx` link it. Left: the Microsoft submission, the Air's

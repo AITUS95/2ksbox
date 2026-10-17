@@ -29,7 +29,18 @@
 #                    (ITMS-90236); made only from a master of 1024 or
 #                    more, so `package-macos.sh --app-store` refuses to
 #                    build until the master is that large
-#   2ksbox.ico       Windows: 16/32/48/256 in one file, which is what a
+#
+# Windows draws the monitor alone, with no teal plate behind it (user,
+# 2026-10-17): a Windows app icon is the object on transparency, not a
+# tile. Its master is the Icon Composer document's own monitor layer,
+# `2ksbox.icon/Assets/monitor.png`, trimmed to the monitor and centred on
+# a square, so the plate's colour lives only in `icon.json`'s fill. From
+# it, under `packaging/icon/windows/`:
+#
+#   2ksbox-{16,24,32,48,64,128,256}.png
+#                    the windows' own picture (the launcher and the
+#                    player hand mitsuami the 256, the About box the 128)
+#   ../2ksbox.ico    16/24/32/48/64/256 in one file, which is what a
 #                    shortcut and an .exe resource both want
 #
 # and, under `packaging/icon/macos/`, the same sizes on Apple's grid for
@@ -38,13 +49,14 @@
 # right on Linux and Windows but would stand oversized in the Dock);
 #
 # and, under `packaging/windows/Assets/`, the four logos an MSIX manifest
-# names (`scripts/package-msix.sh`), at the exact sizes the Store checks:
+# names (`scripts/package-msix.sh`), from the Windows master, at the
+# exact sizes the Store checks:
 #
 #   Square44x44Logo   44x44    the taskbar, the Start list: the icon whole
 #   StoreLogo         50x50    the Store listing and the installer
 #   Square150x150Logo 150x150  the Start tile: the icon at three quarters,
-#   Wide310x150Logo   310x150  centred, because Windows paints the tile's
-#                              background behind it (BackgroundColor)
+#   Wide310x150Logo   310x150  centred, on the tile's own background
+#                              (BackgroundColor, transparent)
 #
 # Nothing is ever scaled *up*. The master is first padded with
 # transparency to 512x512 (1024x1024 when the master is at least 1024 on
@@ -56,14 +68,17 @@ cd "$(dirname "$0")/.."
 
 DIR=packaging/icon
 MASTER=$DIR/2ksbox.png
+WIN_MASTER=$DIR/2ksbox.icon/Assets/monitor.png
 SIZES=(16 24 32 48 64 128 256 512)
-ICO_SIZES=(16 32 48 256)
+WIN_SIZES=(16 24 32 48 64 128 256)
+ICO_SIZES=(16 24 32 48 64 256)
 
 check=0
 [ "${1:-}" = "--check" ] && check=1
 
 command -v magick >/dev/null || { echo "gen-icons.sh: ImageMagick (magick) is required" >&2; exit 1; }
 [ -f "$MASTER" ] || { echo "gen-icons.sh: no master at $MASTER" >&2; exit 1; }
+[ -f "$WIN_MASTER" ] || { echo "gen-icons.sh: no Windows master at $WIN_MASTER" >&2; exit 1; }
 # A scratch folder as magick can read it. In MSYS2 that is C:/...: a
 # /tmp/... path behind a `PNG32:` prefix reaches the native magick
 # unconverted, and it segfaults on it instead of saying so.
@@ -81,13 +96,20 @@ pad=$(tmpdir)/master-$canvas.png
 trap 'rm -rf "$(dirname "$pad")"' EXIT
 magick "$MASTER" -background none -colorspace sRGB \
   -resize "${canvas}x${canvas}>" -gravity center -extent "${canvas}x${canvas}" -strip "PNG32:$pad"
+# Windows' square: the monitor layer trimmed to its opaque pixels, centred
+# on a transparent square of its longer side, then the same canvas.
+wside=$(magick "$WIN_MASTER" -trim -format '%[fx:max(w,h)]' info:)
+wpad=$(dirname "$pad")/windows-$canvas.png
+magick "$WIN_MASTER" -background none -colorspace sRGB -trim +repage \
+  -gravity center -extent "${wside}x${wside}" \
+  -resize "${canvas}x${canvas}>" -extent "${canvas}x${canvas}" -strip "PNG32:$wpad"
 
 # `-background none` keeps the alpha the master has (the icon is not a
 # square: it has to sit on whatever colour a desktop puts behind it), and
 # the explicit sRGB colorspace stops ImageMagick from linearising the
 # downscale, which lightens a dark icon's edges.
-render() { # size, out
-  magick "$pad" -background none -colorspace sRGB \
+render() { # size, out[, square]
+  magick "${3:-$pad}" -background none -colorspace sRGB \
     -resize "${1}x${1}" -strip "PNG32:$2"
 }
 
@@ -99,17 +121,23 @@ fi
 for s in "${SIZES[@]}"; do render "$s" "$out/2ksbox-$s.png"; done
 # A smaller master has no 1024: drop one an older, larger master made.
 [ "$check" = 1 ] || [ "$canvas" = 1024 ] || rm -f "$DIR/2ksbox-1024.png"
-# One .ico holding the four sizes Windows actually picks from.
-ico_inputs=(); for s in "${ICO_SIZES[@]}"; do ico_inputs+=("$out/2ksbox-$s.png"); done
+# Windows: the monitor alone, and one .ico holding the sizes Windows
+# picks from.
+WIN=$DIR/windows
+wout=$WIN
+[ "$check" = 1 ] && wout=$out/windows
+mkdir -p "$wout"
+for s in "${WIN_SIZES[@]}"; do render "$s" "$wout/2ksbox-$s.png" "$wpad"; done
+ico_inputs=(); for s in "${ICO_SIZES[@]}"; do ico_inputs+=("$wout/2ksbox-$s.png"); done
 magick "${ico_inputs[@]}" "$out/2ksbox.ico"
 
-# The Store logos: the icon drawn at `icon` pixels on a transparent
-# `w`x`h` canvas, centred.
+# The Store logos: the Windows icon drawn at `icon` pixels on a
+# transparent `w`x`h` canvas, centred.
 ASSETS=packaging/windows/Assets
 aout=$ASSETS
 [ "$check" = 1 ] && { aout=$out/Assets; mkdir -p "$aout"; }
 logo() { # name, w, h, icon
-  magick "$pad" -background none -colorspace sRGB -resize "${4}x${4}" \
+  magick "$wpad" -background none -colorspace sRGB -resize "${4}x${4}" \
     -gravity center -extent "${2}x${3}" -strip "PNG32:$aout/$1.png"
 }
 logo Square44x44Logo   44  44  44
@@ -141,6 +169,10 @@ if [ "$check" = 1 ]; then
     n=$(basename "$f")
     same "$f" "$DIR/$n" || { echo "gen-icons.sh: $DIR/$n is out of date"; rc=1; }
   done
+  for f in "$wout"/*.png; do
+    n=$(basename "$f")
+    same "$f" "$WIN/$n" || { echo "gen-icons.sh: $WIN/$n is out of date"; rc=1; }
+  done
   for f in "$aout"/*.png; do
     n=$(basename "$f")
     same "$f" "$ASSETS/$n" || { echo "gen-icons.sh: $ASSETS/$n is out of date"; rc=1; }
@@ -157,4 +189,4 @@ if [ "$check" = 1 ]; then
   exit $rc
 fi
 
-echo "gen-icons.sh: wrote $DIR/2ksbox-{$(IFS=,; echo "${SIZES[*]}")}.png, 2ksbox.ico, $MAC/*.png and $ASSETS/*.png"
+echo "gen-icons.sh: wrote $DIR/2ksbox-{$(IFS=,; echo "${SIZES[*]}")}.png, 2ksbox.ico, $WIN/*.png, $MAC/*.png and $ASSETS/*.png"

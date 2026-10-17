@@ -92,7 +92,10 @@ fn open_machines_folder() {
 /// The app's icon as pixels, decoded once here: `Image` takes a file or
 /// pixels, and an installed launcher has no file of its own to point at.
 fn icon() -> Option<Pixels> {
+    #[cfg(not(windows))]
     let png = include_bytes!("../../packaging/icon/2ksbox-128.png");
+    #[cfg(windows)]
+    let png = include_bytes!("../../packaging/icon/windows/2ksbox-128.png");
     let mut reader = png::Decoder::new(std::io::Cursor::new(png.as_slice())).read_info().ok()?;
     let mut rgba = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut rgba).ok()?;

@@ -417,8 +417,10 @@ it; `package-windows.sh --msix` runs it after the zip's checks.
   QEMU runs in-process) with `internetClient` for the first-run preset
   download, on Windows 10 2004 and later, x64.
 - `packaging/windows/Assets/` holds the logos at the sizes the Store
-  checks (44, 50, 150, 310×150), derived from the master by
-  `scripts/gen-icons.sh` like every other icon.
+  checks (44, 50, 150, 310×150), derived by `scripts/gen-icons.sh` like
+  every other icon. Windows' icons are the monitor alone on
+  transparency, with no teal plate (user, 2026-10-17), from the Icon
+  Composer document's monitor layer.
 - `2ksbox-debug.bat` is left out: an installed package's folder is
   read-only. The launcher's log is where it always is.
 
