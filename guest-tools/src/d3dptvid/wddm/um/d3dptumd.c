@@ -597,7 +597,16 @@ static HRESULT APIENTRY umd_lock(HANDLE h, D3DDDIARG_LOCK *l)
                 umd_log("Lock of a target %p: flags 0x%x, rendered %u", r, l->Flags.Value, r->rendered);
             }
         }
-        cmd_flush(dev);
+        /* NOOVERWRITE: the caller writes only bytes no queued command
+         * reads (the next range of a dynamic buffer: DWM's vertex rings,
+         * through d3d10level9 a draw each), so what is queued stays
+         * queued and dxgkrnl, which knows of no work on the allocation,
+         * locks it at once. Flushed, every such draw was a submission of
+         * its own and the lock waited for its fence: DWM composed at half
+         * the screen's rate at 1600x1200 (track M25) */
+        if (!l->Flags.NoOverwrite) {
+            cmd_flush(dev);
+        }
         ZeroMemory(&lk, sizeof(lk));
         lk.hAllocation = r->kmt;
         lk.Flags.ReadOnly = l->Flags.ReadOnly;

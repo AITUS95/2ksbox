@@ -242,7 +242,78 @@ dxgkrnl logs no event. Left for later (user, 2026-10-17).
 `scripts/test.sh all` on the PC with step 4 (2026-10-17): 67 passed, 16
 skipped, none failed.
 
+**The desktop at high resolutions, 2026-10-17** (user: "laggy on win 11
+... works well on low resolutions, but higher resolutions are slow"). A
+maximized window repainted every 10 ms (`LOAD\anim.ps1` on the test
+machine, run as the logged-on user): DWM composed **~31 frames/s at
+1600x1200 against ~58 at 1024x768**, with the guest mostly idle (17% of
+four CPUs: System, where the executor runs inside the submission, 34% of
+one, DWM 13%) and the host executor 22% busy. A latency problem, then:
+at 1600x1200 DWM's frame is ~17 Direct3D 9 submissions (the window into a
+full-screen intermediate, the taskbar acrylic's blur chain, the primary)
+against ~4 at 1024x768, and the Direct3D 9 user-mode driver flushed its
+command buffer at every Lock, so each draw after a write to DWM's dynamic
+vertex ring was a submission of its own and the lock then waited for that
+submission's fence (dxgkrnl's scheduler, the device's interrupt, the
+DPC). DWM missed every other vertical blank. A NOOVERWRITE lock no
+longer flushes (the caller writes only bytes no queued command reads, and
+dxgkrnl, which knows of no work on the allocation, locks it at once): the
+same load at 1600x1200 now composes at **54-58 frames/s**, ~900 batches
+in 5 s instead of ~6,300. The Direct3D 11 driver had no such cost (a
+dynamic resource maps a CPU copy and its unmap sends the bytes that
+changed). Not it, measured on the way: the segment (`vgamem_mb=512` gave
+the same 31) and the readbacks' size (~3.8 ms at 1600x1200, ~3.4 ms at
+1024x768, most of it the wait for the GPU).
+
+Seen on the way, both open below: in this overlay DWM made one device on
+this driver through the Windows 7 interface (`0xb000f`) and composed on
+d3d10level9, the Direct3D 9 driver, after logon and after a restart of
+DWM alike, not as step 4 found it; and under the full-window load the
+guest twice hit a TDR within ~30 s and restarted.
+
+**Widescreen modes** (user: "add more resolution options to our driver
+on windows 10/11"). The host's mode table is the XP-era one (640x480 to
+1600x1200, 4:3 and 5:4, shared with the XP miniport); the WDDM kernel
+driver now adds 1280x720, 1280x800, 1366x768, 1440x900, 1600x900,
+1680x1050, 1920x1080, 1920x1200, 2560x1440, 2560x1600 and 3840x2160 at
+60 Hz (`wide_sizes`), each where six of its frames fit the segment
+(DWM's primaries, its intermediate and the windows' surfaces): the
+default 63 MiB stops at 1920x1200, `vgamem_mb=256` adds 2560x1600,
+`vgamem_mb=512` 3840x2160. The device takes any linear mode. XP and 9x
+keep their lists. The same full-window load with the NOOVERWRITE change,
+each from a fresh boot: **1920x1080 57-59 frames/s** on the default
+segment (a run right after switching modes in the same session gave 30,
+not seen again from a boot); **2560x1440 ~32** (`vgamem_mb=256`), with
+the guest mostly idle and the executor 28% busy: per frame the primary's
+readback (~6.5 ms, ~3.8 of it waiting for the GPU and the copy across)
+and the untracked-pixel passes over the same 14.7 MB (the frame's first
+draw compares the target with its shadow, ~1.5 ms; the readback compares
+again and copies twice) run inside DWM's present, on the vCPU, and the
+flip misses its blank. What would take it further: the readback only of
+the rectangles drawn since the last one (a desktop that changes a little
+changes a little), and the readback's copy done at the flip instead of
+inside the present.
+
 ## Open
+
+- **A TDR under a full-screen repaint** (`LOAD\anim.ps1` maximized at
+  1600x1200, before the NOOVERWRITE change; not seen in one run after
+  it): `CollectDbgInfo` with every fence done on the host and the last
+  one never reported (`fences submitted 0xbb37 done 0xbb37 notified
+  0xbb36`), the device's `IRQ_STATUS` 3 (both events pending, enabled)
+  while no interrupt service ran, then `ResetFromTimeout` and a guest
+  restart. **The cause is QEMU's**: WHPX's APIC EOI exit called
+  `ioapic_eoi_broadcast()` without the BQL from the vCPU loop while the
+  device raised its line under it from another vCPU, and the two
+  interleave so that neither delivers (patch 94, `94-whpx-eoi-bql`, which
+  takes the BQL; every guest's level-triggered INTx under WHPX could lose
+  its line so, an XP's sound or USB card on an APIC HAL included; KVM's
+  IOAPIC is in the kernel and TCG's EOI holds the BQL). The check, in
+  progress: the old Direct3D 9 driver (a submission per draw, the most
+  interrupts), which hit the TDR within ~30-40 s three runs of three,
+  under the same load on the patched QEMU for minutes.
+- **DWM back on d3d10level9** in the `m25` overlay (above): which of its
+  devices the runtime refuses on this driver.
 
 - **Claiming WDDM 1.2** (above): what Windows does differently with a
   window's swap chain on a 1.2 driver.

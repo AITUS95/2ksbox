@@ -56,7 +56,12 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
   the miniport reads MODE_COUNT and walks MODE_SEL → MODE_W/H/BPP/HZ, so
   the host decides what Display Properties offers. The table is a static
   list of 7 sizes (640×480 to 1600×1200) × {60, 75, 85} Hz × {8, 16, 32}
-  bpp = 63 modes. A mode switch writes WIDTH/HEIGHT/BPP/PITCH/OFFSET and
+  bpp = 63 modes. The WDDM kernel driver (Windows 7 / 10 / 11) offers
+  its 32 bpp modes plus widescreen sizes of its own at 60 Hz (1280×720
+  to 3840×2160, `wide_sizes` in `d3dptkmd.c`), each where six of its
+  frames fit the memory segment (the default 63 MiB stops at
+  1920×1200; `vgamem_mb=256` adds 2560×1600, `vgamem_mb=512`
+  3840×2160): the device takes any linear mode. A mode switch writes WIDTH/HEIGHT/BPP/PITCH/OFFSET and
   ENABLE = 1; ENABLE = 0 hands the console back to the VGA core. DEBUG
   takes one character per write, and the device prints whole lines to
   the QEMU log (`d3dpt-vga: guest: …`). It is the kernel code's only

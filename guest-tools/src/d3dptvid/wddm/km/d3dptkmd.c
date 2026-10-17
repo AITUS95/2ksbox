@@ -74,7 +74,7 @@ typedef struct D3DPT_ADAPTER {
     ULONG regs_len;
     volatile ULONG *regs;             /* BAR 1 mapped (kernel VA) */
     ULONG seg_size;                   /* VRAM below the Direct3D command window */
-    struct { ULONG w, h, hz; } modes[64];   /* the host's 32-bpp modes (MODE_*) */
+    struct { ULONG w, h, hz; } modes[64];   /* the host's 32-bpp modes (MODE_*), then the widescreen sizes */
     ULONG nmodes;
     ULONG cur_w, cur_h, cur_pitch, cur_hz;  /* what CommitVidPn programmed */
     PUCHAR vram;                      /* the segment mapped (kernel VA): the "GPU" is the CPU */
@@ -300,13 +300,27 @@ static NTSTATUS find_bars(D3DPT_ADAPTER *a)
     return found == 3 ? STATUS_SUCCESS : STATUS_DEVICE_CONFIGURATION_ERROR;
 }
 
+/* The sizes a Windows 10 / 11 desktop is expected to offer that the
+ * host's table (an XP-era one of 4:3 and 5:4 sizes, shared with the XP
+ * miniport) lacks, at 60 Hz. The device takes any linear mode it is
+ * given; the table only advertises. */
+static const struct { USHORT w, h; } wide_sizes[] = {
+    { 1280, 720 }, { 1280, 800 }, { 1366, 768 }, { 1440, 900 }, { 1600, 900 }, { 1680, 1050 },
+    { 1920, 1080 }, { 1920, 1200 }, { 2560, 1440 }, { 2560, 1600 }, { 3840, 2160 },
+};
+
 /* The host's mode table (the player decides what the guest can pick, as
  * for the XP driver), 32 bpp only: the desktop's primary is X8R8G8B8. A
- * mode whose frame does not fit the segment is left out. */
+ * mode whose frame does not fit the segment is left out. Then the
+ * widescreen sizes, each only where six of its frames fit the segment:
+ * DWM keeps three primaries, a full-screen intermediate and the windows'
+ * surfaces, and a segment it overflows pages every frame (with the
+ * default 63 MiB, up to 1920x1200; vgamem_mb=256 adds 2560x1600,
+ * vgamem_mb=512 3840x2160). */
 static void read_modes(D3DPT_ADAPTER *a)
 {
     volatile ULONG *r = a->regs;
-    ULONG n = r[D3DPT_FB_REG_MODE_COUNT / 4], i;
+    ULONG n = r[D3DPT_FB_REG_MODE_COUNT / 4], i, k, table;
 
     a->nmodes = 0;
     for (i = 0; i < n && a->nmodes < RTL_NUMBER_OF(a->modes); i++) {
@@ -325,8 +339,26 @@ static void read_modes(D3DPT_ADAPTER *a)
         a->modes[a->nmodes].hz = hz ? hz : 60;
         a->nmodes++;
     }
+    table = a->nmodes;
+    for (i = 0; i < RTL_NUMBER_OF(wide_sizes) && a->nmodes < RTL_NUMBER_OF(a->modes); i++) {
+        ULONG w = wide_sizes[i].w, h = wide_sizes[i].h;
+
+        if ((ULONGLONG)w * h * 4 * 6 > a->seg_size) {
+            continue;
+        }
+        for (k = 0; k < table && (a->modes[k].w != w || a->modes[k].h != h); k++) {
+        }
+        if (k < table) {
+            continue;                           /* the host offers it already */
+        }
+        a->modes[a->nmodes].w = w;
+        a->modes[a->nmodes].h = h;
+        a->modes[a->nmodes].hz = 60;
+        a->nmodes++;
+    }
     dbg_hex("d3dptkmd: modes ", a->nmodes);
     dbg_hex(" of ", n);
+    dbg_hex(" and widescreen ", a->nmodes - table);
     dbg_puts("\n");
 }
 
