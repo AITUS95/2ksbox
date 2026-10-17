@@ -22,3 +22,6 @@ build
 *_d3d9.log
 __pycache__/
 *.pyc
+
+# the player's screenshots, when it is run from the checkout
+/2ksbox-*.png

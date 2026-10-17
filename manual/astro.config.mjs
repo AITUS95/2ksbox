@@ -32,7 +32,7 @@ export default defineConfig({
 				},
 				{
 					label: 'Reference',
-					items: ['keys', 'troubleshooting', 'privacy', 'acknowledgements'],
+					items: ['keys', 'troubleshooting', 'privacy', 'acknowledgements', 'release-notes'],
 				},
 			],
 		}),

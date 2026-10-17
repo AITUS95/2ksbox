@@ -1,0 +1,52 @@
+---
+title: Release notes
+description: What each version of 2ksbox brings.
+---
+
+## 1.0.0
+
+The first release, on the Mac App Store and the Microsoft Store.
+
+### Machines
+
+- A launcher that makes Windows 98, Windows XP, Windows 7, Windows 11,
+  DOS and other machines, each with hardware that suits it. Each
+  machine opens in its own window.
+- Windows 98 and DOS are emulated, on purpose, so old games see the
+  kind of PC they were written for. On Windows and Linux, Windows XP
+  and 7 can run on your computer's hypervisor.
+- Windows 11 installs from Microsoft's own ISO with Secure Boot and a
+  TPM 2.0, and shares the clipboard with your computer. On a Mac or a
+  Linux computer it can share a folder too. On a Mac it is Windows 11
+  on Arm.
+- Snapshots of a machine turned off or running, kept as a tree, and
+  clones.
+
+### Games
+
+- Direct3D from DirectX 1 to 9 on your graphics card, through the
+  2ksbox adapter's driver on Windows 98 and XP.
+- OpenGL games on your graphics card, through one file next to the
+  game.
+- An emulated 3dfx Voodoo 2 for Glide games, with 3dfx's own driver,
+  from Windows 98 and from DOS.
+- Disc images in cue/bin, CloneCD, Alcohol and ISO, or a folder, with
+  copy-protected discs and CD audio. The disc shelf swaps discs while
+  a machine runs.
+- Sound Blaster 16 and General MIDI music, and the Roland MT-32 with
+  ROMs you supply.
+- USB gamepads, a gameport joystick, and a gamepad mapped to keyboard
+  keys.
+
+### The picture
+
+- The guest's picture at its own resolution, scaled in whole steps,
+  through a CRT shader you can tune and save as a profile per machine.
+
+### Known limits
+
+- The Mac App Store version needs macOS 26 and a Mac with Apple
+  Silicon.
+- Windows 7 is for its Aero desktop, not for games.
+- Windows 11's display has no 3D acceleration. Its screen follows the
+  window's size.

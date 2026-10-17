@@ -1,4 +1,4 @@
-# 0. Status and how to resume (updated 2026-10-09)
+# 0. Status and how to resume (updated 2026-10-16)
 
 The handoff for a new session: the tracks and what each owns, where each
 area stands, the everyday commands, open threads, next steps and the
@@ -325,9 +325,8 @@ tracks, plus the items no track owns.
     mitsuami is the crates.io release 1.3.1 since 2026-10-16 (a git
     `rev` before; ADR-023's amendment), and
     `packaging/flatpak/cargo-sources.json` is regenerated for it, crate
-    archives only; left: run
-    the Linux packager with it (the Windows, macOS and Flatpak ones
-    have), and the macOS floor with an AppKit launcher
+    archives only; the Linux packager ran with it on 2026-10-16 (every
+    packager has); left: the macOS floor with an AppKit launcher
     (`tracks/m19-mitsuami-launcher.md`).
 9b. **M22, the player on mitsuami.** Step 2: the pointer, the menus and
     the close alert on a real desktop, latency against the winit player,
@@ -391,7 +390,13 @@ tracks, plus the items no track owns.
     (step 8, left open by user decision), vertex texture fetch in a title.
     M17: host vertex buffers for the draws, one HAL walk instead of two,
     the readback's wait (`tracks/m17-driver-perf.md`, `tools/w98-mp2.sh`).
-12. **The user manual** (`manual/`). Screenshots of the real windows,
+12. **Release 1.0.0** (`docs/release.md`, `scripts/release.sh`). The
+    Linux gate passed on 2026-10-16 (`test.sh all`: 73 pass, the known
+    `pit-guest`; `package-linux.sh`). Left: the PC's and the Air's
+    gates, the store packages, then the tag, which the user makes on
+    the commit both packages come from. The manual's release notes are
+    the stores' *What's New*.
+13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.
 
