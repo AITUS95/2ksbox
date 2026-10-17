@@ -30,13 +30,13 @@ static void APIENTRY d11_destroy_device(D3D10DDI_HDEVICE h)
 
         /* the kernel driver destroys the host's context with it */
         dc.hContext = d->ctx;
-        d->kt.pfnDestroyContextCb(d->rt.handle, &dc);
+        d->kt->pfnDestroyContextCb(d->rt.handle, &dc);
         d->ctx = NULL;
     }
 }
 
 static void APIENTRY d11_check_format(D3D10DDI_HDEVICE h, DXGI_FORMAT f, UINT *out)
-{ D11_TRACE("d11_check_format");
+{ D11_TRACE_FEW("d11_check_format");
     (void)h;
     *out = fmt_support((UINT)f);
     if (g_d11_verbose) {
@@ -45,10 +45,10 @@ static void APIENTRY d11_check_format(D3D10DDI_HDEVICE h, DXGI_FORMAT f, UINT *o
 }
 
 static void APIENTRY d11_check_ms(D3D10DDI_HDEVICE h, DXGI_FORMAT f, UINT count, UINT *levels)
-{ D11_TRACE("d11_check_ms");
+{ D11_TRACE_FEW("d11_check_ms");
     (void)h;
     *levels = count == 1 ? 1 : 0;                 /* no multisampling yet (fmt_support) */
-    if (g_d11_verbose) {
+    if (g_d11_verbose && (count <= 2 || *levels)) {
         umd_log("d3d11: CheckMultisampleQualityLevels %u x%u -> %u", f, count, *levels);
     }
 }
@@ -74,6 +74,35 @@ static void APIENTRY d11_text_filter(D3D10DDI_HDEVICE h, UINT w, UINT ht)
 static void APIENTRY d11_relocate(D3D10DDI_HDEVICE h, struct D3D11DDI_DEVICEFUNCS *f)
 { D11_TRACE("d11_relocate");
     (void)h; (void)f;                             /* nothing keeps the table's address */
+}
+
+/* the 11.1 interface's: a flush says whether it submitted anything */
+static BOOL APIENTRY d11_flush1(D3D10DDI_HDEVICE h, UINT flags)
+{ D11_TRACE("d11_flush1");
+    (void)flags;
+    cmd_flush(DEV(h));
+    return TRUE;
+}
+
+static void APIENTRY d11_relocate1(D3D10DDI_HDEVICE h, struct D3D11_1DDI_DEVICEFUNCS *f)
+{ D11_TRACE("d11_relocate1");
+    (void)h; (void)f;
+}
+
+/* the 11.1 interface's sub-objects: the video functions (d11_video.c) */
+static HRESULT APIENTRY d11_sub_object(D3D10DDI_HDEVICE h, UINT32 id, SIZE_T in_size, void *in, SIZE_T out_size, void *out)
+{ D11_TRACE("d11_sub_object");
+    (void)h; (void)out_size; (void)out;
+    if (id == D3D11_1DDI_VIDEO_FUNCTIONS && in && in_size >= sizeof(D3D11_1DDI_VIDEO_INPUT)) {
+        D3D11_1DDI_VIDEO_INPUT *v = (D3D11_1DDI_VIDEO_INPUT *)in;
+
+        if (v->p11VideoDeviceFuncs) {
+            d11_video_funcs(v->p11VideoDeviceFuncs);
+        }
+        return S_OK;
+    }
+    umd_log("d3d11: RetrieveSubObject %u (%u bytes in): refused", id, (UINT)in_size);
+    return E_INVALIDARG;
 }
 
 /* deferred contexts and command lists: the runtime records them itself
@@ -145,7 +174,7 @@ static HRESULT APIENTRY dxgi_set_display_mode(DXGI_DDI_ARG_SETDISPLAYMODE *m)
     cmd_flush(d);
     ZeroMemory(&s, sizeof(s));
     s.hPrimaryAllocation = r ? r->kmt : 0;
-    hr = d->kt.pfnSetDisplayModeCb(d->rt.handle, &s);
+    hr = d->kt->pfnSetDisplayModeCb(d->rt.handle, &s);
     umd_log("d3d11: SetDisplayMode %ux%u fmt %u -> 0x%08x", r ? r->r.width : 0, r ? r->r.height : 0, r ? r->r.format : 0, hr);
     return hr;
 }
@@ -193,6 +222,7 @@ static HRESULT APIENTRY dxgi_rotate(DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *a)
     }
     CopyMemory((BYTE *)DXGI_RES(a->pResources[a->Resources - 1]) + sizeof(D3D10DDI_HRTRESOURCE), tmp, bytes);
     HeapFree(GetProcessHeap(), 0, tmp);
+    d11_views_rotated(DXGI_DEV(a), (D11_RES *const *)a->pResources, a->Resources);
     return S_OK;
 }
 
@@ -228,6 +258,49 @@ static HRESULT APIENTRY dxgi_resolve_shared(DXGI_DDI_ARG_RESOLVESHAREDRESOURCE *
     return S_OK;
 }
 
+/* DXGI 1.2's Blt1: a source rectangle too; the whole source is the
+ * DXGI 1.1 Blt, part of one is not done yet */
+static HRESULT APIENTRY dxgi_blt1(DXGI_DDI_ARG_BLT1 *b)
+{ D11_TRACE("dxgi_blt1");
+    D11_RES *src = DXGI_RES(b->hSrcResource);
+    DXGI_DDI_ARG_BLT o;
+
+    if (src && (b->SrcLeft || b->SrcTop || (b->SrcRight && b->SrcRight != src->r.width) ||
+                (b->SrcBottom && b->SrcBottom != src->r.height))) {
+        D11_TODO("a DXGI Blt1 of part of its source");
+    }
+    ZeroMemory(&o, sizeof(o));
+    o.hDevice = b->hDevice;
+    o.hDstResource = b->hDstResource;
+    o.DstSubresource = b->DstSubresource;
+    o.DstLeft = b->DstLeft;
+    o.DstTop = b->DstTop;
+    o.DstRight = b->DstRight;
+    o.DstBottom = b->DstBottom;
+    o.hSrcResource = b->hSrcResource;
+    o.SrcSubresource = b->SrcSubresource;
+    o.Flags = b->Flags;
+    o.Rotate = b->Rotate;
+    return dxgi_blt(&o);
+}
+
+/* offered resources keep their contents: nothing is ever discarded */
+static HRESULT APIENTRY dxgi_offer(DXGI_DDI_ARG_OFFERRESOURCES *o)
+{ D11_TRACE("dxgi_offer");
+    (void)o;
+    return S_OK;
+}
+
+static HRESULT APIENTRY dxgi_reclaim(DXGI_DDI_ARG_RECLAIMRESOURCES *r)
+{ D11_TRACE("dxgi_reclaim");
+    UINT i;
+
+    for (i = 0; r->pDiscarded && i < r->Resources; i++) {
+        r->pDiscarded[i] = FALSE;
+    }
+    return S_OK;
+}
+
 /* ---------------------------------------------------------------- device */
 
 HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE *c)
@@ -241,14 +314,15 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     HRESULT hr;
 
     umd_log("d3d11: CreateDevice interface 0x%x version 0x%x flags 0x%x", c->Interface, c->Version, c->Flags);
-    if (c->Interface != D3D11_0_7_DDI_INTERFACE_VERSION) {
+    if (c->Interface != D3D11_0_7_DDI_INTERFACE_VERSION && c->Interface != D3D11_1_DDI_INTERFACE_VERSION) {
         return E_INVALIDARG;
     }
     ZeroMemory(d, sizeof(*d));
+    d->v11_1 = c->Interface == D3D11_1_DDI_INTERFACE_VERSION;
     d->rt = c->hRTDevice;
     d->core = c->hRTCoreLayer;
     d->ad = a;
-    d->kt = *c->pKTCallbacks;
+    d->kt = c->pKTCallbacks;
     d->um = c->p11UMCallbacks;
     d->dxgi = c->DXGIBaseDDI.pDXGIBaseCallbacks;
     /* the host's context: a Direct3D 11 one, apart from the Direct3D 9
@@ -260,7 +334,7 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     priv.host_ctx = d->host_ctx;
     cc.pPrivateDriverData = &priv;
     cc.PrivateDriverDataSize = sizeof(priv);
-    hr = d->kt.pfnCreateContextCb(d->rt.handle, &cc);
+    hr = d->kt->pfnCreateContextCb(d->rt.handle, &cc);
     umd_log("d3d11: context 0x%08x -> 0x%08x, buffer %u bytes, lists %u / %u", d->host_ctx, hr, cc.CommandBufferSize,
             cc.AllocationListSize, cc.PatchLocationListSize);
     if (FAILED(hr)) {
@@ -298,6 +372,19 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     f->pfnRecycleCreateCommandList = d11_cl_recycle_create;
     f->pfnRecycleCreateDeferredContext = d11_dc_recycle_create;
     f->pfnRecycleDestroyCommandList = d11_cl_destroy;
+    if (d->v11_1) {
+        /* the 11.1 table is the 11.0 one entry for entry, then five more:
+         * the entries whose arguments changed, and the new ones */
+        D3D11_1DDI_DEVICEFUNCS *f1 = c->p11_1DeviceFuncs;
+
+        d11_res_funcs11_1(f1);
+        d11_pipe_funcs11_1(f1);
+        f1->pfnFlush = d11_flush1;
+        f1->pfnRelocateDeviceFuncs = d11_relocate1;
+        if (c->ppfnRetrieveSubObject) {
+            *c->ppfnRetrieveSubObject = d11_sub_object;
+        }
+    }
 
     /* DXGI 1.1's functions with the Windows 7 interface (Version's low
      * word: the runtime's DXGI DDI revision, 9 = DXGI_RESOLVE_SHARED_RESOURCE) */
@@ -308,8 +395,14 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnQueryResourceResidency = dxgi_residency;
     c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnRotateResourceIdentities = dxgi_rotate;
     c->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnBlt = dxgi_blt;
-    if ((c->Version & 0xffff) >= DXGI_RESOLVE_SHARED_RESOURCE) {
+    if ((c->Version & 0xffff) >= DXGI_RESOLVE_SHARED_RESOURCE || d->v11_1) {
         c->DXGIBaseDDI.pDXGIDDIBaseFunctions2->pfnResolveSharedResource = dxgi_resolve_shared;
+    }
+    if (IS_DXGI1_2_BASE_FUNCTIONS(c->Interface, c->Version)) {
+        /* DXGI 1.2 with the 11.1 interface (no multiplane overlays) */
+        c->DXGIBaseDDI.pDXGIDDIBaseFunctions3->pfnBlt1 = dxgi_blt1;
+        c->DXGIBaseDDI.pDXGIDDIBaseFunctions3->pfnOfferResources = dxgi_offer;
+        c->DXGIBaseDDI.pDXGIDDIBaseFunctions3->pfnReclaimResources = dxgi_reclaim;
     }
     return S_OK;
 }

@@ -242,7 +242,11 @@ static HRESULT APIENTRY umd_get_caps(HANDLE h, CONST D3DDDIARG_GETCAPS *g)
  * between never splits the two.
  */
 #define UMD_SLACK 4096        /* what the kernel-mode driver puts in front of the records */
-#define UMD_FIX 16            /* and after them, per patch location (its fix-up packet) */
+/* and after them, per patch location (its fix-up packet): an entry is
+ * three ULONGs and a pointer, 24 bytes on x64, whose kernel driver a
+ * 32-bit (WoW64) process talks to as well; 16 overflowed a full buffer
+ * (track M25 step 4, DWM) */
+#define UMD_FIX 24
 
 static void cmd_reset(UMD_DEV *d)
 {

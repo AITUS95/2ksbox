@@ -3,21 +3,24 @@
  * the d3dpt-vga adapter (track M25, ADR-029). d3d11.dll loads it by the
  * name the INF writes after Direct3D 9's in UserModeDriverName and calls
  * OpenAdapter10_2; the device functions it hands out are the Direct3D 11
- * DDI, the Windows 7 interface (D3D11_0_7), whose 3D pipeline level says
- * which feature levels the runtime offers (10_0 for now).
+ * DDI, Windows 8's 11.1 interface (with its video functions, which a
+ * device made with VIDEO_SUPPORT needs, DWM's among them; track M25 step
+ * 4) or Windows 7's (D3D11_0_7), whose 3D pipeline level says which
+ * feature levels the runtime offers (10_0 for now).
  *
  * The transport is the Direct3D 9 driver's (../um/d3dptumd.c): records in
  * the runtime's command buffer, allocations named through patch
  * locations, the kernel driver (../km/d3dptkmd.c) moving them into the
  * device's command window at submit. Everything this driver says to the
- * host is D3DPT_OP_D11 records (d3dpt_proto.h, v25): a run of tokens for
+ * host is D3DPT_OP_D11 records (d3dpt_proto.h, v25 and v26): a run of tokens for
  * this device's context, executed on the host's d3d11 (DXVK) with this
  * device's own pipeline state. Shaders are not translated: their tokens
  * and signatures go to the host as the runtime gave them.
  *
  * This file: the adapter, the formats and the command buffer. The rest:
  * d11_res.c (resources), d11_pipe.c (views, states, shaders, bindings,
- * the work), d11_dev.c (the device and DXGI's functions).
+ * the work), d11_dev.c (the device and DXGI's functions), d11_video.c
+ * (the 11.1 interface's video functions).
  *
  * Build: guest-tools/build-wddm.cmd (the EWDK's MSBuild, beside the
  * Direct3D 9 driver; docs/build-windows.md "The WDDM driver").
@@ -132,10 +135,12 @@ UINT fmt_support(UINT f)
 /* ------------------------------------------------------------- adapter */
 
 BOOL g_d11_verbose;
+static BOOL g_d11_win7;                     /* D3D11Win7: only the Windows 7 interface */
 
 /* this process in a list of executable names under HKLM\SOFTWARE\2ksbox
  * (REG_MULTI_SZ; "*" for every process): D3D11Exclude keeps a process on
- * Direct3D 9's driver (d3d10level9), D3D11Trace logs every call */
+ * Direct3D 9's driver (d3d10level9), D3D11Trace logs every call,
+ * D3D11Win7 offers only the Windows 7 interface (an A/B for the 11.1 one) */
 static BOOL listed(const char *value)
 {
     char names[1024], exe[MAX_PATH], *base;
@@ -186,15 +191,16 @@ HRESULT APIENTRY OpenAdapter10_2(D3D10DDIARG_OPENADAPTER *o)
         return E_FAIL;
     }
     g_d11_verbose = listed("D3D11Trace");
+    g_d11_win7 = listed("D3D11Win7");
     a = (D11_ADAPTER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*a));
     if (!a) {
         return E_OUTOFMEMORY;
     }
     a->rt = o->hRTAdapter;
-    a->cb = *o->pAdapterCallbacks;
+    a->cb = o->pAdapterCallbacks;
     q.pPrivateDriverData = &a->info;
     q.PrivateDriverDataSize = sizeof(a->info);
-    hr = a->cb.pfnQueryAdapterInfoCb(a->rt.handle, &q);
+    hr = a->cb->pfnQueryAdapterInfoCb(a->rt.handle, &q);
     if (FAILED(hr) || a->info.magic != D3DPT_UMD_MAGIC || a->info.version != D3DPT_UMD_VERSION || !a->info.d3d ||
         !(a->info.fb_caps & D3DPT_FB_CAP_D3D11)) {
         /* refused: Windows puts Direct3D 11 on the Direct3D 9 driver
@@ -220,21 +226,27 @@ static HRESULT APIENTRY d11_close_adapter(D3D10DDI_HADAPTER h)
     return S_OK;
 }
 
-/* The Windows 7 interface of Direct3D 11's DDI, which a WDDM 1.1 kernel
- * driver may pair with (ADR-029) */
+/* The interfaces of Direct3D 11's DDI this driver has: Windows 8's 11.1
+ * and Windows 7's (ADR-029) */
 static HRESULT APIENTRY d11_supported_versions(D3D10DDI_HADAPTER h, UINT32 *n, UINT64 *v)
 { D11_TRACE("d11_supported_versions");
-    static const UINT64 ours[] = { D3D11_0_7_DDI_SUPPORTED };
+    /* Windows 8's 11.1 interface first: its video functions are what a
+     * device made with VIDEO_SUPPORT needs, DWM's among them (the runtime
+     * takes it over this WDDM 1.1 kernel driver too); Windows 7's runtime
+     * knows only the second */
+    static const UINT64 ours[] = { D3D11_1_DDI_SUPPORTED, D3D11_0_7_DDI_SUPPORTED };
+    const UINT64 *list = g_d11_win7 ? ours + 1 : ours;
+    UINT32 count = g_d11_win7 ? 1 : ARRAYSIZE(ours);
 
     (void)h;
     if (v) {
         UINT32 i;
 
-        for (i = 0; i < *n && i < ARRAYSIZE(ours); i++) {
-            v[i] = ours[i];
+        for (i = 0; i < *n && i < count; i++) {
+            v[i] = list[i];
         }
     }
-    *n = ARRAYSIZE(ours);
+    *n = count;
     return S_OK;
 }
 
@@ -271,7 +283,11 @@ static HRESULT APIENTRY d11_adapter_caps(D3D10DDI_HADAPTER h, const D3D10_2DDIAR
  * reserves their allocation-list slots and patch locations with its room,
  * so a flush never splits the two. */
 #define D11_SLACK 4096        /* what the kernel driver puts in front of the records */
-#define D11_FIX 16            /* and after them, per patch location */
+/* and after them, per patch location: a fix-up entry is three ULONGs and
+ * a pointer, 24 bytes on x64, whose kernel driver a 32-bit (WoW64)
+ * process talks to too (16 lost DWM a full buffer: "Render does not fit
+ * one DMA buffer", and every object it created) */
+#define D11_FIX 24
 
 void rec_close(D11_DEV *d)
 {
@@ -319,7 +335,7 @@ HRESULT cmd_flush(D11_DEV *d)
     r.NumAllocations = d->al_n;
     r.NumPatchLocations = d->pl_n;
     r.hContext = d->ctx;
-    hr = d->kt.pfnRenderCb(d->rt.handle, &r);
+    hr = d->kt->pfnRenderCb(d->rt.handle, &r);
     if (logged < 8 || FAILED(hr)) {
         logged++;
         umd_log("d3d11: Render %u records, %u bytes, %u allocations, %u patches -> 0x%08x", d->count, d->used, d->al_n,

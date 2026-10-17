@@ -2,14 +2,18 @@
  * d3dpt11.h: what the Direct3D 11 user-mode driver's files share
  * (d3dpt11.c: the adapter, formats and the command buffer; d11_res.c:
  * resources; d11_pipe.c: views, states, shaders, bindings and work;
- * d11_dev.c: the device and DXGI's functions).
+ * d11_dev.c: the device and DXGI's functions; d11_video.c: the 11.1
+ * interface's video functions).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT11_H
 #define D3DPT11_H
 
-#define D3D_UMD_INTERFACE_VERSION D3D_UMD_INTERFACE_VERSION_WIN7
+/* the Windows 8 headers: the 11.1 interface and its video functions beside
+ * Windows 7's (a callback table a Windows 7 runtime hands over is the
+ * smaller one, so the driver keeps pointers to them, never copies) */
+#define D3D_UMD_INTERFACE_VERSION D3D_UMD_INTERFACE_VERSION_WIN8
 #define DXGKDDI_INTERFACE_VERSION DXGKDDI_INTERFACE_VERSION_WIN7
 #include <windows.h>
 #include <winternl.h>
@@ -34,10 +38,13 @@
  * every call in a process HKLM\SOFTWARE\2ksbox's D3D11Trace names */
 extern BOOL g_d11_verbose;
 #define D11_TRACE(fn) do { static LONG n_; if (InterlockedIncrement(&n_) <= 2 || g_d11_verbose) umd_log("d3d11: > %s", fn); } while (0)
+/* a query asked by the thousand (formats, multisample counts): its first
+ * calls only, even traced, or it spends the log's lines */
+#define D11_TRACE_FEW(fn) do { static LONG n_; if (InterlockedIncrement(&n_) <= 2) umd_log("d3d11: > %s", fn); } while (0)
 
 typedef struct D11_ADAPTER {
     D3D10DDI_HRTADAPTER rt;
-    D3DDDI_ADAPTERCALLBACKS cb;
+    const D3DDDI_ADAPTERCALLBACKS *cb;
     D3DPT_UMD_INFO info;
 } D11_ADAPTER;
 
@@ -68,13 +75,19 @@ typedef struct D11_OBJ {
     UINT kind;                                    /* D3DPT_D11K_*; a shader's stage in `extra` */
     UINT extra;
     D11_RES *res;                                 /* a view's resource */
+    /* a view: its creation as sent, made again when its resource's
+     * identity rotates (a flip-model swap chain's buffers), in the
+     * device's list of views */
+    struct D11_OBJ *vnext, *vprev;
+    UINT vop;
+    d3dpt_d11_view view;
 } D11_OBJ;
 
 typedef struct D11_DEV {
     D3D10DDI_HRTDEVICE rt;
     D3D10DDI_HRTCORELAYER core;
     D11_ADAPTER *ad;
-    D3DDDI_DEVICECALLBACKS kt;
+    const D3DDDI_DEVICECALLBACKS *kt;
     const D3D11DDI_CORELAYER_DEVICECALLBACKS *um;
     DXGI_DDI_BASE_CALLBACKS *dxgi;
     HANDLE ctx;                                   /* the kernel context */
@@ -89,7 +102,9 @@ typedef struct D11_DEV {
     UINT pl_size, pl_n;
     UINT rec_off;                                 /* the open D11 record (0: none) */
     D11_RES *qres;                                /* the queries' result page (d11_pipe.c) */
+    D11_OBJ *views;                               /* every view of this device (d11_pipe.c) */
     ULONG errors;
+    BOOL v11_1;                                   /* made with the 11.1 interface (Windows 8 on) */
 } D11_DEV;
 
 #define DEV(h) ((D11_DEV *)(h).pDrvPrivate)
@@ -116,9 +131,15 @@ void res_ref(D11_DEV *d, UINT op, D11_RES *r, UINT sub);
 BYTE *res_lock(D11_DEV *d, D11_RES *r, BOOL donotwait, HRESULT *hr);
 void res_unlock(D11_DEV *d, D11_RES *r);
 void d11_res_funcs(D3D11DDI_DEVICEFUNCS *f);
+void d11_res_funcs11_1(D3D11_1DDI_DEVICEFUNCS *f);
 
 /* d11_pipe.c */
 void d11_pipe_funcs(D3D11DDI_DEVICEFUNCS *f);
+void d11_pipe_funcs11_1(D3D11_1DDI_DEVICEFUNCS *f);
 void d11_pipe_destroy(D11_DEV *d);
+void d11_views_rotated(D11_DEV *d, D11_RES *const *res, UINT n);
+
+/* d11_video.c */
+void d11_video_funcs(D3D11_1DDI_VIDEODEVICEFUNCS *f);
 
 #endif

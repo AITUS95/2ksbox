@@ -45,6 +45,60 @@ static SIZE_T obj_size(void)
 
 /* ---------------------------------------------------------------- views */
 
+/* a view keeps what made it, in the device's list */
+static void view_keep(D11_DEV *d, D11_OBJ *o, UINT op, const d3dpt_d11_view *t)
+{
+    o->vop = op;
+    o->view = *t;
+    o->vprev = NULL;
+    o->vnext = d->views;
+    if (d->views) {
+        d->views->vprev = o;
+    }
+    d->views = o;
+}
+
+static void view_drop(D11_DEV *d, D11_OBJ *o)
+{
+    if (!o->vop) {
+        return;
+    }
+    if (o->vprev) {
+        o->vprev->vnext = o->vnext;
+    } else if (d->views == o) {
+        d->views = o->vnext;
+    }
+    if (o->vnext) {
+        o->vnext->vprev = o->vprev;
+    }
+    o->vnext = o->vprev = NULL;
+    o->vop = 0;
+}
+
+/* DXGI rotated these resources' identities (d11_dev.c): each view of one
+ * of them is made again under its id on what the resource is now, as the
+ * runtime expects of a view (DWM renders through views it made once per
+ * buffer; without this it drew into one host buffer while the screen
+ * flipped through the others) */
+void d11_views_rotated(D11_DEV *d, D11_RES *const *res, UINT n)
+{
+    D11_OBJ *o;
+    UINT i;
+
+    for (o = d->views; o; o = o->vnext) {
+        for (i = 0; i < n && o->res != res[i]; i++) {
+        }
+        if (i < n) {
+            d3dpt_d11_view *t = (d3dpt_d11_view *)tok(d, o->vop, sizeof(*t), 1);
+
+            if (t) {
+                *t = o->view;
+                patch_res(d, &t->res, o->res);
+            }
+        }
+    }
+}
+
 static SIZE_T APIENTRY calc_srv(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *c) { D11_TRACE("calc_srv"); (void)h; (void)c; return obj_size(); }
 static SIZE_T APIENTRY calc_rtv(D3D10DDI_HDEVICE h, const D3D10DDIARG_CREATERENDERTARGETVIEW *c) { D11_TRACE("calc_rtv"); (void)h; (void)c; return obj_size(); }
 static SIZE_T APIENTRY calc_dsv(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEDEPTHSTENCILVIEW *c) { D11_TRACE("calc_dsv"); (void)h; (void)c; return obj_size(); }
@@ -136,6 +190,7 @@ static void APIENTRY create_srv(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATESHAD
         umd_log("d3d11: a shader resource view of dimension %u", c->ResourceDimension);
         break;
     }
+    view_keep(d, o, D3DPT_D11_SRV_CREATE, t);
 }
 
 /* render target and depth views: a cube's faces are a 2D array */
@@ -206,6 +261,7 @@ static void APIENTRY create_rtv(D3D10DDI_HDEVICE h, const D3D10DDIARG_CREATEREND
         umd_log("d3d11: a render target view of dimension %u", c->ResourceDimension);
         break;
     }
+    view_keep(d, o, D3DPT_D11_RTV_CREATE, t);
 }
 
 static void APIENTRY create_dsv(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEDEPTHSTENCILVIEW *c, D3D10DDI_HDEPTHSTENCILVIEW hv,
@@ -242,11 +298,12 @@ static void APIENTRY create_dsv(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEDEPT
         umd_log("d3d11: a depth stencil view of dimension %u", c->ResourceDimension);
         break;
     }
+    view_keep(d, o, D3DPT_D11_DSV_CREATE, t);
 }
 
-static void APIENTRY destroy_srv(D3D10DDI_HDEVICE h, D3D10DDI_HSHADERRESOURCEVIEW v) { D11_TRACE("destroy_srv"); destroy_obj(DEV(h), OBJ(v)); }
-static void APIENTRY destroy_rtv(D3D10DDI_HDEVICE h, D3D10DDI_HRENDERTARGETVIEW v) { D11_TRACE("destroy_rtv"); destroy_obj(DEV(h), OBJ(v)); }
-static void APIENTRY destroy_dsv(D3D10DDI_HDEVICE h, D3D10DDI_HDEPTHSTENCILVIEW v) { D11_TRACE("destroy_dsv"); destroy_obj(DEV(h), OBJ(v)); }
+static void APIENTRY destroy_srv(D3D10DDI_HDEVICE h, D3D10DDI_HSHADERRESOURCEVIEW v) { D11_TRACE("destroy_srv"); view_drop(DEV(h), OBJ(v)); destroy_obj(DEV(h), OBJ(v)); }
+static void APIENTRY destroy_rtv(D3D10DDI_HDEVICE h, D3D10DDI_HRENDERTARGETVIEW v) { D11_TRACE("destroy_rtv"); view_drop(DEV(h), OBJ(v)); destroy_obj(DEV(h), OBJ(v)); }
+static void APIENTRY destroy_dsv(D3D10DDI_HDEVICE h, D3D10DDI_HDEPTHSTENCILVIEW v) { D11_TRACE("destroy_dsv"); view_drop(DEV(h), OBJ(v)); destroy_obj(DEV(h), OBJ(v)); }
 
 static void APIENTRY gen_mips(D3D10DDI_HDEVICE h, D3D10DDI_HSHADERRESOURCEVIEW v)
 { D11_TRACE("gen_mips");
@@ -398,12 +455,68 @@ static SIZE_T APIENTRY calc_tess(D3D10DDI_HDEVICE h, const UINT *code, const D3D
     return obj_size();
 }
 
+/* a stage's signatures as either interface gives them: Windows 7's
+ * entries, or 11.1's, which add the stream and the component type */
+typedef struct SIGS {
+    const void *in, *out;
+    UINT nin, nout;
+    BOOL v11_1;
+} SIGS;
+
+static SIGS sigs10(const D3D10DDIARG_STAGE_IO_SIGNATURES *s)
+{
+    SIGS g = { 0 };
+
+    if (s) {
+        g.in = s->pInputSignature;
+        g.out = s->pOutputSignature;
+        g.nin = s->NumInputSignatureEntries;
+        g.nout = s->NumOutputSignatureEntries;
+    }
+    return g;
+}
+
+static SIGS sigs11_1(const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{
+    SIGS g = { 0 };
+
+    if (s) {
+        g.in = s->pInputSignature;
+        g.out = s->pOutputSignature;
+        g.nin = s->NumInputSignatureEntries;
+        g.nout = s->NumOutputSignatureEntries;
+        g.v11_1 = TRUE;
+    }
+    return g;
+}
+
+static void sig_put(d3dpt_d11_sig *g, const SIGS *s, const void *list, UINT i)
+{
+    ZeroMemory(g, sizeof(*g));
+    if (s->v11_1) {
+        const D3D11_1DDIARG_SIGNATURE_ENTRY2 *e = (const D3D11_1DDIARG_SIGNATURE_ENTRY2 *)list + i;
+
+        g->sv = e->SystemValue;
+        g->reg = e->Register;
+        g->mask = e->Mask;
+        g->stream = e->Stream;
+        g->type = e->RegisterComponentType;
+    } else {
+        const D3D10DDIARG_SIGNATURE_ENTRY *e = (const D3D10DDIARG_SIGNATURE_ENTRY *)list + i;
+
+        g->sv = e->SystemValue;
+        g->reg = e->Register;
+        g->mask = e->Mask;
+    }
+}
+
 /* SHADER_CREATE: the tokens (dword 1 is the program's length in dwords),
  * the signatures and a geometry shader's stream output */
-static void shader(D11_DEV *d, D11_OBJ *o, UINT stage, const UINT *code, const D3D10DDIARG_STAGE_IO_SIGNATURES *s,
+static void shader(D11_DEV *d, D11_OBJ *o, UINT stage, const UINT *code, SIGS sg,
                    const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *so)
 {
-    UINT dw = code[1], nin = s ? s->NumInputSignatureEntries : 0, nout = s ? s->NumOutputSignatureEntries : 0;
+    const SIGS *s = &sg;
+    UINT dw = code[1], nin = s->nin, nout = s->nout;
     UINT nso = so ? so->NumEntries : 0, i;
     d3dpt_d11_shader *t;
     d3dpt_d11_sig *g;
@@ -430,14 +543,10 @@ static void shader(D11_DEV *d, D11_OBJ *o, UINT stage, const UINT *code, const D
     CopyMemory(t + 1, code, dw * 4);
     g = (d3dpt_d11_sig *)((BYTE *)(t + 1) + dw * 4);
     for (i = 0; i < nin; i++, g++) {
-        g->sv = s->pInputSignature[i].SystemValue;
-        g->reg = s->pInputSignature[i].Register;
-        g->mask = s->pInputSignature[i].Mask;
+        sig_put(g, s, s->in, i);
     }
     for (i = 0; i < nout; i++, g++) {
-        g->sv = s->pOutputSignature[i].SystemValue;
-        g->reg = s->pOutputSignature[i].Register;
-        g->mask = s->pOutputSignature[i].Mask;
+        sig_put(g, s, s->out, i);
     }
     e = (d3dpt_d11_so *)g;
     for (i = 0; i < nso; i++, e++) {
@@ -452,28 +561,28 @@ static void APIENTRY create_vs(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HS
                                const D3D10DDIARG_STAGE_IO_SIGNATURES *s)
 { D11_TRACE("create_vs");
     (void)rt;
-    shader(DEV(h), OBJ(hs), D3DPT_D11S_VS, code, s, NULL);
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_VS, code, sigs10(s), NULL);
 }
 
 static void APIENTRY create_ps(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
                                const D3D10DDIARG_STAGE_IO_SIGNATURES *s)
 { D11_TRACE("create_ps");
     (void)rt;
-    shader(DEV(h), OBJ(hs), D3DPT_D11S_PS, code, s, NULL);
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_PS, code, sigs10(s), NULL);
 }
 
 static void APIENTRY create_gs(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
                                const D3D10DDIARG_STAGE_IO_SIGNATURES *s)
 { D11_TRACE("create_gs");
     (void)rt;
-    shader(DEV(h), OBJ(hs), D3DPT_D11S_GS, code, s, NULL);
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_GS, code, sigs10(s), NULL);
 }
 
 static void APIENTRY create_gs_so(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *c, D3D10DDI_HSHADER hs,
                                   D3D10DDI_HRTSHADER rt, const D3D10DDIARG_STAGE_IO_SIGNATURES *s)
 { D11_TRACE("create_gs_so");
     (void)rt;
-    shader(DEV(h), OBJ(hs), D3DPT_D11S_GS, c->pShaderCode, s, c);
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_GS, c->pShaderCode, sigs10(s), c);
 }
 
 /* hull, domain and compute shaders come with feature level 11_0 (step 5) */
@@ -620,7 +729,7 @@ static D11_RES *result_res(D11_DEV *d)
     ai.PrivateDriverDataSize = sizeof(r->a);
     al.NumAllocations = 1;
     al.pAllocationInfo = &ai;
-    if (FAILED(d->kt.pfnAllocateCb(d->rt.handle, &al))) {
+    if (FAILED(d->kt->pfnAllocateCb(d->rt.handle, &al))) {
         HeapFree(GetProcessHeap(), 0, r);
         return NULL;
     }
@@ -718,7 +827,7 @@ void d11_pipe_destroy(D11_DEV *d)
         ZeroMemory(&da, sizeof(da));
         da.NumAllocations = 1;
         da.HandleList = &d->qres->kmt;
-        d->kt.pfnDeallocateCb(d->rt.handle, &da);
+        d->kt->pfnDeallocateCb(d->rt.handle, &da);
         HeapFree(GetProcessHeap(), 0, d->qres);
         d->qres = NULL;
     }
@@ -1152,4 +1261,230 @@ void d11_pipe_funcs(D3D11DDI_DEVICEFUNCS *f)
     f->pfnDispatch = dispatch;
     f->pfnDispatchIndirect = dispatch_indirect;
     f->pfnCopyStructureCount = copy_structure_count;
+}
+
+/* ---------------------------------------------------- the 11.1 interface */
+
+static SIZE_T APIENTRY calc_blend1(D3D10DDI_HDEVICE h, const D3D11_1_DDI_BLEND_DESC *c) { D11_TRACE("calc_blend1"); (void)h; (void)c; return obj_size(); }
+static SIZE_T APIENTRY calc_raster1(D3D10DDI_HDEVICE h, const D3D11_1_DDI_RASTERIZER_DESC *c) { D11_TRACE("calc_raster1"); (void)h; (void)c; return obj_size(); }
+
+/* 11.1's blend state: a logic op per target (the options say none, so it
+ * never comes enabled) */
+static void APIENTRY create_blend1(D3D10DDI_HDEVICE h, const D3D11_1_DDI_BLEND_DESC *c, D3D10DDI_HBLENDSTATE hs, D3D10DDI_HRTBLENDSTATE rt)
+{ D11_TRACE("create_blend1");
+    D3D10_1_DDI_BLEND_DESC b;
+    UINT i;
+
+    ZeroMemory(&b, sizeof(b));
+    b.AlphaToCoverageEnable = c->AlphaToCoverageEnable;
+    b.IndependentBlendEnable = c->IndependentBlendEnable;
+    for (i = 0; i < 8; i++) {
+        const D3D11_1_DDI_RENDER_TARGET_BLEND_DESC *s = &c->RenderTarget[i];
+
+        if (s->LogicOpEnable) {
+            D11_TODO("a blend state's logic op");
+        }
+        b.RenderTarget[i].BlendEnable = s->BlendEnable;
+        b.RenderTarget[i].SrcBlend = s->SrcBlend;
+        b.RenderTarget[i].DestBlend = s->DestBlend;
+        b.RenderTarget[i].BlendOp = s->BlendOp;
+        b.RenderTarget[i].SrcBlendAlpha = s->SrcBlendAlpha;
+        b.RenderTarget[i].DestBlendAlpha = s->DestBlendAlpha;
+        b.RenderTarget[i].BlendOpAlpha = s->BlendOpAlpha;
+        b.RenderTarget[i].RenderTargetWriteMask = s->RenderTargetWriteMask;
+    }
+    create_blend(h, &b, hs, rt);
+}
+
+/* 11.1's rasterizer state: a forced sample count (target-independent
+ * rasterization, not at these levels) */
+static void APIENTRY create_raster1(D3D10DDI_HDEVICE h, const D3D11_1_DDI_RASTERIZER_DESC *c, D3D10DDI_HRASTERIZERSTATE hs,
+                                    D3D10DDI_HRTRASTERIZERSTATE rt)
+{ D11_TRACE("create_raster1");
+    D3D10_DDI_RASTERIZER_DESC r;
+
+    if (c->ForcedSampleCount) {
+        D11_TODO("a rasterizer state's forced sample count");
+    }
+    r.FillMode = c->FillMode;
+    r.CullMode = c->CullMode;
+    r.FrontCounterClockwise = c->FrontCounterClockwise;
+    r.DepthBias = c->DepthBias;
+    r.DepthBiasClamp = c->DepthBiasClamp;
+    r.SlopeScaledDepthBias = c->SlopeScaledDepthBias;
+    r.DepthClipEnable = c->DepthClipEnable;
+    r.ScissorEnable = c->ScissorEnable;
+    r.MultisampleEnable = c->MultisampleEnable;
+    r.AntialiasedLineEnable = c->AntialiasedLineEnable;
+    create_raster(h, &r, hs, rt);
+}
+
+static SIZE_T APIENTRY calc_shader1(D3D10DDI_HDEVICE h, const UINT *code, const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{ D11_TRACE("calc_shader1");
+    (void)h; (void)code; (void)s;
+    return obj_size();
+}
+
+static SIZE_T APIENTRY calc_gs_so1(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *c,
+                                   const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{ D11_TRACE("calc_gs_so1");
+    (void)h; (void)c; (void)s;
+    return obj_size();
+}
+
+static SIZE_T APIENTRY calc_tess1(D3D10DDI_HDEVICE h, const UINT *code, const D3D11_1DDIARG_TESSELLATION_IO_SIGNATURES *s)
+{ D11_TRACE("calc_tess1");
+    (void)h; (void)code; (void)s;
+    return obj_size();
+}
+
+static void APIENTRY create_vs1(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
+                                const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{ D11_TRACE("create_vs1");
+    (void)rt;
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_VS, code, sigs11_1(s), NULL);
+}
+
+static void APIENTRY create_ps1(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
+                                const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{ D11_TRACE("create_ps1");
+    (void)rt;
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_PS, code, sigs11_1(s), NULL);
+}
+
+static void APIENTRY create_gs1(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
+                                const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{ D11_TRACE("create_gs1");
+    (void)rt;
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_GS, code, sigs11_1(s), NULL);
+}
+
+static void APIENTRY create_gs_so1(D3D10DDI_HDEVICE h, const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *c, D3D10DDI_HSHADER hs,
+                                   D3D10DDI_HRTSHADER rt, const D3D11_1DDIARG_STAGE_IO_SIGNATURES *s)
+{ D11_TRACE("create_gs_so1");
+    (void)rt;
+    shader(DEV(h), OBJ(hs), D3DPT_D11S_GS, c->pShaderCode, sigs11_1(s), c);
+}
+
+static void APIENTRY create_hs1(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
+                                const D3D11_1DDIARG_TESSELLATION_IO_SIGNATURES *s)
+{ D11_TRACE("create_hs1");
+    (void)code; (void)rt; (void)s;
+    new_obj(DEV(h), OBJ(hs), D3DPT_D11K_SHADER);
+    D11_TODO("CreateHullShader");
+}
+
+static void APIENTRY create_ds1(D3D10DDI_HDEVICE h, const UINT *code, D3D10DDI_HSHADER hs, D3D10DDI_HRTSHADER rt,
+                                const D3D11_1DDIARG_TESSELLATION_IO_SIGNATURES *s)
+{ D11_TRACE("create_ds1");
+    (void)code; (void)rt; (void)s;
+    new_obj(DEV(h), OBJ(hs), D3DPT_D11K_SHADER);
+    D11_TODO("CreateDomainShader");
+}
+
+/* constant buffers with a window into each (first constant and count, in
+ * 16-byte constants); none given: the 11.0 binding */
+static void set_cb1(D11_DEV *d, UINT stage, UINT start, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *first, const UINT *num)
+{
+    d3dpt_d11_bind *t;
+    d3dpt_d11_cb1 *e;
+    UINT i;
+
+    if (!first && !num) {
+        set_cb(d, stage, start, n, b);
+        return;
+    }
+    t = (d3dpt_d11_bind *)tok(d, D3DPT_D11_SET_CB1, sizeof(*t) + n * sizeof(*e), n);
+    if (!t) {
+        return;
+    }
+    t->stage = stage;
+    t->start = start;
+    t->n = n;
+    e = (d3dpt_d11_cb1 *)(t + 1);
+    for (i = 0; i < n; i++) {
+        const D11_RES *r = RES(b[i]);
+
+        patch_res(d, &e[i].res, r);
+        e[i].first = first ? first[i] : 0;
+        e[i].num = num ? num[i] : (r ? r->r.width / 16 : 0);
+    }
+}
+
+static void APIENTRY vs_set_cb1(D3D10DDI_HDEVICE h, UINT s, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *f, const UINT *c) { D11_TRACE("vs_set_cb1"); set_cb1(DEV(h), D3DPT_D11S_VS, s, n, b, f, c); }
+static void APIENTRY ps_set_cb1(D3D10DDI_HDEVICE h, UINT s, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *f, const UINT *c) { D11_TRACE("ps_set_cb1"); set_cb1(DEV(h), D3DPT_D11S_PS, s, n, b, f, c); }
+static void APIENTRY gs_set_cb1(D3D10DDI_HDEVICE h, UINT s, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *f, const UINT *c) { D11_TRACE("gs_set_cb1"); set_cb1(DEV(h), D3DPT_D11S_GS, s, n, b, f, c); }
+static void APIENTRY hs_set_cb1(D3D10DDI_HDEVICE h, UINT s, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *f, const UINT *c) { D11_TRACE("hs_set_cb1"); set_cb1(DEV(h), D3DPT_D11S_HS, s, n, b, f, c); }
+static void APIENTRY ds_set_cb1(D3D10DDI_HDEVICE h, UINT s, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *f, const UINT *c) { D11_TRACE("ds_set_cb1"); set_cb1(DEV(h), D3DPT_D11S_DS, s, n, b, f, c); }
+static void APIENTRY cs_set_cb1(D3D10DDI_HDEVICE h, UINT s, UINT n, const D3D10DDI_HRESOURCE *b, const UINT *f, const UINT *c) { D11_TRACE("cs_set_cb1"); set_cb1(DEV(h), D3DPT_D11S_CS, s, n, b, f, c); }
+
+/* Discard: a hint the host's device has no use for */
+static void APIENTRY discard(D3D10DDI_HDEVICE h, D3D11DDI_HANDLETYPE type, VOID *p, const D3D10_DDI_RECT *r, UINT n)
+{ D11_TRACE("discard");
+    (void)h; (void)type; (void)p; (void)r; (void)n;
+}
+
+static void APIENTRY assign_debug_binary(D3D10DDI_HDEVICE h, D3D10DDI_HSHADER s, UINT n, const VOID *b)
+{ D11_TRACE("assign_debug_binary");
+    (void)h; (void)s; (void)n; (void)b;
+}
+
+/* a direct flip of an application's buffer onto the screen: never, DWM
+ * composes it */
+static void APIENTRY check_direct_flip(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE a, D3D10DDI_HRESOURCE b, UINT flags, BOOL *ok)
+{ D11_TRACE("check_direct_flip");
+    (void)h; (void)a; (void)b; (void)flags;
+    *ok = FALSE;
+}
+
+/* ClearView of a render target view, with or without rectangles */
+static void APIENTRY clear_view(D3D10DDI_HDEVICE h, D3D11DDI_HANDLETYPE type, VOID *v, const FLOAT c[4], const D3D10_DDI_RECT *r, UINT n)
+{ D11_TRACE("clear_view");
+    D11_DEV *d = DEV(h);
+    d3dpt_d11_clear_view *t;
+
+    if (type != D3D10DDI_HT_RENDERTARGETVIEW) {
+        D11_TODO("ClearView of a view that is not a render target's");
+        return;
+    }
+    t = (d3dpt_d11_clear_view *)tok(d, D3DPT_D11_CLEAR_VIEW, sizeof(*t) + n * sizeof(*r), 0);
+    if (!t) {
+        return;
+    }
+    t->kind = D3DPT_D11K_RTV;
+    t->id = obj_id(v);
+    CopyMemory(t->color, c, sizeof(t->color));
+    t->n = n;
+    if (n) {
+        CopyMemory(t + 1, r, n * sizeof(*r));
+    }
+}
+
+/* after d11_pipe_funcs on the same table (the 11.1 table starts as the
+ * 11.0 one, entry for entry): the entries 11.1 changed or added */
+void d11_pipe_funcs11_1(D3D11_1DDI_DEVICEFUNCS *f)
+{
+    f->pfnCalcPrivateBlendStateSize = calc_blend1;
+    f->pfnCreateBlendState = create_blend1;
+    f->pfnCalcPrivateRasterizerStateSize = calc_raster1;
+    f->pfnCreateRasterizerState = create_raster1;
+    f->pfnCalcPrivateShaderSize = calc_shader1;
+    f->pfnCreateVertexShader = create_vs1;
+    f->pfnCreateGeometryShader = create_gs1;
+    f->pfnCreatePixelShader = create_ps1;
+    f->pfnCalcPrivateGeometryShaderWithStreamOutput = calc_gs_so1;
+    f->pfnCreateGeometryShaderWithStreamOutput = create_gs_so1;
+    f->pfnCalcPrivateTessellationShaderSize = calc_tess1;
+    f->pfnCreateHullShader = create_hs1;
+    f->pfnCreateDomainShader = create_ds1;
+    f->pfnVsSetConstantBuffers = vs_set_cb1;
+    f->pfnPsSetConstantBuffers = ps_set_cb1;
+    f->pfnGsSetConstantBuffers = gs_set_cb1;
+    f->pfnHsSetConstantBuffers = hs_set_cb1;
+    f->pfnDsSetConstantBuffers = ds_set_cb1;
+    f->pfnCsSetConstantBuffers = cs_set_cb1;
+    f->pfnDiscard = discard;
+    f->pfnAssignDebugBinary = assign_debug_binary;
+    f->pfnCheckDirectFlipSupport = check_direct_flip;
+    f->pfnClearView = clear_view;
 }

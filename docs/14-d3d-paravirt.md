@@ -431,6 +431,12 @@ d3d11 where the Direct3D 9 side runs on the system's d3d9.
   reports it as register set v10's `CAP_D3D11`, without which the guest
   driver does not open and Windows keeps Direct3D 11 on the Direct3D 9
   driver (d3d10level9, feature level 9_3).
+- Protocol v26 (M25 step 4) is the 11.1 interface's: a signature entry's
+  component type, constant buffers bound with offsets (`SET_CB1`,
+  `*SetConstantBuffers1`) and `CLEAR_VIEW`. DWM composes through this
+  side since then. A view made again under its id (a flip-model swap
+  chain's buffers rotated their identities) replaces the old one and is
+  bound again where the old one was.
 
 The token set and its rules are `d3dpt_proto.h`'s; the track doc has
 what was found on the way.

@@ -1166,3 +1166,20 @@ end. The 11.0 DDI's signatures carry no component types, so the host
 declares the non-system-value interfaces between stages as float, as
 DXVK does for a shader with no signature; an integer one passed between
 stages is the case to watch (M25's open items).
+
+**Amendment (2026-10-17, M25 step 4; user: "go on, but also implement
+wddm 1.2").** The driver implements **Windows 8's 11.1 interface**
+(`D3D11_1_DDI`) beside Windows 7's, and offers it first. DWM creates its
+device with `D3D11_CREATE_DEVICE_VIDEO_SUPPORT`, and the runtime gives
+such a device only to a driver with the 11.1 interface's video
+functions; with Windows 7's alone DWM stayed on `d3d10level9`. The
+runtime takes the 11.1 interface over our WDDM 1.1 kernel driver
+(tested), so "Microsoft pairs it with WDDM 1.2" above did not hold as a
+requirement. The video functions report no decoder profiles and a video
+processor for RGB formats. 11.1's signatures carry component types,
+which removes the float-only cost above. The x64 kernel driver gets
+Windows 8's interface and WDDM 1.2's DDIs (per-engine TDR, handing the
+screen to Basic Display, the bugcheck screen), but does not claim 1.2
+yet: with `WDDMVersion` 1.2, DWM's device is removed whenever a program
+presents through a window's swap chain (user, 2026-10-17: leave that for
+later). The Windows 7 build keeps the Windows 7 interfaces.

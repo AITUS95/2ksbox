@@ -35,6 +35,10 @@
  * context's run of Direct3D 11 tokens from the WDDM driver's Direct3D 11
  * user-mode driver, and D3DPT_VS_D3D11 for the allocations behind them.
  *
+ * v26 (M25 step 4): the Direct3D 11.1 interface's: a signature entry's
+ * component type, constant buffers bound with offsets (SET_CB1) and
+ * ClearView (CLEAR_VIEW).
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT_PROTO_H
@@ -42,7 +46,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_PROTO_VERSION   25u
+#define D3DPT_PROTO_VERSION   26u
 
 #define D3DPT_SHM_SIZE        0x04000000u          /* 64 MiB */
 #define D3DPT_CMD_OFFSET      0x00001000u          /* records start after the header page */
@@ -403,6 +407,8 @@ enum d3dpt_d11_op {
     D3DPT_D11_QUERY_BEGIN = 55,         /* u32 id */
     D3DPT_D11_QUERY_END = 56,           /* u32 id */
     D3DPT_D11_QUERY_GET = 57,           /* d3dpt_d11_ref {id, size}: GetData (no wait) into the record's return payload */
+    D3DPT_D11_SET_CB1 = 58,             /* v26: d3dpt_d11_bind + n d3dpt_d11_cb1: *SetConstantBuffers1 */
+    D3DPT_D11_CLEAR_VIEW = 59,          /* v26: d3dpt_d11_clear_view + n {left, top, right, bottom}: ClearView */
 };
 
 /* D3DPT_D11_DESTROY's kinds */
@@ -414,6 +420,12 @@ enum { D3DPT_D11S_VS = 0, D3DPT_D11S_PS, D3DPT_D11S_GS, D3DPT_D11S_HS, D3DPT_D11
 typedef struct d3dpt_d11_ref { uint32_t a, b; } d3dpt_d11_ref;
 typedef struct d3dpt_d11_list { uint32_t id, n; } d3dpt_d11_list;
 typedef struct d3dpt_d11_bind { uint32_t stage, start, n; } d3dpt_d11_bind;
+typedef struct d3dpt_d11_cb1 { uint32_t res, first, num; } d3dpt_d11_cb1;       /* in 16-byte constants; num 0: the whole buffer */
+typedef struct d3dpt_d11_clear_view {
+    uint32_t kind, id;                  /* D3DPT_D11K_RTV (the one kind yet) */
+    float color[4];
+    uint32_t n;                         /* rectangles after this (0: the whole view) */
+} d3dpt_d11_clear_view;
 
 typedef struct d3dpt_d11_res {
     uint32_t res;                       /* the allocation's host handle */
@@ -513,6 +525,7 @@ typedef struct d3dpt_d11_sig {
     uint32_t reg;
     uint32_t mask;                      /* xyzw in bits 0..3 */
     uint32_t stream;
+    uint32_t type;                      /* v26: D3D_REGISTER_COMPONENT_TYPE (0: not given, float) */
 } d3dpt_d11_sig;
 typedef struct d3dpt_d11_so { uint32_t stream, slot, reg, mask; } d3dpt_d11_so;  /* reg ~0: a gap of popcount(mask) */
 

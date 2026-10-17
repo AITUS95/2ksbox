@@ -10,9 +10,10 @@
 # them to a work folder first (the disc is read-only). Secure Boot must be
 # off (the default with no keys enrolled).
 #
-# DWM stays on Direct3D 9's driver (d3d10level9) until track M25's step
-# 4: HKLM\SOFTWARE\2ksbox's D3D11Exclude names it, and d3dpt11.dll refuses
-# the processes it names.
+# DWM composes through Direct3D 11's driver (track M25 step 4: the 11.1
+# interface, WDDM 1.2). An earlier install's D3D11Exclude, which kept it
+# on Direct3D 9's driver, is removed; d3dpt11.dll still refuses a process
+# HKLM\SOFTWARE\2ksbox's D3D11Exclude names when it is set by hand.
 #
 #   powershell -ep bypass -f wddm-install.ps1        then restart
 #
@@ -55,7 +56,7 @@ Sign (Join-Path $work "d3dptkmd.cat")
 
 # (no New-Item -Force on a key that is there: it empties the key)
 if (-not (Test-Path "HKLM:\SOFTWARE\2ksbox")) { New-Item "HKLM:\SOFTWARE\2ksbox" | Out-Null }
-New-ItemProperty -Force "HKLM:\SOFTWARE\2ksbox" -Name D3D11Exclude -PropertyType MultiString -Value @("dwm.exe") | Out-Null
+Remove-ItemProperty "HKLM:\SOFTWARE\2ksbox" -Name D3D11Exclude -ErrorAction SilentlyContinue
 
 pnputil /add-driver (Join-Path $work "d3dptkmd.inf") /install | Out-Host
 Write-Host "wddm-install: done; restart Windows (test mode and the driver start then)"

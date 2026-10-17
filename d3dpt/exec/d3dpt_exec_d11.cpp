@@ -279,7 +279,7 @@ std::vector<SigEntry> sig_entries(const d3dpt_d11_sig *s, uint32_t n, bool vs_in
         x.mask = s[i].mask & 0xf;
         x.rw = input ? x.mask : 0;
         x.sv = s[i].sv;
-        x.type = 3;                             /* float */
+        x.type = s[i].type ? s[i].type : 3;     /* the 11.1 interface's component type; float without one */
         if (ps_out && !x.sv) {
             x.name = "SV_Target";
             x.index = s[i].reg;
@@ -287,7 +287,7 @@ std::vector<SigEntry> sig_entries(const d3dpt_d11_sig *s, uint32_t n, bool vs_in
         } else if (x.sv && x.sv < sizeof(sv_names) / sizeof(*sv_names)) {
             x.name = sv_names[x.sv];
             x.index = x.sv == 2 ? clip++ : x.sv == 3 ? cull++ : 0;
-            if (x.sv >= 4 && x.sv <= 10) x.type = 1;    /* the integer ones */
+            if (x.sv >= 4 && x.sv <= 10 && !s[i].type) x.type = 1;    /* the integer ones */
         } else {
             x.name = "D3DPT";
             x.index = vs_in ? s[i].reg : s[i].reg * 4 + first;
@@ -836,6 +836,17 @@ void create_view(Run &r, uint32_t op, const d3dpt_d11_view *v)
         r.x.log("d11: view op %u dim %u fmt %u (%u %u %u %u): 0x%08x", op, v->dim, v->format, v->u[0], v->u[1], v->u[2], v->u[3], (unsigned)hr);
     auto it = r.c.objs.find(v->id);
     if (SUCCEEDED(hr) && it != r.c.objs.end()) it->second.res = v->res;
+    /* a view made again under its id (a flip-model swap chain's buffers
+     * rotated their identities): bound as a target, it is bound again */
+    if (SUCCEEDED(hr) && op != D3DPT_D11_SRV_CREATE) {
+        bool bound = op == D3DPT_D11_DSV_CREATE && r.c.dsv == v->id;
+        for (uint32_t i = 0; i < r.c.nrtv && op == D3DPT_D11_RTV_CREATE; i++) bound = bound || r.c.rtv[i] == v->id;
+        if (bound) {
+            ID3D11RenderTargetView *t[8];
+            for (uint32_t i = 0; i < r.c.nrtv; i++) t[i] = obj<ID3D11RenderTargetView>(r, r.c.rtv[i], D3DPT_D11K_RTV);
+            r.d.ctx->OMSetRenderTargets(r.c.nrtv, t, obj<ID3D11DepthStencilView>(r, r.c.dsv, D3DPT_D11K_DSV));
+        }
+    }
 }
 
 /* a DXGI present's copy: the same size a copy on the host; into a
@@ -1086,6 +1097,29 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
 #undef BIND
         return;
     }
+    case D3DPT_D11_SET_CB1: {
+        NEED(d3dpt_d11_bind);
+        if (sizeof(*a) + (uint64_t)a->n * sizeof(d3dpt_d11_cb1) > size || (uint64_t)a->start + a->n > 14) { r.fail(E_INVALIDARG); return; }
+        const d3dpt_d11_cb1 *e = (const d3dpt_d11_cb1 *)(a + 1);
+        ID3D11Buffer *b[14];
+        UINT first[14], num[14];
+        for (uint32_t i = 0; i < a->n; i++) {
+            b[i] = (ID3D11Buffer *)buf_ref(r, e[i].res);
+            first[i] = e[i].first;
+            num[i] = e[i].num ? e[i].num : 4096;     /* the whole buffer: the API's largest binding */
+        }
+#define BIND1(st, F) case st: ctx->F##SetConstantBuffers1(a->start, a->n, b, first, num); break;
+        switch (a->stage) {
+        BIND1(D3DPT_D11S_VS, VS)
+        BIND1(D3DPT_D11S_PS, PS)
+        BIND1(D3DPT_D11S_GS, GS)
+        BIND1(D3DPT_D11S_HS, HS)
+        BIND1(D3DPT_D11S_DS, DS)
+        BIND1(D3DPT_D11S_CS, CS)
+        }
+#undef BIND1
+        return;
+    }
     case D3DPT_D11_SET_LAYOUT: {
         NEED(uint32_t);
         ctx->IASetInputLayout(obj<ID3D11InputLayout>(r, *a, D3DPT_D11K_LAYOUT));
@@ -1180,6 +1214,14 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         auto *rtv = obj<ID3D11RenderTargetView>(r, v[0], D3DPT_D11K_RTV);
         if (rtv) mark(r, r.c.objs[v[0]].res);
         if (rtv) ctx->ClearRenderTargetView(rtv, (const FLOAT *)(v + 1));
+        return;
+    }
+    case D3DPT_D11_CLEAR_VIEW: {
+        NEED(d3dpt_d11_clear_view);
+        if (sizeof(*a) + (uint64_t)a->n * sizeof(D3D11_RECT) > size || a->kind != D3DPT_D11K_RTV) { r.fail(E_INVALIDARG); return; }
+        auto *rtv = obj<ID3D11RenderTargetView>(r, a->id, D3DPT_D11K_RTV);
+        if (rtv) mark(r, r.c.objs[a->id].res);
+        if (rtv) ctx->ClearView(rtv, a->color, a->n ? (const D3D11_RECT *)(a + 1) : nullptr, a->n);
         return;
     }
     case D3DPT_D11_CLEAR_DSV: {

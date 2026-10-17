@@ -8,7 +8,11 @@
  * blended triangle in front of it (depth test, a texture written by
  * UpdateSubresource), a dynamic constant buffer mapped per draw, a copy
  * into a staging texture. With "present" also a windowed swap chain's
- * frames, read off the screen.
+ * frames, read off the screen (a third argument: how many milliseconds
+ * each window stays up before that, 1000 by default). With "flags", for
+ * each D3D11_CREATE_DEVICE flag the level our adapter gives and the
+ * device made (VIDEO_SUPPORT needs the 11.1 interface's video functions,
+ * which DWM's device asks for; track M25 step 4).
  *
  * Output into the file argv[1] (stdout without one), each frame as a PPM
  * beside it (d3d11-ours.ppm, d3d11-warp.ppm). The last line says
@@ -21,6 +25,7 @@
  */
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -32,6 +37,7 @@
 #pragma comment(lib, "gdi32.lib")
 
 static FILE *out;
+static DWORD hold_ms = 1000;      /* how long a presented window stays before it is read (argv[3]) */
 static char dir[MAX_PATH];
 static CRITICAL_SECTION out_lock;
 #define P(...) do { EnterCriticalSection(&out_lock); fprintf(out, __VA_ARGS__); fflush(out); LeaveCriticalSection(&out_lock); } while (0)
@@ -331,7 +337,7 @@ static bool presented(IDXGIAdapter1 *adapter, DXGI_SWAP_EFFECT effect, unsigned 
         hr = sc->Present(1, 0);
         if (FAILED(hr)) { P("  present 0x%08lx\n", (unsigned long)hr); goto done; }
     }
-    Sleep(1000);
+    Sleep(hold_ms);
     {
         HDC screen = GetDC(NULL), mem = CreateCompatibleDC(screen);
         BITMAPINFO bi = {};
@@ -420,6 +426,29 @@ int main(int argc, char **argv)
         P("no d3dpt-vga adapter (1234:xxxx)\nd3d11-probe: FAIL\n");
         return 1;
     }
+    if (argc > 2 && !strcmp(argv[2], "flags")) {
+        /* the level each creation flag gets on ours with every level asked
+         * for: 10_0 is this driver, 9_x the runtime's d3d10level9 */
+        static const D3D_FEATURE_LEVEL all[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1,
+                                                 D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_9_3, D3D_FEATURE_LEVEL_9_2, D3D_FEATURE_LEVEL_9_1 };
+        static const struct { UINT flag; const char *name; } fl[] = {
+            { 0, "none" }, { D3D11_CREATE_DEVICE_SINGLETHREADED, "SINGLETHREADED" }, { D3D11_CREATE_DEVICE_BGRA_SUPPORT, "BGRA_SUPPORT" },
+            { D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS, "PREVENT_INTERNAL_THREADING" },
+            { D3D11_CREATE_DEVICE_DEBUGGABLE, "DEBUGGABLE" }, { D3D11_CREATE_DEVICE_DISABLE_GPU_TIMEOUT, "DISABLE_GPU_TIMEOUT" },
+            { D3D11_CREATE_DEVICE_VIDEO_SUPPORT, "VIDEO_SUPPORT" }, { 0x20000, "0x20000" }, { 0x40000, "0x40000" }, { 0x80000, "0x80000" },
+        };
+        for (UINT i = 0; i < ARRAYSIZE(fl); i++) {
+            D3D_FEATURE_LEVEL got;
+            ID3D11Device *dev = NULL;
+            HRESULT hr = D3D11CreateDevice(mine, D3D_DRIVER_TYPE_UNKNOWN, NULL, fl[i].flag, all, 7, D3D11_SDK_VERSION, NULL, &got, NULL);
+            P("  flag %s: 0x%08lx, %s", fl[i].name, (unsigned long)hr, SUCCEEDED(hr) ? fl_name(got) : "-");
+            /* and made: asking the level alone makes no device */
+            hr = D3D11CreateDevice(mine, D3D_DRIVER_TYPE_UNKNOWN, NULL, fl[i].flag, all, 7, D3D11_SDK_VERSION, &dev, &got, NULL);
+            P("; made: 0x%08lx, %s\n", (unsigned long)hr, SUCCEEDED(hr) ? fl_name(got) : "-");
+            if (dev) dev->Release();
+        }
+        return 0;
+    }
     {
         static const D3D_FEATURE_LEVEL ten[] = { D3D_FEATURE_LEVEL_10_0 };
         ID3D11Device *dev = NULL, *wdev = NULL;
@@ -444,6 +473,7 @@ int main(int argc, char **argv)
             ppm("d3d11-warp.ppm", warp);
         }
         /* "present": the scene through a swap chain and DWM, both models */
+        if (argc > 3) hold_ms = (DWORD)atoi(argv[3]);
         if (b_ok && argc > 2 && !strcmp(argv[2], "present")) {
             static unsigned shown[W * H];
             static const struct { DXGI_SWAP_EFFECT e; const char *name, *file; } models[] = {

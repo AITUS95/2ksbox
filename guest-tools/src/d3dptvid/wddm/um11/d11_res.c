@@ -294,9 +294,10 @@ static void APIENTRY d11_create_resource(D3D10DDI_HDEVICE h, const D3D11DDIARG_C
         r->a.source = c->pPrimaryDesc->VidPnSourceId;
         r->a.refresh_num = c->pPrimaryDesc->ModeDesc.RefreshRate.Numerator;
         r->a.refresh_den = c->pPrimaryDesc->ModeDesc.RefreshRate.Denominator;
-        /* presented by a copy (the kernel driver's Present), never scanned
-         * out by a flip of ours yet */
-        c->pPrimaryDesc->DriverFlags = DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT;
+        /* scanned out as it is, as the Direct3D 9 driver's: with NO_SCANOUT
+         * DXGI never sets the display mode on it, and DWM's frames went to
+         * a primary the screen never showed (track M25 step 4) */
+        r->a.caps |= D3DPT_VS_PRIMARY;
     }
 
     ZeroMemory(&al, sizeof(al));
@@ -312,7 +313,7 @@ static void APIENTRY d11_create_resource(D3D10DDI_HDEVICE h, const D3D11DDIARG_C
     al.PrivateDriverDataSize = sizeof(r->r);
     al.NumAllocations = 1;
     al.pAllocationInfo = &ai;
-    hr = d->kt.pfnAllocateCb(d->rt.handle, &al);
+    hr = d->kt->pfnAllocateCb(d->rt.handle, &al);
     r->kmt = ai.hAllocation;
     {
         static ULONG logged;
@@ -442,7 +443,7 @@ static void APIENTRY d11_destroy_resource(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE
         da.hResource = r->shared ? r->rt.handle : NULL;
         da.NumAllocations = 1;
         da.HandleList = &r->kmt;
-        d->kt.pfnDeallocateCb(d->rt.handle, &da);
+        d->kt->pfnDeallocateCb(d->rt.handle, &da);
     }
     if (r->shadow) {
         HeapFree(GetProcessHeap(), 0, r->shadow);
@@ -458,7 +459,7 @@ BYTE *res_lock(D11_DEV *d, D11_RES *r, BOOL donotwait, HRESULT *hr)
     ZeroMemory(&lk, sizeof(lk));
     lk.hAllocation = r->kmt;
     lk.Flags.DonotWait = donotwait;
-    *hr = d->kt.pfnLockCb(d->rt.handle, &lk);
+    *hr = d->kt->pfnLockCb(d->rt.handle, &lk);
     return SUCCEEDED(*hr) ? (BYTE *)lk.pData : NULL;
 }
 
@@ -469,7 +470,7 @@ void res_unlock(D11_DEV *d, D11_RES *r)
     ZeroMemory(&ul, sizeof(ul));
     ul.NumAllocations = 1;
     ul.phAllocations = &r->kmt;
-    d->kt.pfnUnlockCb(d->rt.handle, &ul);
+    d->kt->pfnUnlockCb(d->rt.handle, &ul);
 }
 
 /* Map. A dynamic resource maps its CPU copy; one in VRAM (staging) is
@@ -686,4 +687,30 @@ void d11_res_funcs(D3D11DDI_DEVICEFUNCS *f)
     f->pfnResourceReadAfterWriteHazard = d11_hazard_res;
     f->pfnShaderResourceViewReadAfterWriteHazard = d11_hazard_srv;
     f->pfnSetResourceMinLOD = d11_min_lod;
+}
+
+/* The 11.1 interface's copy flags (no overwrite, discard) only promise
+ * what the host's device already orders itself */
+static void APIENTRY d11_update_up1(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE hr_, UINT sub, const D3D10_DDI_BOX *b, const VOID *data,
+                                    UINT row_pitch, UINT depth_pitch, UINT flags)
+{ D11_TRACE("d11_update_up1");
+    (void)flags;
+    d11_update_up(h, hr_, sub, b, data, row_pitch, depth_pitch);
+}
+
+static void APIENTRY d11_copy_region1(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE dst, UINT dst_sub, UINT x, UINT y, UINT z,
+                                      D3D10DDI_HRESOURCE src, UINT src_sub, const D3D10_DDI_BOX *b, UINT flags)
+{ D11_TRACE("d11_copy_region1");
+    (void)flags;
+    d11_copy_region(h, dst, dst_sub, x, y, z, src, src_sub, b);
+}
+
+/* after d11_res_funcs on the same table: the entries 11.1 changed or added */
+void d11_res_funcs11_1(D3D11_1DDI_DEVICEFUNCS *f)
+{
+    f->pfnDefaultConstantBufferUpdateSubresourceUP = d11_update_up1;
+    f->pfnResourceUpdateSubresourceUP = d11_update_up1;
+    f->pfnResourceCopyRegion = d11_copy_region1;
+    f->pfnResourceConvertRegion = d11_copy_region1;
+    f->pfnDynamicConstantBufferMapNoOverwrite = d11_map;
 }

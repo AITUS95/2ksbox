@@ -18,8 +18,9 @@ last open bug (Explorer's XAML that never composes) also lives.
 ## The shape
 
 - **Guest: `d3dpt11.dll`** (`guest-tools/src/d3dptvid/wddm/um11/`), the
-  Direct3D 11 DDI: `OpenAdapter10_2`, the Windows 7 interface
-  (`D3D11_0_7_DDI`), the 3D pipeline level from
+  Direct3D 11 DDI: `OpenAdapter10_2`, Windows 8's 11.1 interface
+  (`D3D11_1_DDI`, with its video functions, `d11_video.c`; step 4) and
+  the Windows 7 one (`D3D11_0_7_DDI`), the 3D pipeline level from
   `D3D11DDICAPS_3DPIPELINESUPPORT` (10_0 first). Written in C like the
   Direct3D 9 driver, with the same command buffer, allocation list and
   patch locations (`../d3dpt_wddm.h`). The INF names it after the
@@ -61,7 +62,7 @@ last open bug (Explorer's XAML that never composes) also lives.
 3. **Presenting.** A windowed DXGI swap chain through DWM, then full
    screen.
 4. **DWM on it**: the desktop composed through our 10_0 device instead
-   of 10level9.
+   of 10level9 (done 2026-10-17, below).
 5. **10_1, then 11_0**: compute, unordered access views, tessellation.
 
 ## Test loop
@@ -71,7 +72,14 @@ outside the repo): `run-m25.sh` (M20's `run-m20.sh` on the overlay pair
 `m25`, its own logs), `m25-test.sh` (installs the set staged in
 `M25\WDDM64` with a build number of the minute in the INF, restarts, runs
 `tools/d3d11-probe.cpp` as the logged-on user, prints its output and its
-process's driver lines; `INSTALL=0`, `PROBE_ARGS=present`). The driver
+process's driver lines; `INSTALL=0`, `PROBE_ARGS=present`, `"present
+12000"` to hold each window 12 s, `flags`). Step 4 added `stage25.sh`
+(this checkout's `build/wddm/x64` into `M25\WDDM64`), `inst25.sh`
+(install, wait for the restart, detach Basic Display's screen as the
+guest agent would, `M25\oneshot.ps1`), `dwm25.sh <tag>` (DWM off
+`D3D11Exclude`, restarted, its driver lines into `m25-dwm.log`, a
+screendump; `EXCLUDE=1` puts it back on Direct3D 9's driver, `TRACE=1`
+traces it) and `shot25.sh <tag>` (a screendump of d3dpt0). The driver
 is built with the EWDK (`build-windows.sh wddm`, or `guest-tools/
 build-wddm.cmd` alone) and installed by `wddm-install.ps1`.
 
@@ -88,6 +96,18 @@ build-wddm.cmd` alone) and installed by `wddm-install.ps1`.
   working directory (the checkout): what it refused, by name.
 - `New-Item -Force` on a registry key that exists empties it (it took
   the D3D11Exclude value with it once).
+- The user-mode log stops at 4000 lines a process: tracing DWM spends
+  them in seconds (the format and multisample answers are logged once
+  even when traced, `D11_TRACE_FEW`).
+- `D3D11Win7` (the same kind of list) offers a process only the Windows
+  7 interface: an A/B for the 11.1 one.
+- **DWM's crashes**: `HKLM\SOFTWARE\Microsoft\Windows\Windows Error
+  Reporting\LocalDumps\dwm.exe` (`DumpFolder` `C:\2KSBOX\dumps`,
+  `DumpType` 1) keeps a minidump of each; one comes out zipped and base64
+  through `guest-run.sh` (~250 KB of text) and is read on the PC with the
+  EWDK's `cdb` (`E:\Program Files\Windows Kits\10\Debuggers\x64`,
+  `_NT_SYMBOL_PATH=srv*<cache>*https://msdl.microsoft.com/download/
+  symbols`): `!analyze -v`, then the frames' registers (`.frame /r`).
 
 ## Results
 
@@ -152,16 +172,89 @@ passed, 16 skipped, 3 failed (`cpus`, `clone`, `win11-snapshots`: the
 launcher's machine files, with this checkout's `launcherx` older than
 `main`; nothing this track touches).
 
+**Step 4, DWM on it, 2026-10-17.** Windows 11 composes through this
+driver: DWM's devices are 11.1 ones on our adapter from logon, nothing
+of it goes to the Direct3D 9 driver, and the desktop, the Start menu
+(its acrylic too), the taskbar and File Explorer (its XAML header and
+Home page as well, M20's open bug) draw whole, with one screen or with
+Basic Display's extended beside it, and through live switches between
+the two. `d3d11-probe` passes offscreen and through both swap chain
+models (0 pixels off). What it took:
+
+- **The 11.1 interface.** With D3D11Exclude empty DWM made one device
+  on us at 10_0 and composed through a second one on d3d10level9 anyway.
+  `d3d11-probe flags` found why: every `D3D11CreateDevice` flag gets 10_0
+  on our adapter except `VIDEO_SUPPORT`, which got 9_3, and DWM's
+  composition device asks for it; the runtime gives such a device only
+  to a driver with the 11.1 interface's video functions. The runtime
+  takes the 11.1 interface over our WDDM 1.1 kernel driver (tested with
+  the version offered to the probe alone first). `d11_video.c`: no
+  decoder profiles, no content protection, a video processor for the RGB
+  formats (its Blt logged, not done). The 11.1 table is the 11.0 one
+  entry for entry plus five: the entries whose arguments changed (copy
+  flags, `SetConstantBuffers1`, 11.1's blend and rasterizer descriptions,
+  shaders with 11.1's signatures, which carry the component types, a
+  flush that answers) and Discard, ClearView, CheckDirectFlipSupport (no),
+  AssignDebugBinary, the constant-buffer map; DXGI 1.2's Blt1 and
+  offer/reclaim. **Protocol v26**: a signature entry's component type,
+  `SET_CB1`, `CLEAR_VIEW`.
+- **Primaries the display scans out.** The driver marked DXGI's
+  primaries `NO_SCANOUT` (step 1's choice); then DXGI never sets the
+  display mode on DWM's primary, and its frames went where the screen
+  never looked (a black desktop). They are scanned out now, as the
+  Direct3D 9 driver's are.
+- **Views follow a flip-model swap chain's rotation.** DWM renders
+  through render target views it makes once per buffer; DXGI rotates the
+  buffers' identities at each present, which the driver did to its
+  resources but not to the host's views, so DWM drew into one host
+  buffer while the screen flipped through the others (only the regions
+  redrawn showed). Each view keeps its creation; after a rotation the
+  views of the rotated buffers are made again under their ids and bound
+  again where they were.
+- **The fix-up reserve.** A kernel driver fix-up entry is three ULONGs
+  and a pointer, 24 bytes on x64 (also for a 32-bit process under
+  WoW64), and both user-mode drivers reserved 16 per patch location.
+  DWM filled a command buffer to 251,616 bytes with 392 patches and the
+  kernel driver refused it ("Render does not fit one DMA buffer"):
+  every object it created was lost (`resource N unknown` on the host,
+  the screen black after a topology change). Both reserve 24 now.
+
+**WDDM 1.2** (user: "also implement wddm 1.2"). The x64 kernel driver
+has Windows 8's interface and WDDM 1.2's DDIs: the per-engine TDR
+(QueryDependentEngineGroup, QueryEngineStatus, ResetEngine), handing the
+screen to Basic Display (StopDeviceAndReleasePostDisplayOwnership) and
+the bugcheck screen (SystemDisplayEnable / Write); with them reported
+Windows lists the adapter as **WDDM 1.2, DDI 11.1** (dxdiag). It does
+not report 1.2 yet (`D3DPT_CLAIM_WDDM12`): with it, every program that
+presents through a window's swap chain made DWM fail fast, again and
+again while the window lived. Bisected on the PC: the 11.1 user-mode
+driver on a WDDM 1.1 kernel driver passes; Windows 8's interface with
+the new DDIs and the 1.0 caps passes; `WDDMVersion = DXGKDDI_WDDMv1_2`
+alone (no preemption caps, no per-engine TDR) fails, whether the program
+is on the 11.1 or the Windows 7 interface and whether DWM is on this
+driver or on d3d10level9. In DWM's dumps the error is
+`DXGI_ERROR_DEVICE_REMOVED`, met in `CD3DDevice::CopyTexture2D` (from
+`CSecondarySysmemBitmap::Update`, DWM's copy of a swap chain's buffer
+through system memory, with a WARP lock) or `CreateTexture`; neither
+driver logs an error, the kernel driver refuses no present, and
+dxgkrnl logs no event. Left for later (user, 2026-10-17).
+
+`scripts/test.sh all` on the PC with step 4 (2026-10-17): 67 passed, 16
+skipped, none failed.
+
 ## Open
 
-- The 11.0 DDI's signatures carry no component types, so the host
-  declares non-system-value stage interfaces as float (ADR-029's costs).
+- **Claiming WDDM 1.2** (above): what Windows does differently with a
+  window's swap chain on a 1.2 driver.
 - Multisampling (above).
-- Step 4, DWM on this driver; the packages (DXVK's d3d11 and dxgi beside
+- The packages (DXVK's d3d11 and dxgi beside
   `dxvk_d3d9.dll` in the Windows zip and MSIX, the Linux tarball, the Mac
   app); Linux and macOS builds of `d3dpt_exec_d11.cpp` (written against
   DXVK's native headers, built on Windows only so far).
-- A scaled DXGI Blt and a Blt into a surface only Direct3D 9 knows are
+- A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
+  only Direct3D 9 knows, the video processor's Blt, ClearView of a view
+  that is not a render target's, a blend state's logic op and a
+  rasterizer state's forced sample count (DWM's make one, ignored) are
   logged and not done.
 - Direct3D 10 programs (`d3d10.dll` wants the Direct3D 10 / 10.1 DDI
   versions, which `GetSupportedVersions` does not list yet).

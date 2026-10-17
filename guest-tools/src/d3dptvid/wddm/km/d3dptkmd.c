@@ -20,8 +20,24 @@
 /* The DDI's structures at Windows 7's sizes. The kit's headers default to
  * WDDM 2.7 whatever TargetVersion says, and dxgkrnl on Windows 7 passes
  * its own, smaller ones (DXGK_DRIVERCAPS: 0x208 bytes), which a driver
- * checking OutputDataSize against the larger sizeof then refuses. */
+ * checking OutputDataSize against the larger sizeof then refuses.
+ *
+ * The x64 build (Windows 11) has Windows 8's interface and what WDDM 1.2
+ * asks of a full driver (track M25 step 4): the per-engine TDR, handing
+ * the screen to Basic Display, the bugcheck screen. It does not claim 1.2
+ * yet (D3DPT_CLAIM_WDDM12): with WDDMVersion 1.2 alone, DWM's device is
+ * removed whenever a program presents through a window's swap chain
+ * (DXGI_ERROR_DEVICE_REMOVED in dwmcore's CopyTexture2D / CreateTexture,
+ * no error from either driver); the track doc has the bisection. DWM
+ * composes through the Direct3D 11 user-mode driver's 11.1 interface
+ * either way. The Windows 7 build stays WDDM 1.1. */
+#ifdef _WIN64
+#define D3DPT_WDDM12 1
+#define D3DPT_CLAIM_WDDM12 0
+#define DXGKDDI_INTERFACE_VERSION DXGKDDI_INTERFACE_VERSION_WIN8
+#else
 #define DXGKDDI_INTERFACE_VERSION DXGKDDI_INTERFACE_VERSION_WIN7
+#endif
 #include <ntddk.h>
 #include <dispmprt.h>
 #include "../../../../../d3dpt/d3dpt_fb.h"
@@ -525,6 +541,65 @@ static NTSTATUS d3dpt_stop_device(IN_CONST_PVOID ctx)
     return STATUS_SUCCESS;
 }
 
+#ifdef D3DPT_WDDM12
+/* WDDM 1.2: the driver stops and leaves the screen as it is for Basic
+ * Display (an update, a disable in Device Manager): the scanout keeps the
+ * mode CommitVidPn set and the frame at OFFSET, in BAR 0 */
+static DXGKDDI_STOP_DEVICE_AND_RELEASE_POST_DISPLAY_OWNERSHIP d3dpt_stop_device_release;
+static NTSTATUS d3dpt_stop_device_release(IN_CONST_PVOID ctx, IN_CONST_D3DDDI_VIDEO_PRESENT_TARGET_ID target,
+                                          PDXGK_DISPLAY_INFORMATION info)
+{
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
+
+    dbg_hex("StopDeviceAndReleasePostDisplayOwnership: frame at ", a->scan_addr);
+    RtlZeroMemory(info, sizeof(*info));
+    info->Width = a->cur_w;
+    info->Height = a->cur_h;
+    info->Pitch = a->cur_pitch;
+    info->ColorFormat = D3DDDIFMT_X8R8G8B8;
+    info->PhysicAddress.QuadPart = a->vram_phys.QuadPart + a->scan_addr;
+    info->TargetId = target;
+    return d3dpt_stop_device(ctx);
+}
+
+/* WDDM 1.2's bugcheck screen: the current mode, drawn into the frame the
+ * scanout shows, at any IRQL (the mapping is the segment's own) */
+static DXGKDDI_SYSTEM_DISPLAY_ENABLE d3dpt_system_display_enable;
+static NTSTATUS d3dpt_system_display_enable(IN_CONST_PVOID ctx, IN_CONST_D3DDDI_VIDEO_PRESENT_TARGET_ID target,
+                                            PDXGKARG_SYSTEM_DISPLAY_ENABLE_FLAGS flags, UINT *w, UINT *h, D3DDDIFORMAT *fmt)
+{
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
+
+    UNREFERENCED_PARAMETER(target);
+    UNREFERENCED_PARAMETER(flags);
+    if (!a->vram || !a->cur_w || !a->cur_h) {
+        return STATUS_UNSUCCESSFUL;
+    }
+    *w = a->cur_w;
+    *h = a->cur_h;
+    *fmt = D3DDDIFMT_X8R8G8B8;
+    return STATUS_SUCCESS;
+}
+
+static DXGKDDI_SYSTEM_DISPLAY_WRITE d3dpt_system_display_write;
+static VOID d3dpt_system_display_write(IN_CONST_PVOID ctx, PVOID src, UINT sw, UINT sh, UINT stride,
+                                       UINT x, UINT y)
+{
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
+    UINT row, w, rows;
+
+    if (!a->vram || x >= a->cur_w || y >= a->cur_h || a->scan_addr + a->cur_pitch * a->cur_h > a->seg_size) {
+        return;
+    }
+    w = x + sw > a->cur_w ? a->cur_w - x : sw;
+    rows = y + sh > a->cur_h ? a->cur_h - y : sh;
+    for (row = 0; row < rows; row++) {
+        RtlCopyMemory(a->vram + a->scan_addr + (SIZE_T)(y + row) * a->cur_pitch + (SIZE_T)x * 4,
+                      (const UCHAR *)src + (SIZE_T)row * stride, (SIZE_T)w * 4);
+    }
+}
+#endif
+
 static DXGKDDI_REMOVE_DEVICE d3dpt_remove_device;
 static NTSTATUS d3dpt_remove_device(IN_CONST_PVOID ctx)
 {
@@ -574,7 +649,16 @@ static NTSTATUS driver_caps(const D3DPT_ADAPTER *a, DXGK_DRIVERCAPS *c)
     /* the blits are memcpy row by row: a screen-to-screen blit whose
      * rectangles overlap comes through a staging copy instead */
     c->PresentationCaps.NoOverlapScreenBlt = 1;
+#if defined(D3DPT_WDDM12) && D3DPT_CLAIM_WDDM12
+    /* a submission runs to its end at submit time, so a preemption only
+     * ever lands between DMA buffers; the one engine resets alone */
+    c->WDDMVersion = DXGKDDI_WDDMv1_2;
+    c->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
+    c->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
+    c->SupportPerEngineTDR = 1;
+#else
     c->WDDMVersion = DXGKDDI_WDDMv1;
+#endif
     return STATUS_SUCCESS;
 }
 
@@ -2404,6 +2488,12 @@ static NTSTATUS APIENTRY d3dpt_present(IN_CONST_HANDLE h, INOUT_PDXGKARG_PRESENT
         return STATUS_SUCCESS;
     }
     if (!p->Flags.Blt && !p->Flags.ColorFill) {
+        static ULONG refused;
+
+        if (refused++ < 16) {
+            dbg_hex("d3dptkmd: Present refused: flags ", p->Flags.Value);
+            dbg_puts("\n");
+        }
         return STATUS_NOT_SUPPORTED;
     }
     if (p->DmaSize < sizeof(*k)) {
@@ -2747,6 +2837,39 @@ static NTSTATUS APIENTRY d3dpt_reset_from_timeout(IN_CONST_HANDLE h)
     fence_dump((D3DPT_ADAPTER *)h, "ResetFromTimeout");
     return STATUS_SUCCESS;
 }
+
+#ifdef D3DPT_WDDM12
+/* WDDM 1.2's per-engine TDR. One node, one engine, nothing depending on
+ * it; it is always responsive (a submission runs to its end at submit
+ * time), and a reset finds nothing in the middle of running. */
+static DXGKDDI_QUERYDEPENDENTENGINEGROUP d3dpt_query_dependent_engine_group;
+static NTSTATUS APIENTRY d3dpt_query_dependent_engine_group(IN_CONST_HANDLE h, INOUT_DXGKARG_QUERYDEPENDENTENGINEGROUP q)
+{
+    UNREFERENCED_PARAMETER(h);
+    q->DependentNodeOrdinalMask = 0;
+    return STATUS_SUCCESS;
+}
+
+static DXGKDDI_QUERYENGINESTATUS d3dpt_query_engine_status;
+static NTSTATUS APIENTRY d3dpt_query_engine_status(IN_CONST_HANDLE h, INOUT_PDXGKARG_QUERYENGINESTATUS q)
+{
+    UNREFERENCED_PARAMETER(h);
+    q->EngineStatus.Value = 0;
+    q->EngineStatus.Responsive = 1;
+    return STATUS_SUCCESS;
+}
+
+static DXGKDDI_RESETENGINE d3dpt_reset_engine;
+static NTSTATUS APIENTRY d3dpt_reset_engine(IN_CONST_HANDLE h, INOUT_PDXGKARG_RESETENGINE r)
+{
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
+
+    dbg_line("ResetEngine");
+    fence_dump(a, "ResetEngine");
+    r->LastAbortedFenceId = (UINT)a->fence_done;
+    return STATUS_SUCCESS;
+}
+#endif
 
 static DXGKDDI_RESTARTFROMTIMEOUT d3dpt_restart_from_timeout;
 static NTSTATUS APIENTRY d3dpt_restart_from_timeout(IN_CONST_HANDLE h)
@@ -3307,7 +3430,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
     NTSTATUS st;
 
     RtlZeroMemory(&init, sizeof(init));
-    init.Version = DXGKDDI_INTERFACE_VERSION_WIN7;
+    init.Version = DXGKDDI_INTERFACE_VERSION;
 
     init.DxgkDdiAddDevice = d3dpt_add_device;
     init.DxgkDdiStartDevice = d3dpt_start_device;
@@ -3380,6 +3503,14 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
 
     init.DxgkDdiQueryVidPnHWCapability = d3dpt_query_vidpn_hw_capability;
 
+#ifdef D3DPT_WDDM12
+    init.DxgkDdiQueryDependentEngineGroup = d3dpt_query_dependent_engine_group;
+    init.DxgkDdiQueryEngineStatus = d3dpt_query_engine_status;
+    init.DxgkDdiResetEngine = d3dpt_reset_engine;
+    init.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = d3dpt_stop_device_release;
+    init.DxgkDdiSystemDisplayEnable = d3dpt_system_display_enable;
+    init.DxgkDdiSystemDisplayWrite = d3dpt_system_display_write;
+#endif
     st = DxgkInitialize(drv, reg, &init);
     dbg_hex("d3dptkmd: DriverEntry: DxgkInitialize ", st);
     dbg_puts("\n");
