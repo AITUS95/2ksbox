@@ -395,7 +395,12 @@ tracks, plus the items no track owns.
     `pit-guest`; `package-linux.sh`). Left: the PC's and the Air's
     gates, the store packages, then the tag, which the user makes on
     the commit both packages come from. The manual's release notes are
-    the stores' *What's New*.
+    the stores' *What's New*. Every package carries `licenses/` beside
+    THIRD-PARTY-NOTICES.md (`tools/third-party-notices.py stage`, which
+    fails on a missing text; run on Linux, not yet on the Air or the
+    PC), and App Store re-uploads take `package-macos.sh --build N`.
+    Open for the user: a written source offer for the store binaries
+    (GPL-2 §3(b)), and UIDE's terms ("free with sources", none shipped).
 13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.

@@ -464,7 +464,11 @@ checked after signing:
 A build signed for the store does not launch outside it, so the
 sandboxed app first runs through TestFlight. Upload the `.pkg` with
 Transporter (or `xcrun altool --upload-package`); each upload needs a
-`CFBundleVersion` (the workspace version) App Store Connect has not seen.
+`CFBundleVersion` App Store Connect has not seen, across versions too.
+`CFBundleShortVersionString` is the workspace version, A.B.C, and
+`CFBundleVersion` is A.B.(C×100+N) for `--build N` (default 0): 1.0.0
+for 1.0.0's first upload, 1.0.1 for its second (`--build 1`), 1.0.100
+for version 1.0.1's first, so a re-upload never needs a new version.
 
 First run (2026-10-06, `--no-build`): the staging and every check
 pass, the plist says 26.0, and a profile for another App ID is refused.

@@ -53,7 +53,8 @@
 #   drivers\                    Windows 11's drivers disc (x64; the
 #                               display and clipboard drivers, the agent)
 #   shaders\                    presets, with --with-shaders
-#   doc\                        COPYING, notices, README
+#   doc\                        COPYING, notices, README, and
+#                               licenses\, the texts the notices name
 #   2ksbox.ico                  the application icon, for a shortcut
 #                               (the .exes carry it as a resource too)
 #   2ksbox-debug.bat            runs the launcher from a console and
@@ -164,6 +165,12 @@ if [ "$SHADERS" = 1 ]; then
 fi
 
 install -m644 COPYING THIRD-PARTY-NOTICES.md README.md "$STAGE/doc/"
+# The licence texts THIRD-PARTY-NOTICES.md points at, from the source tree
+# and the libraries' unpacked sources (build/deps/src), and every shipped
+# crate's own. It fails, naming the file, when one is missing.
+lic=(--host windows)
+[ ! -f "$drivers" ] || lic+=(--drivers)
+python3 tools/third-party-notices.py stage "$STAGE/doc/licenses" "${lic[@]}"
 # The application icon (`scripts/gen-icons.sh`), the same artwork the
 # Linux and macOS packages install. Every staged .exe already carries it
 # as a resource (`packaging/windows/win-icon.rs`). This loose copy is for

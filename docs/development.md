@@ -778,12 +778,27 @@ Original code is Rust wherever possible (ADR-004); C appears only inside
 QEMU / qemu-3dfx and in guest-side era code. The GPLv2 text is in
 `COPYING`, every third-party component in `THIRD-PARTY-NOTICES.md`.
 
+Every package carries the licence texts the notices name, in a
+`licenses/` directory beside them (`share/doc/2ksbox/licenses/`,
+`doc\licenses\` on Windows). `python3 tools/third-party-notices.py
+stage` fills it from the source tree, `packaging/licenses/` (texts the
+tree has nowhere else), the libraries' unpacked sources in
+`build/deps/src` and each shipped crate's own licence files, and each
+packager runs it. It fails on a missing file, so a package never ships
+short. A new component goes in its `COMPONENTS` table and in
+`THIRD-PARTY-NOTICES.md` together. After a dependency change in any
+shipped workspace, regenerate the crate listing with `python3
+tools/third-party-notices.py list --write THIRD-PARTY-NOTICES.md`; it
+covers `libdisc` and `libsynth`, `launcher-mitsuami`, `player-mitsuami`
+and `guest-agent`, for every platform a package is built for, and not
+the deprecated winit `player`.
+
 **If you package or redistribute the player, read this.** Its
-dependency tree contains **Apache-2.0-only** crates (`winit`, `cpal`,
-`ab_glyph`, `codespan-reporting`, `rspirv` among them), and Apache-2.0
+dependency tree contains **Apache-2.0-only** crates (`cpal`,
+`codespan-reporting`, `rspirv`, `spirv` among them), and Apache-2.0
 is incompatible with GPLv2, which the player is pinned to because it
-links QEMU. `winit` alone settles it; being clean would mean dropping
-wgpu and librashader, the CRT shader chain the project exists for. **We
+links QEMU. wgpu's and librashader's own settle it; being clean would
+mean dropping them, the CRT shader chain the project exists for. **We
 ship player binaries anyway**, with complete source and build scripts;
 the reasoning and the rejected alternatives are ADR-010. If your
 distribution's policy cannot accept that, please open an issue rather

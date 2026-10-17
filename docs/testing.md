@@ -450,7 +450,7 @@ another.
 | `appcert.exe test -appxpackagepath <signed msix> -reportoutputpath <xml>` | the Windows App Certification Kit on the sideload's signed copy: the checks Store certification runs. `OVERALL_RESULT` must be `PASS` (a WARNING also certifies; the DPI one was fixed by the executables' manifest); the two optional tests that fail by the package's nature are named in `build-windows.md` "The Store package" |
 | `LAUNCHER_SHOT=<png> launcher-mitsuami` | the mitsuami launcher (M19) opens its window with its toolkit found and photographs the content; `LAUNCHER_SCREEN` picks a window and what it opens on (the table in the track doc), and the create and saveprofile runs must print `saved`; `LAUNCHER_PICK=<label>=<path>` answers the named path field's dialog and prints the dialog it would have opened (its start folder and filters); on Linux under `gtk4-broadwayd` (`GDK_BACKEND=broadway`), the recipe in `tracks/m19-mitsuami-launcher.md`. `scripts/test.sh`'s `mitsuami` check drives four of these |
 | `tools/rfb-shot.py <port> <png>` | one frame of a local VNC server: the whole KDE window, sidebar included, on Qt's VNC platform, where `LAUNCHER_SHOT` sees only the content (GTK: Broadway's web page) |
-| `tools/gpl-scan.py`, `tools/third-party-notices.py` | GPL-2.0-only QEMU files (after a QEMU bump, ADR-010) and the crate licence listing |
+| `tools/gpl-scan.py`, `tools/third-party-notices.py` | GPL-2.0-only QEMU files (after a QEMU bump, ADR-010). `third-party-notices.py list --write THIRD-PARTY-NOTICES.md` regenerates the crate listing; its `stage` is the packagers' `licenses/`, and fails on a licence text that is missing |
 
 ## Games and benchmarks
 

@@ -6,9 +6,10 @@
 //! (`manual/src/components/Credits.astro`): keep each `title:` and `c(...)`
 //! on one line.
 //!
-//! The list is the projects the app runs or ships, plus Wine, which a
-//! host below DXVK's floor brings itself. A library one of these pulls
-//! in on its own is credited by that project, not here.
+//! The list is the projects the app runs or ships, the libraries built
+//! into it among them (THIRD-PARTY-NOTICES.md has every one), plus Wine,
+//! which a host below DXVK's floor brings itself. A crate is credited
+//! here when it does a job a user would name.
 
 /// One project, as the window shows it.
 pub struct Credit {
@@ -50,10 +51,14 @@ pub const GROUPS: &[Group] = &[
             c("86Box", "The Voodoo 2", "GPL-2.0", "https://86box.net"),
             c("SeaBIOS", "The PC BIOS", "LGPL-3.0", "https://www.seabios.org"),
             c("EDK II", "UEFI firmware for Windows 11", "BSD-2-Clause-Patent", "https://www.tianocore.org"),
-            c("libtpms", "The TPM for Windows 11", "BSD-3-Clause", "https://github.com/stefanberger/libtpms"),
+            c("libtpms", "The TPM for Windows 11", "BSD-3-Clause and TCG", "https://github.com/stefanberger/libtpms"),
+            c("OpenSSL", "Cryptography for the TPM", "Apache-2.0", "https://www.openssl.org"),
             c("virtio-win", "Drivers for Windows 11", "BSD-3-Clause", "https://github.com/virtio-win/kvm-guest-drivers-windows"),
             c("libslirp", "Guest networking", "BSD-3-Clause", "https://gitlab.freedesktop.org/slirp/libslirp"),
             c("GLib", "QEMU's support library", "LGPL-2.1", "https://gitlab.gnome.org/GNOME/glib"),
+            c("PCRE2", "Regular expressions for GLib", "BSD-3-Clause", "https://github.com/PCRE2Project/pcre2"),
+            c("pixman", "QEMU's pixel operations", "MIT", "https://pixman.org"),
+            c("zlib", "Compression", "Zlib", "https://zlib.net"),
         ],
     },
     Group {
@@ -62,6 +67,7 @@ pub const GROUPS: &[Group] = &[
             c("DXVK", "Direct3D 9 on Vulkan", "Zlib", "https://github.com/doitsujin/dxvk"),
             c("Wine", "Direct3D on hosts without Vulkan 1.3", "LGPL-2.1", "https://www.winehq.org"),
             c("Mesa", "Vulkan on macOS (KosmicKrisp)", "MIT", "https://mesa3d.org"),
+            c("Vulkan Loader", "Finds the Vulkan driver on macOS", "Apache-2.0", "https://github.com/KhronosGroup/Vulkan-Loader"),
             c("wgpu", "The player's renderer", "MIT OR Apache-2.0", "https://wgpu.rs"),
             c("librashader", "Runs the CRT shaders", "MPL-2.0 OR GPL-3.0", "https://github.com/SnowflakePowered/librashader"),
             c("libretro slang-shaders", "The CRT shaders", "Various", "https://github.com/libretro/slang-shaders"),
@@ -82,6 +88,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         title: "Other",
         credits: &[
+            c("mitsuami", "The launcher's and player's windows", "MIT OR Apache-2.0", "https://crates.io/crates/mitsuami"),
             c("gilrs", "Game controllers", "MIT OR Apache-2.0", "https://gitlab.com/gilrs-project/gilrs"),
             c("UIDE", "The DOS CD-ROM driver", "Free with source", "https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/repositories/latest/pkg-html/uide.html"),
         ],

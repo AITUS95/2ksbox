@@ -877,7 +877,7 @@ checkout it was built from (`target/`, `build/qemu`, `qemu/pc-bios`,
 <prefix>/share/2ksbox/shaders/                 presets, when a package ships them
 <prefix>/share/2ksbox/desktop/                 .desktop + metainfo, for install.sh
 <prefix>/share/icons/hicolor/<n>x<n>/apps/     the application icon, every size
-<prefix>/share/doc/2ksbox/                     COPYING, notices, README
+<prefix>/share/doc/2ksbox/                     COPYING, notices, README, licenses/
 ```
 
 Three rules hold it together:
