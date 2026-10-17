@@ -396,7 +396,8 @@ tracks, plus the items no track owns.
     `pit-guest`; `package-linux.sh`) and again on 2026-10-17 from
     `86057b78`'s icons, `package-flatpak.sh` too (the Wine and KDE
     add-ons; it had failed since 2026-10-07 on the 1024 icon, which
-    flatpak's export refuses, so Linux packages stop at 512). The PC's
+    flatpak's export refuses, so Linux packages stop at 512), and the whole gate
+    again from `a5a18ece` (patch 94), the same results. The PC's
     passed on 2026-10-17 from `86057b78`, `54623171` and `a5a18ece`
     (QEMU patch 94) (`test.sh all`: 65 pass, 0 fail, `pit-guest` included each time
     (an earlier run that day failed it as on Linux), 18 skips
