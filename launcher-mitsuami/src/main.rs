@@ -61,12 +61,12 @@ fn main() {
     // the themed icon GTK and KDE look up under it), and the picture for
     // the platforms that take one (the Dock outside a bundle, Windows'
     // title bars). The PNG is one of the sizes `scripts/gen-icons.sh`
-    // derives from the icon the packages install; Windows' is the monitor
-    // with no plate, as its .ico.
-    #[cfg(not(windows))]
+    // derives: the monitor with no plate on Windows and Linux, as the
+    // packages' icon there, and the plated icon on Apple's grid on macOS.
+    #[cfg(not(target_os = "macos"))]
     let icon = include_bytes!("../../packaging/icon/2ksbox-256.png");
-    #[cfg(windows)]
-    let icon = include_bytes!("../../packaging/icon/windows/2ksbox-256.png");
+    #[cfg(target_os = "macos")]
+    let icon = include_bytes!("../../packaging/icon/macos/2ksbox-256.png");
     // The menu bar in the title bar before the title, as the player's
     // (user), and the toolbar (only the first-run download's bar) at its
     // end beside the caption buttons, rather than rows of their own.

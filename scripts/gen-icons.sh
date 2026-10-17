@@ -30,26 +30,31 @@
 #                    more, so `package-macos.sh --app-store` refuses to
 #                    build until the master is that large
 #
-# Windows draws the monitor alone, with no teal plate behind it (user,
-# 2026-10-17): a Windows app icon is the object on transparency, not a
-# tile. Its master is the Icon Composer document's own monitor layer,
-# `2ksbox.icon/Assets/monitor.png`, trimmed to the monitor and centred on
-# a square, so the plate's colour lives only in `icon.json`'s fill. From
-# it, under `packaging/icon/windows/`:
+# Windows and Linux draw the monitor alone, with no teal plate behind it
+# (user, 2026-10-17): an app icon there is the object on transparency,
+# not a tile. Their master is the Icon Composer document's own monitor
+# layer, `2ksbox.icon/Assets/monitor.png`, trimmed to the monitor and
+# centred on a square, so the plate's colour lives only in `icon.json`'s
+# fill. From it, in `packaging/icon/`:
 #
-#   2ksbox-{16,24,32,48,64,128,256}.png
-#                    the windows' own picture (the launcher and the
-#                    player hand mitsuami the 256, the About box the 128)
-#   ../2ksbox.ico    16/24/32/48/64/256 in one file, which is what a
+#   2ksbox-{16,...,512[,1024]}.png
+#                    Linux's hicolor set, and the windows' own picture
+#                    on Windows and Linux (the launcher and the player
+#                    hand mitsuami the 256, the About box the 128)
+#   2ksbox.ico       16/24/32/48/64/256 in one file, which is what a
 #                    shortcut and an .exe resource both want
+#   manual/          the user manual's favicon (64), sidebar logo (256)
+#                    and front-page picture (1024), copies of those
 #
-# and, under `packaging/icon/macos/`, the same sizes on Apple's grid for
-# the app's .icns (`package-macos.sh`): the icon's body 824 of 1024, centred,
+# macOS keeps the plate. Under `packaging/icon/macos/`, from the master,
+# the same sizes on Apple's grid for the app's .icns (`package-macos.sh`)
+# and the windows' picture there: the icon's body 824 of 1024, centred,
 # as every macOS app icon is drawn (the master fills its canvas, which is
-# right on Linux and Windows but would stand oversized in the Dock);
+# what Linux's software centres show, but would stand oversized in the
+# Dock);
 #
 # and, under `packaging/windows/Assets/`, the four logos an MSIX manifest
-# names (`scripts/package-msix.sh`), from the Windows master, at the
+# names (`scripts/package-msix.sh`), from the monitor, at the
 # exact sizes the Store checks:
 #
 #   Square44x44Logo   44x44    the Start list: the icon whole, and
@@ -59,9 +64,9 @@
 #   Wide310x150Logo   310x150  centred, on the tile's own background
 #                              (BackgroundColor, transparent)
 #
-# Nothing is ever scaled *up*. The master is first padded with
-# transparency to 512x512 (1024x1024 when the master is at least 1024 on
-# a side), centred, and every size is a downscale of that.
+# Nothing is ever scaled *up*. Each master is first padded with
+# transparency to 512x512 (1024x1024 when the plated master is at least
+# 1024 on a side), centred, and every size is a downscale of that.
 # Padding rather than resizing keeps the drawing at its native size in the
 # largest icon. If the artwork is redrawn larger, nothing here changes.
 set -euo pipefail
@@ -69,9 +74,8 @@ cd "$(dirname "$0")/.."
 
 DIR=packaging/icon
 MASTER=$DIR/2ksbox.png
-WIN_MASTER=$DIR/2ksbox.icon/Assets/monitor.png
+MONITOR=$DIR/2ksbox.icon/Assets/monitor.png
 SIZES=(16 24 32 48 64 128 256 512)
-WIN_SIZES=(16 24 32 48 64 128 256)
 ICO_SIZES=(16 24 32 48 64 256)
 
 check=0
@@ -79,7 +83,7 @@ check=0
 
 command -v magick >/dev/null || { echo "gen-icons.sh: ImageMagick (magick) is required" >&2; exit 1; }
 [ -f "$MASTER" ] || { echo "gen-icons.sh: no master at $MASTER" >&2; exit 1; }
-[ -f "$WIN_MASTER" ] || { echo "gen-icons.sh: no Windows master at $WIN_MASTER" >&2; exit 1; }
+[ -f "$MONITOR" ] || { echo "gen-icons.sh: no monitor layer at $MONITOR" >&2; exit 1; }
 # A scratch folder as magick can read it. In MSYS2 that is C:/...: a
 # /tmp/... path behind a `PNG32:` prefix reaches the native magick
 # unconverted, and it segfaults on it instead of saying so.
@@ -97,11 +101,11 @@ pad=$(tmpdir)/master-$canvas.png
 trap 'rm -rf "$(dirname "$pad")"' EXIT
 magick "$MASTER" -background none -colorspace sRGB \
   -resize "${canvas}x${canvas}>" -gravity center -extent "${canvas}x${canvas}" -strip "PNG32:$pad"
-# Windows' square: the monitor layer trimmed to its opaque pixels, centred
+# The monitor's square: the layer trimmed to its opaque pixels, centred
 # on a transparent square of its longer side, then the same canvas.
-wside=$(magick "$WIN_MASTER" -trim -format '%[fx:max(w,h)]' info:)
-wpad=$(dirname "$pad")/windows-$canvas.png
-magick "$WIN_MASTER" -background none -colorspace sRGB -trim +repage \
+wside=$(magick "$MONITOR" -trim -format '%[fx:max(w,h)]' info:)
+wpad=$(dirname "$pad")/monitor-$canvas.png
+magick "$MONITOR" -background none -colorspace sRGB -trim +repage \
   -gravity center -extent "${wside}x${wside}" \
   -resize "${canvas}x${canvas}>" -extent "${canvas}x${canvas}" -strip "PNG32:$wpad"
 
@@ -119,20 +123,25 @@ if [ "$check" = 1 ]; then
   out=$(tmpdir); trap 'rm -rf "$out"' EXIT
 fi
 
-for s in "${SIZES[@]}"; do render "$s" "$out/2ksbox-$s.png"; done
+# Windows and Linux: the monitor alone, and one .ico holding the sizes
+# Windows picks from.
+for s in "${SIZES[@]}"; do render "$s" "$out/2ksbox-$s.png" "$wpad"; done
 # A smaller master has no 1024: drop one an older, larger master made.
 [ "$check" = 1 ] || [ "$canvas" = 1024 ] || rm -f "$DIR/2ksbox-1024.png"
-# Windows: the monitor alone, and one .ico holding the sizes Windows
-# picks from.
-WIN=$DIR/windows
-wout=$WIN
-[ "$check" = 1 ] && wout=$out/windows
-mkdir -p "$wout"
-for s in "${WIN_SIZES[@]}"; do render "$s" "$wout/2ksbox-$s.png" "$wpad"; done
-ico_inputs=(); for s in "${ICO_SIZES[@]}"; do ico_inputs+=("$wout/2ksbox-$s.png"); done
+ico_inputs=(); for s in "${ICO_SIZES[@]}"; do ico_inputs+=("$out/2ksbox-$s.png"); done
 magick "${ico_inputs[@]}" "$out/2ksbox.ico"
 
-# The Store logos: the Windows icon drawn at `icon` pixels on a
+# The manual's (manual/): Starlight's favicon and sidebar logo, and the
+# front page's picture, copies of three of those sizes.
+MANUAL=(public/favicon.png:64 src/assets/logo.png:256 src/assets/hero.png:1024)
+if [ "$check" = 0 ]; then
+  for m in "${MANUAL[@]}"; do
+    s=${m#*:}; [ "$s" -le "$canvas" ] || s=$canvas
+    cp "$DIR/2ksbox-$s.png" "manual/${m%:*}"
+  done
+fi
+
+# The Store logos: the monitor drawn at `icon` pixels on a
 # transparent `w`x`h` canvas, centred.
 ASSETS=packaging/windows/Assets
 aout=$ASSETS
@@ -179,10 +188,6 @@ if [ "$check" = 1 ]; then
     n=$(basename "$f")
     same "$f" "$DIR/$n" || { echo "gen-icons.sh: $DIR/$n is out of date"; rc=1; }
   done
-  for f in "$wout"/*.png; do
-    n=$(basename "$f")
-    same "$f" "$WIN/$n" || { echo "gen-icons.sh: $WIN/$n is out of date"; rc=1; }
-  done
   for f in "$aout"/*.png; do
     n=$(basename "$f")
     same "$f" "$ASSETS/$n" || { echo "gen-icons.sh: $ASSETS/$n is out of date"; rc=1; }
@@ -190,6 +195,11 @@ if [ "$check" = 1 ]; then
   for f in "$mout"/*.png; do
     n=$(basename "$f")
     same "$f" "$MAC/$n" || { echo "gen-icons.sh: $MAC/$n is out of date"; rc=1; }
+  done
+  for m in "${MANUAL[@]}"; do
+    s=${m#*:}; [ "$s" -le "$canvas" ] || s=$canvas
+    cmp -s "$DIR/2ksbox-$s.png" "manual/${m%:*}" \
+      || { echo "gen-icons.sh: manual/${m%:*} is not packaging/icon/2ksbox-$s.png"; rc=1; }
   done
   # A 1024 left from a larger master would ship a picture the master no
   # longer is.
@@ -199,4 +209,4 @@ if [ "$check" = 1 ]; then
   exit $rc
 fi
 
-echo "gen-icons.sh: wrote $DIR/2ksbox-{$(IFS=,; echo "${SIZES[*]}")}.png, 2ksbox.ico, $WIN/*.png, $MAC/*.png and $ASSETS/*.png"
+echo "gen-icons.sh: wrote $DIR/2ksbox-{$(IFS=,; echo "${SIZES[*]}")}.png, 2ksbox.ico, $MAC/*.png, $ASSETS/*.png and the manual's three"

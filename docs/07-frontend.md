@@ -910,18 +910,20 @@ and the 256 px PNG), so under Wayland its `app_id` is
 `com._2ksbox.Launcher`.
 
 **The icon is one master and one generator.** `packaging/icon/
-2ksbox.png` is padded to 512×512, and every size (16–512 PNGs) is a
-downscale made by `scripts/gen-icons.sh`. Windows draws the monitor
-with no teal plate (user, 2026-10-17): its `.ico`, the Store logos and
-`packaging/icon/windows/` (the windows' own picture there) come from the
-Icon Composer document's monitor layer, `2ksbox.icon/Assets/monitor.png`,
-by the same script. All are checked in, because nothing that needs one (an offline Flatpak, a
+2ksbox.png` and the Icon Composer document's monitor layer,
+`2ksbox.icon/Assets/monitor.png`, are its two masters, and every size is
+a downscale made by `scripts/gen-icons.sh`. Windows and Linux draw the
+monitor with no teal plate (user, 2026-10-17): the 16–1024 PNGs in
+`packaging/icon/` (Linux's hicolor set and the windows' own picture),
+the `.ico`, the Store logos and the manual's favicon, logo and front-page picture come from the monitor layer. macOS keeps
+the plate: `packaging/icon/macos/`, from `2ksbox.png`, is its `.icns`
+and its windows' picture. All are checked in, because nothing that needs one (an offline Flatpak, a
 build without ImageMagick, `install.sh`) can draw it.
 `gen-icons.sh --check` is the `icons` check. Linux
 installs the set under `share/icons/hicolor/` and writes one absolute
 path into the desktop entry's `Icon=` (a prefix outside `XDG_DATA_DIRS`
-cannot resolve a theme name). macOS builds its `.icns` from the same
-PNGs. On Windows the `.ico` goes *inside* every .exe as a resource, the
+cannot resolve a theme name). macOS builds its `.icns` from its own
+set. On Windows the `.ico` goes *inside* every .exe as a resource, the
 only thing Explorer reads: `packaging/windows/win-icon.rs` is
 `include!`d by the build scripts of `launcher-mitsuami`, `player` and
 `player-mitsuami` (a

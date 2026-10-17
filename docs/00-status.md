@@ -400,7 +400,8 @@ tracks, plus the items no track owns.
     `RoboportTecnologia.2ksbox`, sideloaded with `-Check` and through the
     certification kit: `OVERALL_RESULT=PASS`, the two optional FAILs of
     `build-windows.md`; re-packed the same day with Windows' icons
-    without the teal plate, not yet re-certified). Its listing, Store ID `9NVNN81VKF05`
+    without the teal plate, not yet re-certified; Linux's icon lost the
+    plate on 2026-10-17 too, and only macOS keeps it). Its listing, Store ID `9NVNN81VKF05`
     (<https://apps.microsoft.com/detail/9NVNN81VKF05>), is live once
     the submission is published; then `README.md` and the manual's
     `install.mdx` link it. Left: the Microsoft submission, the Air's
