@@ -28,9 +28,12 @@
  * yet (D3DPT_CLAIM_WDDM12): with WDDMVersion 1.2 alone, DWM's device is
  * removed whenever a program presents through a window's swap chain
  * (DXGI_ERROR_DEVICE_REMOVED in dwmcore's CopyTexture2D / CreateTexture,
- * no error from either driver); the track doc has the bisection. DWM
- * composes through the Direct3D 11 user-mode driver's 11.1 interface
- * either way. The Windows 7 build stays WDDM 1.1. */
+ * no error from either driver); the track doc has the bisection. Without
+ * the claim DWM composes on d3d10level9 (the Direct3D 9 user-mode
+ * driver): the runtime gives DWM's composition device to the 11.1
+ * interface only over a WDDM 1.2 kernel driver (checked 2026-10-17;
+ * the other processes' devices land on it at 1.1). The Windows 7 build
+ * stays WDDM 1.1. */
 #ifdef _WIN64
 #define D3DPT_WDDM12 1
 #define D3DPT_CLAIM_WDDM12 0

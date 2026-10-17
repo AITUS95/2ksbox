@@ -265,11 +265,32 @@ changed). Not it, measured on the way: the segment (`vgamem_mb=512` gave
 the same 31) and the readbacks' size (~3.8 ms at 1600x1200, ~3.4 ms at
 1024x768, most of it the wait for the GPU).
 
-Seen on the way, both open below: in this overlay DWM made one device on
-this driver through the Windows 7 interface (`0xb000f`) and composed on
-d3d10level9, the Direct3D 9 driver, after logon and after a restart of
-DWM alike, not as step 4 found it; and under the full-window load the
-guest twice hit a TDR within ~30 s and restarted.
+Seen on the way: under the full-window load the guest twice hit a TDR
+within ~30 s and restarted (below, fixed); and DWM composed on
+d3d10level9, the Direct3D 9 driver, not as step 4 found it.
+
+**Why DWM is on d3d10level9: the WDDM version** (user: "could it be
+because of the wddm 1.1 / 1.2 difference?"). It is. A `D3D11CreateDevice`
+is two opens of the adapter: a probe (`GetCaps` 130, the pipeline
+levels; `GetSupportedVersions`) and the device's (the versions again,
+the other caps, `CreateDevice`). DWM's first device (flags 0) is made on
+the 11.1 interface (`0xb000f` is 11.15, `D3D11_1_DDI_INTERFACE_VERSION`,
+not Windows 7's `0xb000b`); for its composition device (flags `0x11`
+at the DDI) the runtime makes the second open, asks only the supported
+versions and closes it, before any of the user-mode driver's caps, so
+the refusal is on the kernel driver's side; after a third probe DWM
+opens the Direct3D 9 driver. With `D3DPT_CLAIM_WDDM12` 1 every DWM,
+the one at logon included, gets the composition device here (dxdiag:
+WDDM 1.2, DDI 11.1, levels 10_0 to 9_1), and the other processes' 0x11
+devices land on the 11.1 interface at 1.1 too. So step 4's DWM ran on
+the session's 1.2-claiming builds; the commit that turned the claim off
+(DWM's device removed whenever a program presents through a window's
+swap chain, above) sent DWM back to d3d10level9, and its "either way"
+was wrong. Rechecked with QEMU patch 94: at 1.2, `d3d11-probe present
+12000` still makes DWM crash (Windows Error Reporting, a new DWM) and
+both presented scenes read back black. Not it: DXGI's adapter cache
+(`HKLM\SOFTWARE\Microsoft\DirectX\{...}`, which holds 9_1 and driver
+version 0 for this adapter; set to 10_0, DWM still fell back).
 
 **Widescreen modes** (user: "add more resolution options to our driver
 on windows 10/11"). The host's mode table is the XP-era one (640x480 to
@@ -313,8 +334,9 @@ inside the present.
   interrupts), which hit the TDR within ~30-40 s three runs of three,
   ran the same load on the patched QEMU three times 180 s with no TDR and
   no restart. Fixed.
-- **DWM back on d3d10level9** in the `m25` overlay (above): which of its
-  devices the runtime refuses on this driver.
+- **DWM on d3d10level9 at WDDM 1.1** (above): the runtime gives DWM's
+  composition device to the 11.1 interface only over a WDDM 1.2 kernel
+  driver, so DWM on this driver waits on claiming 1.2, below.
 
 - **Claiming WDDM 1.2** (above): what Windows does differently with a
   window's swap chain on a 1.2 driver.
