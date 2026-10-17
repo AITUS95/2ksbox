@@ -183,7 +183,8 @@ Windows) is this project's guest code, plus:
   built by `guest-tools/build-wrappers.sh` from `third_party/qemu-3dfx`.
 - `DOSMODE\UIDE.SYS`, Jack R. Ellis's DOS CD-ROM driver as FreeDOS 1.4
   packages it (`third_party/uide`). Its FreeDOS listing says "Free
-  w/sources"; `licenses/uide/` has that listing.
+  w/sources", so its source, `DOSMODE\UIDE.ASM`, is on the disc beside
+  it; `licenses/uide/` has the listing and where it came from.
 - mingw-w64's runtime, static in every guest program (`licenses/mingw-w64/`).
 
 ## The General MIDI bank

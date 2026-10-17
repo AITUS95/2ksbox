@@ -76,7 +76,7 @@ OPENGL\     per game: OPENGL32.DLL (the GL pass-through) and
 VOODOO2\    V2START.EXE, the start-up guard for 3dfx's Voodoo 2 driver
 CDSHELF\    CDSHELF.EXE (98/2000/XP), CDSHELF.COM (DOS)
 DOSMODE\    UIDE.SYS, FreeDOS's CD/DVD driver, for Win98/Me's MS-DOS
-            mode (component 7)
+            mode (component 7), and UIDE.ASM, its source
 TESTS\      every test, benchmark and calibration program
 ```
 

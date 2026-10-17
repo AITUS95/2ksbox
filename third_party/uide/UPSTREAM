@@ -1,0 +1,9 @@
+FreeDOS 1.4's UIDE package, version 2020-07-07a (Jack R. Ellis):
+https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/repositories/1.4/drivers/uide.zip
+sha256 b30c5980383c51436da822656a1ca2d0063f9a59ec16e0b70f9e9b9b981c6e73
+
+Taken from it unchanged: BIN/UIDE.SYS, SOURCE/UIDE/UIDE.ASM and CC.ASM
+(here SOURCE/), DOC/UIDE/README.TXT. uide.lsm is an earlier copy of
+the package's listing (Modified-date 2025-03-16; the zip's own says
+2025-04-10, with the same copying policy). That policy is "Free w/sources",
+so the guest tools disc carries UIDE.ASM beside UIDE.SYS.

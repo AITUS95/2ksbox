@@ -88,7 +88,7 @@ COMPONENTS = [
     ("edk2", ["qemu/pc-bios/edk2-licenses.txt"], ALL),
     ("dxvk", ["third_party/dxvk/LICENSE"], ALL),
     ("qemu-3dfx", ["third_party/qemu-3dfx/LICENSE"], ALL),
-    ("uide", ["third_party/uide/uide.lsm"], ALL),
+    ("uide", ["third_party/uide/uide.lsm", "third_party/uide/UPSTREAM"], ALL),
     # mingw-w64's runtime, static in what mingw builds: the guest
     # programs, the agent and the executor's Wine pair
     ("mingw-w64", ["packaging/licenses/mingw-w64-runtime.txt",

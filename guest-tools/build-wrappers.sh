@@ -286,11 +286,13 @@ i686-w64-mingw32-gcc -O2 -Wall -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os \
   -march=pentium3 -mtune=generic -mwindows -o "$OUT/iso/VOODOO2/v2start.exe" \
   "$ROOT/guest-tools/src/v2start.c"
 
-# DOSMODE\: UIDE.SYS, FreeDOS's CD/DVD driver (third_party/uide, public
-# domain, as packaged with FreeDOS 1.4), for Win98's "Restart in MS-DOS
-# mode". SETUP's MS-DOS mode step copies it to C:\2KSBOX and loads it from
+# DOSMODE\: UIDE.SYS, FreeDOS's CD/DVD driver (third_party/uide, as
+# packaged with FreeDOS 1.4), for Win98's "Restart in MS-DOS mode".
+# SETUP's MS-DOS mode step copies it to C:\2KSBOX and loads it from
 # CONFIG.SYS as a CD-only driver, with MSCDEX in DOSSTART.BAT (setup.c).
+# Its terms are "free with sources", so its source goes beside it.
 cp "$ROOT/third_party/uide/UIDE.SYS" "$OUT/iso/DOSMODE/uide.sys"
+cp "$ROOT/third_party/uide/SOURCE/UIDE.ASM" "$OUT/iso/DOSMODE/uide.asm"
 
 # XP display driver for the d3dpt-vga adapter (doc 15, M7a): built and
 # checked by its own script (kernel-mode PE rules differ), staged as DRIVER\.

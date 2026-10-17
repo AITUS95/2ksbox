@@ -402,8 +402,9 @@ tracks, plus the items no track owns.
     THIRD-PARTY-NOTICES.md carries the written source offer (GPL-2
     §3(b); contato@roboport.com.br), About links this version's tag,
     and its Licences button shows every text the package carries
-    (2026-10-17, user). Open for the user: UIDE's terms ("free with
-    sources", none shipped).
+    (2026-10-17, user). UIDE's terms are "free with sources", so the
+    guest tools disc carries its source, `DOSMODE\UIDE.ASM`, from FreeDOS
+    1.4's package (2026-10-17, user; `third_party/uide/UPSTREAM`).
 13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.
