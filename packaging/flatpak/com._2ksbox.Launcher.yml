@@ -140,11 +140,12 @@ modules:
           # Patched on the host, like the QEMU tree above.
           - third_party/slang-shaders
           - .claude
-      # Every crate of the three lock files (the workspace's,
-      # `launcher-mitsuami/`'s and `player-mitsuami/`'s, mitsuami itself a
-      # git source at its pinned rev) as declared sources, unpacked into `cargo/vendor` with a
-      # `cargo/config` that redirects crates-io and the git repository at
-      # them; `CARGO_HOME` above points at that directory.
+      # Every crate of the four lock files (the workspace's,
+      # `launcher-mitsuami/`'s, `player-mitsuami/`'s and `guest-agent/`'s,
+      # whose crates' licence texts the package carries) as declared
+      # sources, unpacked into `cargo/vendor` with a `cargo/config` that
+      # redirects crates-io at them; `CARGO_HOME` above points at that
+      # directory.
       - cargo-sources.json
       # Windows 11's drivers disc (M23: virtio-win's x64 serial driver and
       # the 2ksbox agent), made on the host by scripts/build-virtio-win.sh

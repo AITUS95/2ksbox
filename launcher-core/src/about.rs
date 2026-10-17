@@ -30,7 +30,10 @@ pub const NAME: &str = "2ksbox";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const TAGLINE: &str = "Run new and vintage OSes with a good looking CRT filter.";
 pub const LICENSE: &str = "Free software under the GNU GPL, version 2.";
-pub const URL: &str = "https://github.com/Roboport-Tecnologia/2ksbox";
+/// This version's source: the tag `scripts/release.sh` makes, which is
+/// the source behind the store builds (THIRD-PARTY-NOTICES.md).
+pub const SOURCE_URL: &str =
+    concat!("https://github.com/Roboport-Tecnologia/2ksbox/tree/v", env!("CARGO_PKG_VERSION"));
 /// The user manual (`manual/`, published by `.github/workflows/manual.yml`)
 /// and the menu item that opens it.
 pub const MANUAL: &str = "User Manual";
@@ -50,7 +53,7 @@ pub const GROUPS: &[Group] = &[
             c("86Box", "The Voodoo 2", "GPL-2.0", "https://86box.net"),
             c("SeaBIOS", "The PC BIOS", "LGPL-3.0", "https://www.seabios.org"),
             c("EDK II", "UEFI firmware for Windows 11", "BSD-2-Clause-Patent", "https://www.tianocore.org"),
-            c("libtpms", "The TPM for Windows 11", "BSD-3-Clause", "https://github.com/stefanberger/libtpms"),
+            c("libtpms", "The TPM for Windows 11", "BSD-3-Clause and TCG", "https://github.com/stefanberger/libtpms"),
             c("virtio-win", "Drivers for Windows 11", "BSD-3-Clause", "https://github.com/virtio-win/kvm-guest-drivers-windows"),
             c("libslirp", "Guest networking", "BSD-3-Clause", "https://gitlab.freedesktop.org/slirp/libslirp"),
             c("GLib", "QEMU's support library", "LGPL-2.1", "https://gitlab.gnome.org/GNOME/glib"),
@@ -82,6 +85,7 @@ pub const GROUPS: &[Group] = &[
     Group {
         title: "Other",
         credits: &[
+            c("mitsuami", "The launcher's and player's windows", "MIT OR Apache-2.0", "https://crates.io/crates/mitsuami"),
             c("gilrs", "Game controllers", "MIT OR Apache-2.0", "https://gitlab.com/gilrs-project/gilrs"),
             c("UIDE", "The DOS CD-ROM driver", "Free with source", "https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/repositories/latest/pkg-html/uide.html"),
         ],
@@ -92,7 +96,7 @@ pub const GROUPS: &[Group] = &[
 pub fn text() -> String {
     use std::fmt::Write;
     let mut s = String::new();
-    let _ = writeln!(s, "{NAME} {VERSION}\n{TAGLINE}\n{LICENSE}\n{URL}\n{MANUAL}: {MANUAL_URL}\n\n{THANKS}");
+    let _ = writeln!(s, "{NAME} {VERSION}\n{TAGLINE}\n{LICENSE}\n{SOURCE_URL}\n{MANUAL}: {MANUAL_URL}\n\n{THANKS}");
     for group in GROUPS {
         let _ = writeln!(s, "\n{}", group.title);
         for c in group.credits {

@@ -23,8 +23,8 @@ Free software, GPL-2.0.
   On Windows 7 the same driver gives Aero.
 - **Windows 11.** A modern machine with UEFI, Secure Boot and a TPM
   2.0, so stock install media works with no setup tricks. x64 on a
-  Linux PC, Arm on a Mac (not on a Windows PC yet). On Linux and macOS a host folder
-  can be shared with it, and the clipboard goes both ways.
+  Linux or Windows PC, Arm on a Mac. The clipboard goes both ways, and
+  on Linux and macOS a host folder can be shared with it.
 - **A CRT on your monitor.** The guest's own framebuffer, at its native
   resolution and aspect (320×200 included), through a libretro slang
   shader chain, with shader profiles and a live preview in the launcher.
@@ -51,7 +51,7 @@ media, licences and disc dumps.
 | Host | Requirements |
 |---|---|
 | Linux | An x86-64 machine with GTK 4.10 or newer. KVM for near-native XP, Windows 7 and Windows 11 (optional; Windows 98 is emulated on purpose). A GPU with Vulkan 1.3 for the fast Direct3D path. Without it, Direct3D runs through Wine on the host if Wine is installed; with neither, the guest has no Direct3D (OpenGL and the Voodoo 2 still work). |
-| macOS | Apple Silicon, macOS 12 or newer (the App Store build: macOS 26 or newer). The era's guests are emulated (no x86 virtualization on these Macs) and still run faster than a period PC; Windows 11 on Arm runs under the Mac's hypervisor. The fast Direct3D path needs macOS 26; on older releases Direct3D runs through Wine if it is installed, and with no Wine the guest has no Direct3D (OpenGL and the Voodoo 2 still work). |
+| macOS | Apple Silicon. The App Store build needs macOS 26 or newer; a build of your own runs on macOS 12 or newer. The era's guests are emulated (no x86 virtualization on these Macs) and still run faster than a period PC; Windows 11 on Arm runs under the Mac's hypervisor. The fast Direct3D path needs macOS 26; on older releases Direct3D runs through Wine if it is installed, and with no Wine the guest has no Direct3D (OpenGL and the Voodoo 2 still work). |
 | Windows | 64-bit Windows 10 or 11 with the Windows App Runtime 2.4 or later. WHPX (the Windows Hypervisor Platform) accelerates XP, Windows 7 and Windows 11 when it is enabled (Windows 98 is emulated on purpose). Without Vulkan 1.3, Direct3D runs on Windows' own Direct3D 9. |
 
 You also need install media for the guest operating system (your own
@@ -60,8 +60,9 @@ your own discs.
 
 ## Getting 2ksbox
 
-Ready-to-run 2ksbox comes through the app stores: the Mac App Store
-and the Microsoft Store (not yet published). This repository is the
+Ready-to-run 2ksbox comes through the app stores: the
+[Mac App Store](https://apps.apple.com/app/2ksbox/id6819470979) and the
+[Microsoft Store](https://apps.microsoft.com/detail/9NVNN81VKF05). This repository is the
 source, and building it yourself is supported on every platform: once
 the tools are installed the build is one command, and it produces the
 same launcher, player and guest-tools disc as the store builds.
@@ -283,7 +284,8 @@ machine's settings for games that want a real PS/2 mouse.
   and file. `2ksbox --diagnose` prints the same plus what it found of
   this host's 3D, and writes it to `launcher.log` beside the machine
   library. Attach that log to a bug report. On Windows,
-  `2ksbox-debug.bat` in the package does both from a console window.
+  `2ksbox-debug.bat` in a build of your own does both from a console
+  window.
 - **The Direct3D note in the machine's settings** says what this host
   gives the guest's Direct3D. Without Vulkan 1.3 it is Wine on the host
   (slower; the note names the Wine package if none is installed), and

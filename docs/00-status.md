@@ -1,4 +1,4 @@
-# 0. Status and how to resume (updated 2026-10-09)
+# 0. Status and how to resume (updated 2026-10-16)
 
 The handoff for a new session: the tracks and what each owns, where each
 area stands, the everyday commands, open threads, next steps and the
@@ -177,7 +177,8 @@ live in its track doc; fixed things leave this list.
 
 - **Known failures on the Linux box** (M21's run on 11.1, 2026-10-02):
   `pit-guest` (the 15.6 ms-wait cases run the guest clock at 13 %, the
-  same on a QEMU built without patch 56). (`exec-no-device` failed until
+  same on a QEMU built without patch 56; on the PC the run as built is
+  at 13 % too, since Windows' own waits are 15.6 ms). (`exec-no-device` failed until
   DXVK patch 16 on 2026-10-09: DXVK's exception crossed into the executor
   and aborted in the unwinder. `package`
   failed there too, on `build/` being a symlink, until `package-linux.sh`
@@ -327,9 +328,8 @@ tracks, plus the items no track owns.
     mitsuami is the crates.io release 1.3.1 since 2026-10-16 (a git
     `rev` before; ADR-023's amendment), and
     `packaging/flatpak/cargo-sources.json` is regenerated for it, crate
-    archives only; left: run
-    the Linux packager with it (the Windows, macOS and Flatpak ones
-    have), and the macOS floor with an AppKit launcher
+    archives only; the Linux packager ran with it on 2026-10-16 (every
+    packager has); left: the macOS floor with an AppKit launcher
     (`tracks/m19-mitsuami-launcher.md`).
 9b. **M22, the player on mitsuami.** Step 2: the pointer, the menus and
     the close alert on a real desktop, latency against the winit player,
@@ -401,7 +401,45 @@ tracks, plus the items no track owns.
     (step 8, left open by user decision), vertex texture fetch in a title.
     M17: host vertex buffers for the draws, one HAL walk instead of two,
     the readback's wait (`tracks/m17-driver-perf.md`, `tools/w98-mp2.sh`).
-12. **The user manual** (`manual/`). Screenshots of the real windows,
+12. **Release 1.0.0** (`docs/release.md`, `scripts/release.sh`). The
+    Linux gate passed on 2026-10-16 (`test.sh all`: 73 pass, the known
+    `pit-guest`; `package-linux.sh`) and again on 2026-10-17 from
+    `86057b78`'s icons, `package-flatpak.sh` too (the Wine and KDE
+    add-ons; it had failed since 2026-10-07 on the 1024 icon, which
+    flatpak's export refuses, so Linux packages stop at 512), and the whole gate
+    again from `a5a18ece` (patch 94), the same results. The PC's
+    passed on 2026-10-17 from `86057b78`, `54623171` and `a5a18ece`
+    (QEMU patch 94) (`test.sh all`: 65 pass, 0 fail, `pit-guest` included each time
+    (an earlier run that day failed it as on Linux), 18 skips
+    that need Linux, macOS, a display, Wine, the winetests or a Windows
+    7 disc; `package-windows.sh --msix`; the Store MSIX, 1.0.0.0 with
+    Partner Center's identity `RoboportTecnologia.2ksbox`, sideloaded
+    with `-Check` and through the certification kit:
+    `OVERALL_RESULT=PASS`, the two optional FAILs of `build-windows.md`),
+    and from `775833c6` (docs only since `a5a18ece`, so no `test.sh`):
+    the build, the packages, the sideload and the certification kit,
+    the same results. Windows' and Linux's icons lost the teal plate that day; only macOS
+    keeps it. `README.md` and the manual's `install.mdx` link both
+    listings since 2026-10-17 (user): the Microsoft Store's, Store ID
+    `9NVNN81VKF05` (<https://apps.microsoft.com/detail/9NVNN81VKF05>),
+    and the Mac App Store's, `id6819470979`
+    (<https://apps.apple.com/app/2ksbox/id6819470979>). Left: the Microsoft submission, the Air's
+    gate, the App Store package, then the tag, which the user makes on
+    the commit both packages come from.
+    The manual's release notes are the stores' *What's New*. Every
+    package carries `licenses/` beside THIRD-PARTY-NOTICES.md
+    (`tools/third-party-notices.py stage`, which fails on a missing text;
+    run on Linux and the PC, not yet on the Air; glib's text is
+    `LICENSES/LGPL-2.1-or-later.txt`, since Windows' unpack turns the
+    `COPYING` symlink into a `.lnk`), and App Store re-uploads take
+    `package-macos.sh --build N`.
+    THIRD-PARTY-NOTICES.md carries the written source offer (GPL-2
+    §3(b); contato@roboport.com.br), About links this version's tag,
+    and its Licences button shows every text the package carries
+    (2026-10-17, user). UIDE's terms are "free with sources", so the
+    guest tools disc carries its source, `DOSMODE\UIDE.ASM`, from FreeDOS
+    1.4's package (2026-10-17, user; `third_party/uide/UPSTREAM`).
+13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.
 
@@ -470,6 +508,13 @@ to one subsystem lives in its design doc; pointers are at the end.
 
 ### Running on a Mac
 
+- **A GNU-only command in `test.sh` can end the run early with a green
+  summary.** macOS has no `nproc`; the `cpus` check's `$(( $(nproc) …
+  ))` was an arithmetic error, and bash drops the whole top-level `case`
+  for that, so from 04d6e9cc to 2026-10-17 `test.sh all` on the Air
+  stopped after `machine-details`. The summary still printed "0 failed"
+  and the script exited 0. Count the stages (`==> guest stage`, `win98`, `win7`) in the
+  log, and use `getconf _NPROCESSORS_ONLN` for a core count.
 - **`/opt/homebrew/lib` on `DYLD_LIBRARY_PATH` kills every image
   decode** (`SIGBUS` at `0xbad4007` in `IIO_Reader_GIF`). dyld searches
   it by leaf name first, and on a case-insensitive disk it answers
@@ -643,6 +688,10 @@ to one subsystem lives in its design doc; pointers are at the end.
   instructions KVM's has and steps over them silently. PUSH was one
   (patch 93, 2026-10-12: Warcraft III's gamma ramp, our XP driver's
   `push [regs+0xa00]`, an unbalanced stack, a BSOD).
+- **A level-triggered interrupt lost for good under WHPX** (a TDR with
+  every fence done, the device's IRQ status pending): WHPX's EOI exit
+  broadcast to the IOAPIC without the BQL, racing a device's raise on
+  another vCPU. Patch 94 locks it (track M25, on main since 2026-10-17).
 
 ### Devices and corruption
 

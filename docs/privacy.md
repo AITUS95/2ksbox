@@ -76,7 +76,8 @@ uploads them.
 A Windows 11 machine can share your clipboard: text you copy on your
 computer can be pasted inside the machine, and the other way round. It
 is on for a new Windows 11 machine and can be turned off in its
-settings. A machine can also be given one folder of yours, which
+settings. On a Mac or a Linux computer, a Windows 11 machine can also
+be given one folder of yours, which
 programs inside it can then read and write. No folder is shared unless
 you pick one. Both stay between your computer and the machine; 2ksbox
 sends neither anywhere else.
@@ -89,4 +90,5 @@ sends neither anywhere else.
 
 Changes to this policy are made in the repository, where its history is
 public: <https://github.com/Roboport-Tecnologia/2ksbox/blob/main/docs/privacy.md>.
-Questions go to the repository's issue tracker.
+Questions go to the repository's issue tracker or to
+<contato@roboport.com.br>.

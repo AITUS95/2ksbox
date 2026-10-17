@@ -175,7 +175,11 @@ fn main() {
     // The launcher's identity: a compositor matches the player's window to
     // 2ksbox's desktop entry and icon by it. mitsuami makes no
     // single-instance application of it, so players run side by side.
+    // The picture is the launcher's: no plate but on macOS.
+    #[cfg(not(target_os = "macos"))]
     let icon = include_bytes!("../../packaging/icon/2ksbox-256.png");
+    #[cfg(target_os = "macos")]
+    let icon = include_bytes!("../../packaging/icon/macos/2ksbox-256.png");
     // The menu bar in the title bar, rather than on a row of its own that
     // the picture sits under (user, 2026-10-08), at its start, before the
     // title (user, 2026-10-09).

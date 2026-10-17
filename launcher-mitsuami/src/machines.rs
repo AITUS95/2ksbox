@@ -16,7 +16,7 @@
 //! row's state line. Beside the list, the chosen machine's details (the
 //! core's `details`), as UTM and VirtualBox show theirs.
 
-use crate::about::{About, AboutWindow};
+use crate::about::{About, AboutWindow, LicensesWindow};
 use crate::clone::{CloneWindow, Cloner};
 use crate::firstrun::Offer;
 use crate::shaders::{ShaderEditorWindow, ShaderProfilesWindow, Shaders};
@@ -185,6 +185,9 @@ pub fn MachinesWindow() -> impl View {
     if crate::shot::screen("about").is_some() {
         about.show();
     }
+    if crate::shot::screen("licenses").is_some() {
+        about.show_licenses();
+    }
     if let Some(arg) = crate::shot::screen("wizard") {
         wizard.open_for_screen(&arg);
     }
@@ -348,6 +351,7 @@ pub fn MachinesWindow() -> impl View {
             <ShaderProfilesWindow/>
             <ShaderEditorWindow/>
             <AboutWindow/>
+            <LicensesWindow/>
     })
 }
 

@@ -18,6 +18,8 @@ on Apple Silicon as ARM64 under HVF.
 - `docs/tracks/`: one doc per work track (scope, owned files, test loop).
 - `docs/testing.md`: **every test tool**, what it proves, how to run it.
 - `docs/development.md`: build stages, player env/CLI, logs, packaging.
+- `docs/release.md`: a release, step by step; `scripts/release.sh`
+  checks the version everywhere and makes the tag.
 - `docs/01` to `24`: design docs. Decisions/ADRs in `docs/10`, roadmap
   in `08`.
 - `patches/qemu/README.md`: every QEMU patch, what it does, when to drop

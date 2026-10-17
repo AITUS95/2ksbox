@@ -2,29 +2,54 @@
 //! and the projects 2ksbox is built on, each a link with what it does
 //! for us and its licence. Opened by the Help menu's About item
 //! (`app_menu`; macOS's application menu, the end of GTK's primary menu
-//! and of Kirigami's drawer).
+//! and of Kirigami's drawer). Its Licences button opens the licence
+//! texts the package carries (`launcher_core::licenses`).
 
 use launcher_core::about::{self, Credit};
 use launcher_core::library;
+use launcher_core::licenses::{self, Entry};
+use std::path::PathBuf;
 use mitsuami::prelude::*;
 
 const NAME_W: f32 = 170.0;
 const LICENSE_W: f32 = 150.0;
+const ENTRIES_W: f32 = 260.0;
 
 #[derive(Clone, Copy)]
 pub struct About {
     open: Signal<bool>,
+    /// The Licences window: whether it shows, what it lists (read from
+    /// the package when it opens) and the entry whose text it shows.
+    licenses: Signal<bool>,
+    entries: Signal<Vec<Entry>>,
+    selected: Signal<Vec<PathBuf>>,
 }
 
 impl Store for About {
     fn create() -> About {
-        About { open: signal(false) }
+        About { open: signal(false), licenses: signal(false), entries: signal(Vec::new()), selected: signal(Vec::new()) }
     }
 }
 
 impl About {
     pub fn show(&self) {
         self.open.set(true);
+    }
+
+    /// Opens the Licences window on 2ksbox's own licence.
+    pub fn show_licenses(&self) {
+        let entries = licenses::entries();
+        self.selected.set(entries.first().map(|e| e.path.clone()).into_iter().collect());
+        self.entries.set(entries);
+        self.licenses.set(true);
+    }
+
+    /// The selected entry's text.
+    fn license_text(&self) -> String {
+        let path = self.selected.with(|s| s.first().cloned());
+        self.entries.with(|entries| {
+            entries.iter().find(|e| Some(&e.path) == path.as_ref()).map(licenses::text).unwrap_or_default()
+        })
     }
 }
 
@@ -67,7 +92,10 @@ fn open_machines_folder() {
 /// The app's icon as pixels, decoded once here: `Image` takes a file or
 /// pixels, and an installed launcher has no file of its own to point at.
 fn icon() -> Option<Pixels> {
+    #[cfg(not(target_os = "macos"))]
     let png = include_bytes!("../../packaging/icon/2ksbox-128.png");
+    #[cfg(target_os = "macos")]
+    let png = include_bytes!("../../packaging/icon/macos/2ksbox-128.png");
     let mut reader = png::Decoder::new(std::io::Cursor::new(png.as_slice())).read_info().ok()?;
     let mut rgba = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut rgba).ok()?;
@@ -114,8 +142,8 @@ pub fn AboutWindow() -> impl View {
                                 <Text>{about::TAGLINE}</Text>
                                 <Text text_style=TextStyle::Caption color=Color::SecondaryLabel>{about::LICENSE}</Text>
                                 <Row>
-                                    <Button button_style=ButtonStyle::Borderless @click=|| open_url(about::URL)>
-                                        {about::URL}
+                                    <Button button_style=ButtonStyle::Borderless @click=|| open_url(about::SOURCE_URL)>
+                                        {about::SOURCE_URL}
                                     </Button>
                                 </Row>
                             </Column>
@@ -132,8 +160,61 @@ pub fn AboutWindow() -> impl View {
                     </Column>
                 </ScrollView>
                 <Separator/>
-                <Row padding=Spacing::Lg justify=Justify::End>
+                <Row padding=Spacing::Lg gap=Spacing::Md justify=Justify::SpaceBetween>
+                    <Button @click=move || about.show_licenses()>{licenses::OPEN}</Button>
                     <Button role=ButtonRole::Default @click=move || about.open.set(false)>"Close"</Button>
+                </Row>
+            </Column>
+        </Window>
+    }
+}
+
+/// The licence texts: every entry down the side, the selected one's text
+/// beside it, read-only so it can still be selected and copied.
+#[component]
+pub fn LicensesWindow() -> impl View {
+    let about = use_store::<About>();
+    view! {
+        <Window
+            title=licenses::TITLE
+            size=Size::new(860.0, 620.0)
+            min_size=Size::new(560.0, 380.0)
+            modal=Modality::Application
+            open=move || about.licenses.get()
+            @close_request=move || about.licenses.set(false)
+        >
+            <Column grow=1.0 min_height=0>
+                {crate::shot::arm(&["licenses"])}
+                <Row grow=1.0 min_height=0>
+                    <List
+                        each=move || about.entries.get()
+                        key=|e: &Entry| e.path.clone()
+                        selection_mode=SelectionMode::Single
+                        selected=about.selected
+                        list_style=ListStyle::Plain
+                        width=ENTRIES_W
+                        shrink=0.0
+                        let:entry
+                    >
+                        <Column padding_x=Spacing::Lg padding_y=Spacing::Sm gap=Spacing::Xs min_width=0>
+                            <Text max_lines=1u32>{entry.name.clone()}</Text>
+                            <Text text_style=TextStyle::Caption color=Color::SecondaryLabel max_lines=1u32>
+                                {entry.kind.label()}
+                            </Text>
+                        </Column>
+                    </List>
+                    <Separator orientation=Orientation::Vertical/>
+                    <TextArea
+                        a11y_label=licenses::TITLE
+                        read_only=true
+                        line_wrap=false
+                        value=move || about.license_text()
+                        grow=1.0
+                    />
+                </Row>
+                <Separator/>
+                <Row padding=Spacing::Lg justify=Justify::End>
+                    <Button role=ButtonRole::Default @click=move || about.licenses.set(false)>"Close"</Button>
                 </Row>
             </Column>
         </Window>

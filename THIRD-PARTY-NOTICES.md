@@ -1,37 +1,78 @@
 # Third-party notices
 
-The binaries this project ships are built from its own source plus the
-crates listed below and, for the player, QEMU itself. This file meets
-the attribution terms of those licences (Apache-2.0 §4 in particular)
-and lets anyone packaging or redistributing a build see what is in it
-without resolving the dependency graph.
+The packages are built from this project's own source plus the
+components below. This file meets the attribution terms of their
+licences (Apache-2.0 §4 in particular) and lets anyone who packages or
+redistributes a build see what is in it.
 
-The crate listings are derived, not hand-maintained. Regenerate them
-with `cargo metadata`:
+"The packages" are four builds. **Linux** is the tarball
+(`scripts/package-linux.sh`) and the Flatpak, which stages the same tree.
+**macOS** is both Mac apps (`scripts/package-macos.sh`). **Windows** is
+the zip and the Store's MSIX, which is the zip's tree
+(`scripts/package-windows.sh`, `scripts/package-msix.sh`). An entry says
+which packages carry it when that is not all of them.
 
-```sh
-cargo metadata --format-version 1 > /tmp/meta.json
-python3 tools/third-party-notices.py /tmp/meta.json player
-(cd launcher-mitsuami && cargo metadata --format-version 1) > /tmp/meta-mitsuami.json
-python3 tools/third-party-notices.py /tmp/meta-mitsuami.json launcher-mitsuami
-```
+## Where the licence texts are
+
+Every package carries the texts this file names, in a `licenses`
+directory beside this file:
+
+| Package | Directory |
+|---|---|
+| Linux | `share/doc/2ksbox/licenses/` |
+| macOS | `2ksbox.app/Contents/share/doc/2ksbox/licenses/` |
+| Windows | `doc\licenses\` |
+
+At its top are the generic texts: `GPL-2.0.txt` (this project's
+`COPYING`), `LGPL-2.1.txt`, `GPL-3.0.txt`, `LGPL-3.0.txt`,
+`Apache-2.0.txt`, `MIT.txt`, `Zlib.txt`, `BSL-1.0.txt` and `MPL-2.0.txt`.
+Each component below has a directory of its own with its project's own
+licence files, named in the entry as `licenses/<name>/`. Every Rust crate
+has `licenses/crates/<name>-<version>/` with the licence files its
+package carries. A crate whose package carries none gets a note there
+naming its licence and the generic text.
+
+`python3 tools/third-party-notices.py stage` fills the directory, and
+each packager runs it. It fails when a file is missing, so a package
+never ships without a text this file points at. Its table of components
+is the same list as this file; change both together.
+
+## Corresponding source
+
+The source of every package is this repository at the release's tag,
+with its submodules (`qemu`, `third_party/*`). The libraries that
+`scripts/build-deps.sh` builds come from the tarballs it pins by URL and
+sha256, with the patches in `patches/deps/`. `docs/development.md` has
+the build. The About window links the tag of the version it is.
+
+### Written offer
+
+For at least three years after we last distribute a version of 2ksbox
+in binary form, Roboport Tecnologia (David Rios Gomes Ltda) will give
+anyone who asks the complete corresponding source code of that
+version, for the parts under the GPL and the LGPL included, the
+libraries that `scripts/build-deps.sh` downloads among them. We charge
+no more than our cost of physically performing the copy. Write to
+contato@roboport.com.br and name the version, which the About window
+shows.
 
 ## QEMU
 
-The **player** links `libqemu-embed-<target>`, which is QEMU
-(https://www.qemu.org), **GPL-2.0-only** as a whole, plus this project's patch queue in
-`patches/qemu/` and the qemu-3dfx overlay
-(https://github.com/kjliew/qemu-3dfx). QEMU's own licence text is in
-`qemu/LICENSE`, and the GPLv2 text this project distributes under is
-`COPYING`. The **launcher** does not link QEMU.
+The players link `libqemu-embed-<target>`, which is QEMU
+(https://www.qemu.org), **GPL-2.0-only** as a whole, plus this project's
+patch queue in `patches/qemu/` and the qemu-3dfx overlay
+(https://github.com/kjliew/qemu-3dfx, **GPL-2.0**). `qemu-img` is QEMU
+too. QEMU's own licence files are in `licenses/qemu/`. The launcher does
+not link QEMU.
 
-The firmware in the packages' `pc-bios/` is QEMU's own, except the two
-VGA BIOSes `vgabios-stdvga.bin` and `vgabios-cirrus.bin`. Those are
-**SeaBIOS** (https://www.seabios.org, **LGPL-3.0-only**) at the commit QEMU
-pins
-(`qemu/roms/seabios`), modified by `patches/seabios/` and built by
-`scripts/build-vgabios.sh`. That tree plus those patches is the
-corresponding source.
+The firmware in the packages' `pc-bios/` is QEMU's own, and
+`pc-bios/README` names each file's project and licence. Two files are
+not QEMU's builds: the VGA BIOSes `vgabios-stdvga.bin` and
+`vgabios-cirrus.bin`. They are **SeaBIOS** (https://www.seabios.org,
+**LGPL-3.0-only**, `licenses/LGPL-3.0.txt` with `licenses/GPL-3.0.txt`)
+at the commit QEMU pins (`qemu/roms/seabios`), modified by
+`patches/seabios/` and built by `scripts/build-vgabios.sh`. That tree
+plus those patches is the corresponding source.
 
 The Voodoo 2 device (`-device voodoo2`) links 86Box's Voodoo emulation
 (https://github.com/86Box/86Box, **GPL-2.0-or-later**, derived from
@@ -39,25 +80,71 @@ Sarah Walker's PCem), copied verbatim into `voodoo/86box/`. The files
 keep their authors' headers, and `voodoo/86box/UPSTREAM` names the
 commit.
 
-## Windows 11's TPM, firmware and drivers
+## Libraries linked into QEMU
 
-QEMU links two libraries statically for the TPM 2.0 behind
-`-tpmdev libtpms` (track M20), built from pinned sources by
-`scripts/build-deps.sh`: **libtpms** 0.10.2
-(https://github.com/stefanberger/libtpms, BSD-style; its `LICENSE`) and
-OpenSSL 3.5.9's **libcrypto** (https://www.openssl.org, **Apache-2.0**).
+`scripts/build-deps.sh` builds these from their release tarballs and
+links them **statically** into `libqemu-embed` and `qemu-img`. On Linux
+only GLib, PCRE2, libslirp, libcrypto and libtpms are linked this way;
+the others are the distribution's shared libraries, which the tarball
+does not carry.
 
-The macOS app's `pc-bios/2ksbox-aarch64-code.fd` and `-vars.fd` are
-**EDK2** (https://github.com/tianocore/edk2, **BSD-2-Clause-Patent**) at
-the commit QEMU pins (`qemu/roms/edk2`), modified by `patches/edk2/` and
-built by `scripts/build-edk2.sh`. That tree plus those patches is the
-corresponding source.
+| Library | Licence | Packages | Texts |
+|---|---|---|---|
+| **GLib** (https://gitlab.gnome.org/GNOME/glib) | LGPL-2.1-or-later | all | `licenses/glib/` |
+| **PCRE2** (https://github.com/PCRE2Project/pcre2), GLib's regular expressions | BSD-3-Clause WITH PCRE2-exception | all | `licenses/pcre2/` |
+| **libslirp** (https://gitlab.freedesktop.org/slirp/libslirp), guest networking | BSD-3-Clause AND MIT | all | `licenses/libslirp/` |
+| **OpenSSL**'s libcrypto (https://www.openssl.org), for libtpms | Apache-2.0 | all | `licenses/openssl/` |
+| **libtpms** (https://github.com/stefanberger/libtpms), Windows 11's TPM 2.0 | BSD-3-Clause and TCG | all | `licenses/libtpms/` |
+| **spice-protocol** (https://gitlab.freedesktop.org/spice/spice-protocol), headers only, for the clipboard | BSD-3-Clause | all | `licenses/spice-protocol/` |
+| **pixman** (https://pixman.org) | MIT | macOS, Windows | `licenses/pixman/` |
+| **zstd** (https://github.com/facebook/zstd) | BSD-3-Clause | macOS | `licenses/zstd/` |
+| **zlib** (https://zlib.net) | Zlib | Windows | `licenses/zlib/` |
+| **libepoxy** (https://github.com/anholt/libepoxy), OpenGL dispatch | MIT | Windows | `licenses/libepoxy/` |
+| **libffi** (https://sourceware.org/libffi/), from GLib's subproject | MIT | macOS, Windows | `licenses/libffi/` |
+| **proxy-libintl** (https://github.com/frida/proxy-libintl), a gettext stub from GLib's subproject | LGPL-2.0-or-later | macOS, Windows | `licenses/proxy-libintl/` |
 
-The drivers discs in `share/2ksbox/drivers/` carry drivers from
-**virtio-win** (https://github.com/virtio-win/kvm-guest-drivers-windows,
-**BSD-3-Clause**), Microsoft-signed binaries from its 0.1.302 ISO, cut by
-`scripts/build-virtio-win.sh`. Each disc carries the ISO's own
-`virtio-win_license.txt` beside them.
+libtpms is IBM's code under BSD-3-Clause plus the TPM 2.0 reference
+code under the Trusted Computing Group's own BSD-style terms; its
+`LICENSE` has both.
+
+**GLib and proxy-libintl are LGPL and linked statically.** Both are used
+unmodified, from the tarballs `scripts/build-deps.sh` pins. What they are
+linked into (`libqemu-embed`, `qemu-img`) is GPL-2.0, and its complete
+source and build scripts are this repository. So a recipient can rebuild
+it against a modified GLib (`scripts/build-deps.sh`, then
+`scripts/build.sh`) and run the result, which is what LGPL-2.1 §6 asks
+of a static link. The LGPL-2.1 text is `licenses/LGPL-2.1.txt`, and the
+music engines below are covered the same way.
+
+## Windows 11's firmware and drivers
+
+The packages' `pc-bios/2ksbox-aarch64-code.fd` and `-vars.fd` (macOS,
+Apple Silicon) and `pc-bios/2ksbox-x86_64-code.fd` and `-vars.fd`
+(Windows) are **EDK2** (https://github.com/tianocore/edk2,
+**BSD-2-Clause-Patent**) at the commit QEMU pins (`qemu/roms/edk2`),
+modified by `patches/edk2/` and built by `scripts/build-edk2.sh`. That
+tree plus those patches is the corresponding source. QEMU's own EDK2
+builds are in `pc-bios/` too, and `licenses/edk2/` has QEMU's
+`edk2-licenses.txt` for both.
+
+The drivers discs in `share/2ksbox/drivers/` (`drivers\` on Windows;
+x64 on Linux and Windows, ARM64 on Apple Silicon) carry three things:
+
+- Drivers from **virtio-win**
+  (https://github.com/virtio-win/kvm-guest-drivers-windows,
+  **BSD-3-Clause**): Microsoft-signed binaries from its 0.1.302 ISO, cut
+  by `scripts/build-virtio-win.sh`.
+- This project's own build of virtio-win's display driver, viogpudo, with
+  the patches in `patches/viogpudo/`, built by `scripts/build-viogpudo.sh`.
+  Its resolution helpers replace the ISO's in `$WinPEDriver$\viogpudo`,
+  and the driver itself, which Microsoft has not signed, is in
+  `2ksbox\experimental-display` for test mode. Same licence and source
+  repository as virtio-win's.
+- The 2ksbox agent (`guest-agent/`, **GPL-2.0-or-later**), whose crates
+  are listed below.
+
+Each disc carries the ISO's own `virtio-win_license.txt`, and
+`licenses/virtio-win/` has the same text.
 
 ## The music engines
 
@@ -70,15 +157,35 @@ relink against their own copies, which is what the LGPL's §6 asks of a
 static link, and everything they are linked into is GPL-2.0 source in
 this repository.
 
-## Host-side libraries built from `third_party/`
+## Direct3D and Vulkan
 
-One library is built from vendored source and shipped beside the player.
-It is not linked into anything; QEMU `dlopen`s it at run time.
-
-- **DXVK** (https://github.com/doitsujin/dxvk), **zlib/libpng**, built as
+- **DXVK** (https://github.com/doitsujin/dxvk, **Zlib**), built as
   `libdxvk_d3d9` by `scripts/configure-dxvk.sh` with the patch queue in
-  `patches/dxvk/`. It is the host executor of the paravirtual Direct3D
-  device (doc 14). Its licence text is `third_party/dxvk/LICENSE`.
+  `patches/dxvk/`. The Direct3D executor (doc 14) loads it at run time.
+  All packages; `licenses/dxvk/`.
+- The **Vulkan loader** (https://github.com/KhronosGroup/Vulkan-Loader,
+  **Apache-2.0**, `licenses/Apache-2.0.txt`) and **KosmicKrisp**, Mesa's
+  Vulkan driver for macOS (https://mesa3d.org, **MIT**,
+  `licenses/mesa/`), both as the LunarG Vulkan SDK builds them. macOS on
+  Apple Silicon only. Linux and Windows use the system's Vulkan.
+- The executor's Windows build for Wine (`lib/2ksbox/wine/`, Linux and
+  the macOS community build) links **mingw-w64**'s runtime and
+  winpthreads statically (ZPL-2.1, MIT and BSD terms;
+  `licenses/mingw-w64/`).
+
+## The guest-tools disc
+
+The guest-tools ISO in `share/2ksbox/guest-tools/` (`guest-tools\` on
+Windows) is this project's guest code, plus:
+
+- qemu-3dfx's guest wrappers (**GPL-2.0**, `licenses/qemu-3dfx/`): the
+  per-game `OPENGL\OPENGL32.DLL` and the device mapper in `MAPPER\`,
+  built by `guest-tools/build-wrappers.sh` from `third_party/qemu-3dfx`.
+- `DOSMODE\UIDE.SYS`, Jack R. Ellis's DOS CD-ROM driver as FreeDOS 1.4
+  packages it (`third_party/uide`). Its FreeDOS listing says "Free
+  w/sources", so its source, `DOSMODE\UIDE.ASM`, is on the disc beside
+  it; `licenses/uide/` has the listing and where it came from.
+- mingw-w64's runtime, static in every guest program (`licenses/mingw-w64/`).
 
 ## The General MIDI bank
 
@@ -99,104 +206,60 @@ the user's own ROM images (doc 20 §4).
 The launcher can download libretro's `slang-shaders`
 (https://github.com/libretro/slang-shaders) at the user's request, and the
 `third_party/slang-shaders` submodule is the same collection. Those presets
-carry their own per-file licences and are neither modified nor redistributed
-by this project.
+carry their own per-file licences. A Linux or Windows package built with
+`--with-shaders` redistributes them unmodified in `share/2ksbox/shaders/`
+(`shaders\` on Windows), each file with its own licence header. The Mac
+apps and the packages built without that option do not carry them.
 
-## Apache-2.0 components
+## The Flatpak's add-ons
 
-Several crates are **Apache-2.0 with no alternative licence**. In the
-player they are `winit`, `cpal`, `ab_glyph`, `ab_glyph_rasterizer`,
-`owned_ttf_parser`, `codespan-reporting`, `rspirv`, `spirv`, `gethostname`,
-`glutin_wgl_sys`, `gl_generator`, `khronos_api`; the launcher adds
-`ring` (`Apache-2.0 AND ISC`). `dpi` is `Apache-2.0 AND MIT`, and both
-apply. None of them ships a `NOTICE` file, so attribution here is the
-whole of the obligation.
+The Flatpak's two add-ons are built from other projects' release
+sources, declared with checksums in their manifests: Qt 6 and KDE
+Frameworks for the Kirigami launcher
+(`packaging/flatpak/com._2ksbox.Launcher.KDE.yml`, LGPL-3.0 and
+LGPL-2.1 for the most part), and **Wine** for the Direct3D executor
+below the Vulkan floor (`com._2ksbox.Launcher.Wine.yml`,
+**LGPL-2.1-or-later**). Each module's licence files are its own source's.
 
-For how those interact with the player's GPL-2.0-only status, see
-**ADR-010** in `docs/10-decisions.md`. The launcher and `shader-chain` are
-`GPL-2.0-or-later` for that reason (**ADR-009**).
+## Rust crates
+
+Every Rust binary links Rust's standard library (**MIT OR Apache-2.0**).
+The crates each binary links are listed below, by declared licence; the
+ones marked **Apache-2.0** alone have no alternative licence. None of
+those ships a `NOTICE` file, so attribution here and the licence text
+are the whole of the obligation. `mitsuami` (https://crates.io/crates/mitsuami,
+**MIT OR Apache-2.0**) is the launcher's and the player's toolkit.
+
+For how the Apache-2.0-only crates interact with the player's
+GPL-2.0-only status, see **ADR-010** in `docs/10-decisions.md`. The
+launcher and `shader-chain` are `GPL-2.0-or-later` for that reason
+(**ADR-009**).
 
 ## Crates, by declared licence
 
-### `player`: 340 third-party crates
+Generated by `python3 tools/third-party-notices.py list --write THIRD-PARTY-NOTICES.md` for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc` (`guest-agent`: Windows). Each crate's own licence files are in the packages' `licenses/crates/`.
 
-**MIT OR Apache-2.0** (151): `ahash`, `allocator-api2`, `android-activity`, `android_system_properties`, `arc-swap`, `arrayvec`, `as-raw-xcb-connection`, `ash`, `bitflags`, `bumpalo`, `cc`, `cfg-if`, `chacha20`, `core-foundation`, `core-foundation-sys`, `core-graphics`, `core-graphics-types`, `cpufeatures`, `crc`, `crc-catalog`, `crc32fast`, `crossbeam-deque`, `crossbeam-epoch`, `crossbeam-utils`, `dasp_sample`, `dirs-next`, `dirs-sys-next`, `document-features`, `either`, `errno`, `fdeflate`, `find-msvc-tools`, `fixedbitset`, `flate2`, `futures-core`, `futures-task`, `futures-util`, `getrandom`, `glob`, `glslang`, `glslang-sys`, `gpu-allocator`, `half`, `hashbrown`, `hermit-abi`, `image`, `itoa`, `jni`, `jni-macros`, `jni-sys`, `jni-sys-macros`, `jobserver`, `js-sys`, `libc`, `litrs`, `lock_api`, `log`, `memmap2`, `naga`, `naga-types`, `ndk`, `ndk-context`, `ndk-sys`, `num-derive`, `num-traits`, `once_cell`, `parking_lot`, `parking_lot_core`, `percent-encoding`, `petgraph`, `pkg-config`, `png`, `presser`, `proc-macro-crate`, `proc-macro2`, `profiling`, `quote`, `rand`, `rand_core`, `range-alloc`, `raw-window-metal`, `rayon`, `rayon-core`, `regex`, `regex-automata`, `regex-syntax`, `renderdoc-sys`, `rustc_version`, `rustversion`, `scopeguard`, `semver`, `serde`, `serde_core`, `serde_derive`, `serde_json`, `shlex`, `simdutf8`, `smallvec`, `smol_str`, `spirv-cross-sys`, `spirv-cross2`, `spirv-cross2-derive`, `static_assertions`, `syn`, `thiserror`, `thiserror-impl`, `toml_datetime`, `toml_edit`, `toml_parser`, `ttf-parser`, `unicode-segmentation`, `unicode-width`, `unty`, `wasm-bindgen`, `wasm-bindgen-futures`, `wasm-bindgen-macro`, `wasm-bindgen-macro-support`, `wasm-bindgen-shared`, `web-sys`, `web-time`, `wgpu`, `wgpu-core`, `wgpu-core-deps-apple`, `wgpu-core-deps-emscripten`, `wgpu-core-deps-windows-linux-android`, `wgpu-hal`, `wgpu-naga-bridge`, `wgpu-types`, `windows`, `windows-collections`, `windows-core`, `windows-future`, `windows-implement`, `windows-interface`, `windows-link`, `windows-numerics`, `windows-result`, `windows-strings`, `windows-sys`, `windows-targets`, `windows-threading`, `windows_aarch64_gnullvm`, `windows_aarch64_msvc`, `windows_i686_gnu`, `windows_i686_gnullvm`, `windows_i686_msvc`, `windows_x86_64_gnu`, `windows_x86_64_gnullvm`, `windows_x86_64_msvc`, `x11rb`, `x11rb-protocol`
+### `libdisc` and `libsynth`, linked into QEMU: 3 third-party crates
 
-**MIT** (71): `alsa-sys`, `android-properties`, `array-concat`, `bincode`, `bincode_derive`, `block2`, `bytes`, `calloop`, `calloop-wayland-source`, `cfg_aliases`, `combine`, `crunchy`, `data-encoding`, `dispatch`, `dlib`, `libm`, `libredox`, `libudev-sys`, `nix`, `nom`, `nom_locate`, `objc-sys`, `objc2`, `objc2-app-kit`, `objc2-cloud-kit`, `objc2-contacts`, `objc2-core-data`, `objc2-core-image`, `objc2-core-location`, `objc2-encode`, `objc2-foundation`, `objc2-link-presentation`, `objc2-metal`, `objc2-quartz-core`, `objc2-symbols`, `objc2-ui-kit`, `objc2-uniform-type-identifiers`, `objc2-user-notifications`, `orbclient`, `ordered-float`, `platform-dirs`, `quick-xml`, `redox_syscall`, `redox_users`, `sctk-adwaita`, `simd-adler32`, `slab`, `smithay-client-toolkit`, `strict-num`, `strumbra`, `tracing`, `tracing-core`, `unsigned-varint`, `vec_extract_if_polyfill`, `virtue`, `wayland-backend`, `wayland-client`, `wayland-csd-frame`, `wayland-cursor`, `wayland-protocols`, `wayland-protocols-plasma`, `wayland-protocols-wlr`, `wayland-scanner`, `wayland-sys`, `winnow`, `x11-dl`, `xcursor`, `xkbcommon-dl`, `xml-rs`, `zigzag`, `zmij`
+**LGPL-2.1-or-later** (2): `moont`, `nuked-opl3`
 
-**Apache-2.0 OR MIT** (16): `atomic-waker`, `autocfg`, `bit-set`, `bit-vec`, `concurrent-queue`, `equivalent`, `indexmap`, `pin-project`, `pin-project-internal`, `pin-project-lite`, `polling`, `portable-atomic`, `portable-atomic-util`, `rustc-hash`, `simd_cesu8`, `uuid`
+**MIT** (1): `rustysynth`
 
-**MIT/Apache-2.0** (16): `bitflags`, `coreaudio-rs`, `downcast-rs`, `foreign-types`, `foreign-types-macros`, `foreign-types-shared`, `fs2`, `khronos-egl`, `linked-hash-map`, `plain`, `scoped-tls`, `vec_map`, `version_check`, `winapi`, `winapi-i686-pc-windows-gnu`, `winapi-x86_64-pc-windows-gnu`
+### `launcher-mitsuami`, the launcher: 289 third-party crates
 
-**Zlib OR Apache-2.0 OR MIT** (13): `bytemuck`, `bytemuck_derive`, `dispatch2`, `objc2-audio-toolbox`, `objc2-avf-audio`, `objc2-core-audio`, `objc2-core-audio-types`, `objc2-core-foundation`, `objc2-core-graphics`, `objc2-io-kit`, `objc2-io-surface`, `objc2-metal`, `objc2-quartz-core`
+**MIT OR Apache-2.0** (140): `allocator-api2`, `arc-swap`, `arrayvec`, `as-raw-xcb-connection`, `ash`, `base64`, `bitflags`, `cfg-if`, `chacha20`, `cpufeatures`, `crc`, `crc-catalog`, `crc32fast`, `crossbeam-deque`, `crossbeam-epoch`, `crossbeam-utils`, `directories`, `dirs-next`, `dirs-sys`, `dirs-sys-next`, `displaydoc`, `document-features`, `either`, `errno`, `fdeflate`, `field-offset`, `fixedbitset`, `flate2`, `futures-channel`, `futures-core`, `futures-executor`, `futures-io`, `futures-macro`, `futures-task`, `futures-util`, `getrandom`, `glslang`, `glslang-sys`, `gpu-allocator`, `half`, `hashbrown`, `heck`, `http`, `httparse`, `image`, `itoa`, `libc`, `litrs`, `lock_api`, `log`, `mitsuami`, `mitsuami-appkit`, `mitsuami-core`, `mitsuami-gtk`, `mitsuami-kirigami`, `mitsuami-linux`, `mitsuami-macros`, `mitsuami-reactive`, `mitsuami-widgets`, `mitsuami-winui`, `naga`, `naga-types`, `num-derive`, `num-traits`, `once_cell`, `parking_lot`, `parking_lot_core`, `percent-encoding`, `petgraph`, `png`, `presser`, `proc-macro-crate`, `proc-macro2`, `profiling`, `quote`, `rand`, `rand_core`, `range-alloc`, `raw-window-metal`, `rayon`, `rayon-core`, `regex`, `regex-automata`, `regex-syntax`, `renderdoc-sys`, `rustls-pki-types`, `rustversion`, `scopeguard`, `serde`, `serde_core`, `serde_derive`, `serde_json`, `serde_spanned`, `simdutf8`, `smallvec`, `spirv-cross-sys`, `spirv-cross2`, `spirv-cross2-derive`, `static_assertions`, `syn`, `tar`, `thiserror`, `thiserror-impl`, `toml`, `toml_datetime`, `toml_edit`, `toml_parser`, `toml_writer`, `unic-langid`, `unic-langid-impl`, `unicode-segmentation`, `unicode-width`, `unty`, `ureq`, `ureq-proto`, `utf8-zero`, `wgpu`, `wgpu-core`, `wgpu-core-deps-apple`, `wgpu-core-deps-windows-linux-android`, `wgpu-hal`, `wgpu-naga-bridge`, `wgpu-types`, `windows`, `windows-collections`, `windows-core`, `windows-future`, `windows-implement`, `windows-interface`, `windows-link`, `windows-numerics`, `windows-reference`, `windows-result`, `windows-strings`, `windows-sys`, `windows-threading`, `windows-time`, `x11rb`, `x11rb-protocol`, `xattr`
 
-**Apache-2.0** (12): `ab_glyph`, `ab_glyph_rasterizer`, `codespan-reporting`, `cpal`, `gethostname`, `gl_generator`, `glutin_wgl_sys`, `khronos_api`, `owned_ttf_parser`, `rspirv`, `spirv`, `winit`
-
-**MPL-2.0 OR GPL-3.0-only** (9): `librashader`, `librashader-cache`, `librashader-common`, `librashader-pack`, `librashader-preprocess`, `librashader-presets`, `librashader-reflect`, `librashader-runtime`, `librashader-runtime-wgpu`
-
-**Apache-2.0/MIT** (7): `alsa`, `bytecount`, `gilrs`, `gilrs-core`, `halfbrown`, `pollster`, `rustc-hash`
-
-**MIT OR Apache-2.0 OR Zlib** (6): `cursor-icon`, `glow`, `raw-window-handle`, `xkeysym`, `zune-core`, `zune-jpeg`
-
-**Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT** (5): `linux-raw-sys`, `rustix`, `wasi`, `wasip2`, `wit-bindgen`
-
-**Unlicense OR MIT** (5): `aho-corasick`, `byteorder-lite`, `memchr`, `termcolor`, `winapi-util`
-
-**ISC** (3): `inotify`, `inotify-sys`, `libloading`
-
-**Zlib** (3): `foldhash`, `slotmap`, `zlib-rs`
-
-**BSD-2-Clause OR Apache-2.0 OR MIT** (2): `zerocopy`, `zerocopy-derive`
-
-**BSD-3-Clause** (2): `tiny-skia`, `tiny-skia-path`
-
-**BSD-3-Clause OR Apache-2.0** (2): `moxcms`, `pxfm`
-
-**BSD-3-Clause OR MIT OR Apache-2.0** (2): `num_enum`, `num_enum_derive`
-
-**Unlicense/MIT** (2): `same-file`, `walkdir`
-
-**(Apache-2.0 OR MIT) AND BSD-3-Clause** (1): `encoding_rs`
-
-**(MIT OR Apache-2.0) AND Unicode-3.0** (1): `unicode-ident`
-
-**0BSD OR MIT OR Apache-2.0** (1): `adler2`
-
-**Apache-2.0 / MIT** (1): `fnv`
-
-**Apache-2.0 AND MIT** (1): `dpi`
-
-**BSD-2-Clause** (1): `arrayref`
-
-**BSD-2-Clause OR MIT OR Apache-2.0** (1): `mach2`
-
-**CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception** (1): `blake3`
-
-**CC0-1.0 OR MIT-0 OR Apache-2.0** (1): `constant_time_eq`
-
-**MIT OR Apache-2.0 OR LGPL-2.1-or-later** (1): `r-efi`
-
-**MIT OR Zlib OR Apache-2.0** (1): `miniz_oxide`
-
-**MPL-2.0** (1): `persy`
-
-**MPL-2.0+** (1): `smartstring`
-
-### `launcher-mitsuami`: 340 third-party crates
-
-**MIT OR Apache-2.0** (171): `allocator-api2`, `android_system_properties`, `arc-swap`, `arrayvec`, `as-raw-xcb-connection`, `ash`, `base64`, `bitflags`, `bumpalo`, `cc`, `cfg-expr`, `cfg-if`, `chacha20`, `cpufeatures`, `crc`, `crc-catalog`, `crc32fast`, `crossbeam-deque`, `crossbeam-epoch`, `crossbeam-utils`, `directories`, `dirs-next`, `dirs-sys`, `dirs-sys-next`, `displaydoc`, `document-features`, `either`, `errno`, `fdeflate`, `field-offset`, `find-msvc-tools`, `fixedbitset`, `flate2`, `futures-channel`, `futures-core`, `futures-executor`, `futures-io`, `futures-macro`, `futures-task`, `futures-util`, `getrandom`, `glob`, `glslang`, `glslang-sys`, `gpu-allocator`, `half`, `hashbrown`, `heck`, `http`, `httparse`, `image`, `itoa`, `jni-sys`, `jni-sys-macros`, `jobserver`, `js-sys`, `libc`, `litrs`, `lock_api`, `log`, `mitsuami`, `mitsuami-appkit`, `mitsuami-core`, `mitsuami-gtk`, `mitsuami-linux`, `mitsuami-macros`, `mitsuami-reactive`, `mitsuami-widgets`, `mitsuami-winui`, `naga`, `naga-types`, `ndk-sys`, `num-derive`, `num-traits`, `once_cell`, `parking_lot`, `parking_lot_core`, `percent-encoding`, `petgraph`, `pkg-config`, `png`, `presser`, `proc-macro-crate`, `proc-macro2`, `profiling`, `quote`, `rand`, `rand_core`, `range-alloc`, `raw-window-metal`, `rayon`, `rayon-core`, `regex`, `regex-automata`, `regex-syntax`, `renderdoc-sys`, `rustc_version`, `rustls-pki-types`, `rustversion`, `scopeguard`, `semver`, `serde`, `serde_core`, `serde_derive`, `serde_json`, `serde_spanned`, `shlex`, `simdutf8`, `smallvec`, `spirv-cross-sys`, `spirv-cross2`, `spirv-cross2-derive`, `static_assertions`, `syn`, `system-deps`, `tar`, `thiserror`, `thiserror-impl`, `toml`, `toml_datetime`, `toml_edit`, `toml_parser`, `toml_writer`, `unic-langid`, `unic-langid-impl`, `unicode-segmentation`, `unicode-width`, `unty`, `ureq`, `ureq-proto`, `utf8-zero`, `wasm-bindgen`, `wasm-bindgen-futures`, `wasm-bindgen-macro`, `wasm-bindgen-macro-support`, `wasm-bindgen-shared`, `web-sys`, `wgpu`, `wgpu-core`, `wgpu-core-deps-apple`, `wgpu-core-deps-emscripten`, `wgpu-core-deps-windows-linux-android`, `wgpu-hal`, `wgpu-naga-bridge`, `wgpu-types`, `windows`, `windows-collections`, `windows-core`, `windows-future`, `windows-implement`, `windows-interface`, `windows-link`, `windows-numerics`, `windows-reference`, `windows-result`, `windows-strings`, `windows-sys`, `windows-targets`, `windows-threading`, `windows-time`, `windows_aarch64_gnullvm`, `windows_aarch64_msvc`, `windows_i686_gnu`, `windows_i686_gnullvm`, `windows_i686_msvc`, `windows_x86_64_gnu`, `windows_x86_64_gnullvm`, `windows_x86_64_msvc`, `x11rb`, `x11rb-protocol`, `xattr`
-
-**MIT** (63): `array-concat`, `bincode`, `bincode_derive`, `block2`, `bytes`, `cairo-rs`, `cairo-sys-rs`, `cfg_aliases`, `crunchy`, `data-encoding`, `dlib`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `gdk4`, `gdk4-sys`, `gio`, `gio-sys`, `glib`, `glib-macros`, `glib-sys`, `gobject-sys`, `graphene-rs`, `graphene-sys`, `gsk4`, `gsk4-sys`, `gtk4`, `gtk4-macros`, `gtk4-sys`, `libadwaita`, `libadwaita-sys`, `libm`, `libredox`, `memoffset`, `nom`, `nom_locate`, `objc2`, `objc2-encode`, `objc2-foundation`, `ordered-float`, `pango`, `pango-sys`, `platform-dirs`, `quick-xml`, `redox_syscall`, `redox_users`, `simd-adler32`, `slab`, `strumbra`, `taffy`, `tokio`, `unsigned-varint`, `vec_extract_if_polyfill`, `version-compare`, `virtue`, `wayland-backend`, `wayland-client`, `wayland-protocols`, `wayland-scanner`, `wayland-sys`, `winnow`, `xml-rs`, `zigzag`, `zmij`
+**MIT** (55): `array-concat`, `bincode`, `bincode_derive`, `block2`, `bytes`, `cairo-rs`, `cairo-sys-rs`, `data-encoding`, `dlib`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `gdk4`, `gdk4-sys`, `gio`, `gio-sys`, `glib`, `glib-macros`, `glib-sys`, `gobject-sys`, `graphene-rs`, `graphene-sys`, `gsk4`, `gsk4-sys`, `gtk4`, `gtk4-macros`, `gtk4-sys`, `libadwaita`, `libadwaita-sys`, `libm`, `memoffset`, `nom`, `nom_locate`, `objc2`, `objc2-encode`, `objc2-foundation`, `ordered-float`, `pango`, `pango-sys`, `platform-dirs`, `quick-xml`, `simd-adler32`, `slab`, `strumbra`, `taffy`, `unsigned-varint`, `vec_extract_if_polyfill`, `virtue`, `wayland-backend`, `wayland-client`, `wayland-protocols`, `wayland-scanner`, `wayland-sys`, `winnow`, `zigzag`, `zmij`
 
 **Zlib OR Apache-2.0 OR MIT** (17): `bytemuck`, `bytemuck_derive`, `dispatch2`, `objc2-app-kit`, `objc2-cloud-kit`, `objc2-core-data`, `objc2-core-foundation`, `objc2-core-graphics`, `objc2-core-image`, `objc2-core-text`, `objc2-core-video`, `objc2-game-controller`, `objc2-io-surface`, `objc2-metal`, `objc2-quartz-core`, `objc2-quick-look-thumbnailing`, `objc2-uniform-type-identifiers`
 
-**Apache-2.0 OR MIT** (15): `autocfg`, `bit-set`, `bit-vec`, `equivalent`, `fluent-bundle`, `fluent-langneg`, `fluent-syntax`, `indexmap`, `intl-memoizer`, `multiversion_no_op`, `pin-project-lite`, `portable-atomic`, `portable-atomic-util`, `rustc-hash`, `zeroize`
+**Apache-2.0 OR MIT** (12): `bit-set`, `bit-vec`, `equivalent`, `fluent-bundle`, `fluent-langneg`, `fluent-syntax`, `indexmap`, `intl-memoizer`, `multiversion_no_op`, `pin-project-lite`, `rustc-hash`, `zeroize`
 
-**MIT/Apache-2.0** (12): `core_detect`, `downcast-rs`, `filetime`, `fs2`, `khronos-egl`, `linked-hash-map`, `scoped-tls`, `type-map`, `version_check`, `winapi`, `winapi-i686-pc-windows-gnu`, `winapi-x86_64-pc-windows-gnu`
+**MIT/Apache-2.0** (9): `core_detect`, `downcast-rs`, `filetime`, `fs2`, `khronos-egl`, `linked-hash-map`, `scoped-tls`, `type-map`, `winapi`
 
 **MPL-2.0 OR GPL-3.0-only** (9): `librashader`, `librashader-cache`, `librashader-common`, `librashader-pack`, `librashader-preprocess`, `librashader-presets`, `librashader-reflect`, `librashader-runtime`, `librashader-runtime-wgpu`
 
-**Apache-2.0** (7): `codespan-reporting`, `gethostname`, `gl_generator`, `glutin_wgl_sys`, `khronos_api`, `rspirv`, `spirv`
+**Apache-2.0** (5): `codespan-reporting`, `gethostname`, `glutin_wgl_sys`, `rspirv`, `spirv`
 
 **Apache-2.0/MIT** (5): `bytecount`, `halfbrown`, `intl_pluralrules`, `pollster`, `rustc-hash`
 
@@ -204,13 +267,13 @@ For how those interact with the player's GPL-2.0-only status, see
 
 **MIT OR Apache-2.0 OR Zlib** (4): `glow`, `raw-window-handle`, `zune-core`, `zune-jpeg`
 
-**Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT** (3): `linux-raw-sys`, `rustix`, `wasi`
-
 **ISC** (3): `libloading`, `rustls-webpki`, `untrusted`
 
 **Unicode-3.0** (3): `tinystr`, `zerofrom`, `zerovec`
 
 **Zlib** (3): `foldhash`, `slotmap`, `zlib-rs`
+
+**Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT** (2): `linux-raw-sys`, `rustix`
 
 **BSD-2-Clause OR Apache-2.0 OR MIT** (2): `zerocopy`, `zerocopy-derive`
 
@@ -230,8 +293,6 @@ For how those interact with the player's GPL-2.0-only status, see
 
 **Apache-2.0 OR ISC OR MIT** (1): `rustls`
 
-**Apache-2.0 WITH LLVM-exception** (1): `target-lexicon`
-
 **BSD-3-Clause** (1): `subtle`
 
 **CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception** (1): `blake3`
@@ -240,9 +301,70 @@ For how those interact with the player's GPL-2.0-only status, see
 
 **CDLA-Permissive-2.0** (1): `webpki-roots`
 
-**MIT OR Apache-2.0 OR LGPL-2.1-or-later** (1): `r-efi`
+**MIT OR Zlib OR Apache-2.0** (1): `miniz_oxide`
+
+**MPL-2.0+** (1): `smartstring`
+
+### `player-mitsuami`, the player: 313 third-party crates
+
+**MIT OR Apache-2.0** (147): `aes`, `allocator-api2`, `arboard`, `arc-swap`, `arrayvec`, `as-raw-xcb-connection`, `ash`, `bitflags`, `block-buffer`, `cfg-if`, `chacha20`, `cipher`, `cmac`, `cpufeatures`, `crc`, `crc-catalog`, `crc32fast`, `crossbeam-deque`, `crossbeam-epoch`, `crossbeam-utils`, `crypto-common`, `dasp_sample`, `dbl`, `digest`, `directories`, `dirs-next`, `dirs-sys`, `dirs-sys-next`, `displaydoc`, `document-features`, `either`, `errno`, `fdeflate`, `field-offset`, `fixedbitset`, `flate2`, `futures-channel`, `futures-core`, `futures-executor`, `futures-io`, `futures-macro`, `futures-task`, `futures-util`, `getrandom`, `glslang`, `glslang-sys`, `gpu-allocator`, `half`, `hashbrown`, `heck`, `hmac`, `image`, `inout`, `itoa`, `libc`, `litrs`, `lock_api`, `log`, `md-5`, `md4`, `mitsuami`, `mitsuami-appkit`, `mitsuami-core`, `mitsuami-gtk`, `mitsuami-kirigami`, `mitsuami-linux`, `mitsuami-macros`, `mitsuami-reactive`, `mitsuami-widgets`, `mitsuami-winui`, `naga`, `naga-types`, `num-derive`, `num-traits`, `once_cell`, `parking_lot`, `parking_lot_core`, `percent-encoding`, `petgraph`, `png`, `presser`, `proc-macro-crate`, `proc-macro2`, `profiling`, `quote`, `rand`, `rand_core`, `range-alloc`, `raw-window-metal`, `rayon`, `rayon-core`, `regex`, `regex-automata`, `regex-syntax`, `renderdoc-sys`, `rustversion`, `scopeguard`, `serde`, `serde_core`, `serde_derive`, `serde_json`, `sha2`, `simdutf8`, `smallvec`, `spirv-cross-sys`, `spirv-cross2`, `spirv-cross2-derive`, `static_assertions`, `syn`, `thiserror`, `thiserror-impl`, `toml_datetime`, `toml_edit`, `toml_parser`, `typenum`, `unic-langid`, `unic-langid-impl`, `unicode-segmentation`, `unicode-width`, `unty`, `wgpu`, `wgpu-core`, `wgpu-core-deps-apple`, `wgpu-core-deps-windows-linux-android`, `wgpu-hal`, `wgpu-naga-bridge`, `wgpu-types`, `windows`, `windows-collections`, `windows-core`, `windows-future`, `windows-implement`, `windows-interface`, `windows-link`, `windows-numerics`, `windows-reference`, `windows-result`, `windows-strings`, `windows-sys`, `windows-targets`, `windows-threading`, `windows-time`, `windows_x86_64_gnu`, `windows_x86_64_msvc`, `wl-clipboard-rs`, `x11rb`, `x11rb-protocol`
+
+**MIT** (61): `alsa-sys`, `array-concat`, `bincode`, `bincode_derive`, `block2`, `cairo-rs`, `cairo-sys-rs`, `data-encoding`, `dlib`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `gdk4`, `gdk4-sys`, `generic-array`, `gio`, `gio-sys`, `glib`, `glib-macros`, `glib-sys`, `gobject-sys`, `graphene-rs`, `graphene-sys`, `gsk4`, `gsk4-sys`, `gtk4`, `gtk4-macros`, `gtk4-sys`, `libadwaita`, `libadwaita-sys`, `libm`, `libudev-sys`, `memoffset`, `nix`, `nom`, `nom_locate`, `objc2`, `objc2-encode`, `objc2-foundation`, `ordered-float`, `os_pipe`, `pango`, `pango-sys`, `platform-dirs`, `quick-xml`, `simd-adler32`, `slab`, `strumbra`, `taffy`, `tree_magic_mini`, `unsigned-varint`, `vec_extract_if_polyfill`, `virtue`, `wayland-backend`, `wayland-client`, `wayland-protocols`, `wayland-protocols-wlr`, `wayland-scanner`, `wayland-sys`, `winnow`, `zigzag`, `zmij`
+
+**Zlib OR Apache-2.0 OR MIT** (21): `bytemuck`, `bytemuck_derive`, `dispatch2`, `objc2-app-kit`, `objc2-audio-toolbox`, `objc2-cloud-kit`, `objc2-core-audio`, `objc2-core-audio-types`, `objc2-core-data`, `objc2-core-foundation`, `objc2-core-graphics`, `objc2-core-image`, `objc2-core-text`, `objc2-core-video`, `objc2-game-controller`, `objc2-io-kit`, `objc2-io-surface`, `objc2-metal`, `objc2-quartz-core`, `objc2-quick-look-thumbnailing`, `objc2-uniform-type-identifiers`
+
+**Apache-2.0 OR MIT** (12): `bit-set`, `bit-vec`, `equivalent`, `fluent-bundle`, `fluent-langneg`, `fluent-syntax`, `indexmap`, `intl-memoizer`, `multiversion_no_op`, `pin-project-lite`, `rustc-hash`, `uuid`
+
+**MIT/Apache-2.0** (11): `core_detect`, `coreaudio-rs`, `downcast-rs`, `filetime`, `fs2`, `khronos-egl`, `linked-hash-map`, `scoped-tls`, `type-map`, `vec_map`, `winapi`
+
+**MPL-2.0 OR GPL-3.0-only** (9): `librashader`, `librashader-cache`, `librashader-common`, `librashader-pack`, `librashader-preprocess`, `librashader-presets`, `librashader-reflect`, `librashader-runtime`, `librashader-runtime-wgpu`
+
+**Apache-2.0/MIT** (8): `alsa`, `bytecount`, `gilrs`, `gilrs-core`, `halfbrown`, `intl_pluralrules`, `pollster`, `rustc-hash`
+
+**Apache-2.0** (6): `codespan-reporting`, `cpal`, `gethostname`, `glutin_wgl_sys`, `rspirv`, `spirv`
+
+**Unlicense OR MIT** (5): `aho-corasick`, `byteorder-lite`, `memchr`, `termcolor`, `winapi-util`
+
+**MIT OR Apache-2.0 OR Zlib** (4): `glow`, `raw-window-handle`, `zune-core`, `zune-jpeg`
+
+**ISC** (3): `inotify`, `inotify-sys`, `libloading`
+
+**Unicode-3.0** (3): `tinystr`, `zerofrom`, `zerovec`
+
+**Zlib** (3): `foldhash`, `slotmap`, `zlib-rs`
+
+**Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT** (2): `linux-raw-sys`, `rustix`
+
+**BSD-2-Clause OR Apache-2.0 OR MIT** (2): `zerocopy`, `zerocopy-derive`
+
+**BSD-3-Clause OR Apache-2.0** (2): `moxcms`, `pxfm`
+
+**BSL-1.0** (2): `clipboard-win`, `error-code`
+
+**MPL-2.0** (2): `option-ext`, `persy`
+
+**(Apache-2.0 OR MIT) AND BSD-3-Clause** (1): `encoding_rs`
+
+**(MIT OR Apache-2.0) AND Unicode-3.0** (1): `unicode-ident`
+
+**0BSD OR MIT OR Apache-2.0** (1): `adler2`
+
+**Apache-2.0 / MIT** (1): `fnv`
+
+**Apache-2.0 OR GPL-2.0-only** (1): `self_cell`
+
+**BSD-2-Clause OR MIT OR Apache-2.0** (1): `mach2`
+
+**BSD-3-Clause** (1): `subtle`
+
+**CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception** (1): `blake3`
+
+**CC0-1.0 OR MIT-0 OR Apache-2.0** (1): `constant_time_eq`
 
 **MIT OR Zlib OR Apache-2.0** (1): `miniz_oxide`
 
 **MPL-2.0+** (1): `smartstring`
 
+### `guest-agent`, on Windows 11's drivers disc: 3 third-party crates
+
+**MIT OR Apache-2.0** (3): `windows-sys`, `windows-targets`, `windows_x86_64_gnu`

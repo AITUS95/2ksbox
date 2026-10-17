@@ -6,16 +6,19 @@
 # what this file is (every crate + its .cargo-checksum.json + the cargo
 # config that redirects crates-io at the vendor directory).
 #
-# Three lock files, one vendor directory. `launcher-mitsuami/` and
+# Four lock files, one vendor directory. `launcher-mitsuami/` and
 # `player-mitsuami/` are each their own cargo workspace (ADR-023,
 # ADR-025) and the launcher and player the Flatpak installs, so their
 # crates are declared too, mitsuami among them (a crates.io release since
-# 2026-10-16, ADR-023). The generator takes one lock file at a time, so it
-# runs once per lock and the results are merged on their `dest`. They
+# 2026-10-16, ADR-023). `guest-agent/` is the agent on Windows 11's
+# drivers disc: the disc is made on the host, but the package's licence
+# texts (tools/third-party-notices.py stage) include its crates' own.
+# The generator takes one lock file at a time, so it runs once per lock
+# and the results are merged on their `dest`. They
 # share most crates at identical versions, and one `cargo/config` covers
 # all because `CARGO_HOME` is the same for every build.
 #
-# Run it after any dependency change in either workspace, and commit the
+# Run it after any dependency change in any of them, and commit the
 # result:
 #   scripts/gen-flatpak-cargo-sources.sh
 #
@@ -45,7 +48,7 @@ if ! [ -f "$TOOL" ] || ! hash_ok; then
     rm -f "$TOOL"; exit 1; }
 fi
 
-LOCKS=(Cargo.lock launcher-mitsuami/Cargo.lock player-mitsuami/Cargo.lock)
+LOCKS=(Cargo.lock launcher-mitsuami/Cargo.lock player-mitsuami/Cargo.lock guest-agent/Cargo.lock)
 PARTS=()
 for lock in "${LOCKS[@]}"; do
   part="$ROOT/build/flatpak-tools/$(echo "$lock" | tr / -).json"

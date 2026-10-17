@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- The App Store build's launcher (scripts/package-macos.sh
-       --app-store, docs/build-macos.md "The App Store package"). The
+  <!-- The App Store build's launcher (package-macos.sh's App Store
+       build, docs/build-macos.md "The App Store package"). The
        store takes only sandboxed apps; the players and qemu-img it starts
        inherit this sandbox (app-store-*.entitlements). @APP_ID@ and
        @TEAM@ come from the provisioning profile and must match it. -->

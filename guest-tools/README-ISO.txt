@@ -126,8 +126,9 @@ VOODOO2\  V2START.EXE, for Windows 98/Me with the emulated Voodoo 2 and
           games" until it has finished. C:\WINDOWS\V2START.LOG says what
           happened at the last login.
 
-DOSMODE\  UIDE.SYS, FreeDOS's CD/DVD driver (public domain), for Windows
-          98/Me's MS-DOS mode, which has no CD-ROM drive and no BLASTER
+DOSMODE\  UIDE.SYS, FreeDOS's CD/DVD driver, and UIDE.ASM, its source
+          (its terms are "free with sources"). For Windows 98/Me's
+          MS-DOS mode, which has no CD-ROM drive and no BLASTER
           variable of its own. SETUP's MS-DOS mode component (off by
           default; pick it from the menu or SETUP /I 7) copies the driver
           to C:\2KSBOX and writes "2ksbox MS-DOS mode.pif" on the desktop,

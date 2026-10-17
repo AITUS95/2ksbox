@@ -163,6 +163,11 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             // The About window's words and credits (`about.rs`).
             print!("{}", crate::about::text());
         }
+        "--licenses" => {
+            // The Licences window's entries and the file or folder each
+            // shows (`licenses.rs`): which texts this build carries.
+            print!("{}", crate::licenses::list_text());
+        }
         "--paths" => {
             // Every companion a launcher would reach for, and where it
             // found it (`paths.rs`). `scripts/package-linux.sh` checks a

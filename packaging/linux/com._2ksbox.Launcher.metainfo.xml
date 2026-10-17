@@ -23,7 +23,8 @@
       2ksbox runs Windows 98, Windows XP and DOS the way the machines of
       the era did. Period 3D games run accelerated on your GPU, the
       picture goes through a CRT shader, and the CD-ROM drive runs raw
-      dumps of the discs you own, copy protection included.
+      dumps of the discs you own, copy protection included. It also runs
+      Windows 7 for its Aero desktop, and Windows 11.
     </p>
     <p>
       The launcher keeps a library of machines and creates each one from
@@ -48,6 +49,7 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.0" date="2026-10-16"/>
     <release version="0.0.1" date="2026-09-05"/>
   </releases>
 </component>

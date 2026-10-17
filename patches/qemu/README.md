@@ -1145,7 +1145,7 @@ Windows 11 test machine (`D:\vms\win11-test`, track M25), `LOAD\anim.ps1`
 maximized at 1600x1200 on the WDDM driver from before the NOOVERWRITE
 change (a submission and a fence interrupt per DWM draw): a TDR within
 30-40 s in three runs of three without the patch, none in three runs of
-180 s with it.
+180 s with it. Backported to main on 2026-10-17 ahead of M25.
 **Drop:** upstream locks it.
 
 ## Dropped in M21

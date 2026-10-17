@@ -165,6 +165,21 @@ MSIX="$OUT/$NAME.msix"
 # pile of older ones would otherwise build up and the sideload script's
 # "newest" would be a matter of timestamps.
 rm -f "$OUT"/2ksbox-*-windows-x64*.msix
+# The resource index: the qualified logos (the taskbar's unplated
+# Square44x44Logo.targetsize-*, gen-icons.sh) are found only through a
+# resources.pri, and without them Windows plates the taskbar icon in the
+# accent colour. Indexed from a copy holding just the manifest and
+# Assets/, so the PRI names those files and not the whole tree.
+MAKEPRI=${MAKEPRI:-$(sdk_tool makepri)}
+[ -n "$MAKEPRI" ] || { echo "package-msix.sh: no makepri.exe (the Windows SDK's; MAKEPRI=)" >&2; exit 1; }
+pri=$(mktemp -d); trap 'rm -rf "$pri"' EXIT
+mkdir -p "$pri/root"
+cp -r "$LAYOUT/Assets" "$LAYOUT/AppxManifest.xml" "$pri/root/"
+{ "$MAKEPRI" createconfig /cf "$(wpath "$pri/priconfig.xml")" /dq en-US /pv 10.0.0 /o \
+  && "$MAKEPRI" new /pr "$(wpath "$pri/root")" /cf "$(wpath "$pri/priconfig.xml")" \
+       /mn "$(wpath "$pri/root/AppxManifest.xml")" /of "$(wpath "$LAYOUT/resources.pri")" /o; } \
+  > "$OUT/makepri.log" 2>&1 \
+  || { cat "$OUT/makepri.log" >&2; echo "package-msix.sh: makepri failed (see above)" >&2; exit 1; }
 "$MAKEAPPX" pack /o /d "$(wpath "$LAYOUT")" /p "$(wpath "$MSIX")" > "$OUT/makeappx.log" 2>&1 \
   || { cat "$OUT/makeappx.log" >&2; echo "package-msix.sh: makeappx failed (see above)" >&2; exit 1; }
 [ -s "$MSIX" ] || { echo "package-msix.sh: makeappx wrote no package" >&2; exit 1; }

@@ -543,7 +543,7 @@ cpus_check() { # the processor count: XP and 7 under hardware virtualization, Wi
   edit() { local b=$1 accel=$2 cpus=$3; $LAUNCHERX --wizard-edit "$b" - - "$accel" - - - - - - - - - - - "$cpus" >/dev/null 2>&1; }
   smp() { $LAUNCHERX --print-args "$1" | grep -o -- '-smp [0-9]*' | cut -d' ' -f2; }
   # The host's own count is the ceiling.
-  n=$(( $(nproc) < 4 ? $(nproc) : 4 ))
+  n=$(getconf _NPROCESSORS_ONLN); n=$(( n < 4 ? n : 4 ))
   xp="$($LAUNCHERX --new xp XP "$dir/disk.qcow2")" || { echo "--new xp failed"; return 1; }
   [ -z "$(smp "$xp")" ] || { echo "a new XP machine has -smp $(smp "$xp")"; rc=1; }
   edit "$xp" kvm 4 || { echo "--wizard-edit kvm 4 failed"; return 1; }
@@ -945,6 +945,10 @@ mitsuami_check() ( # the launcher's window, driven through its probes (doc 07, t
   # About, with the credits.
   o="$(probe about about)"
   [ -s "$dir/about.png" ] || { echo "About drew nothing: $o"; rc=1; }
+  # The Licences window, from About's button (a checkout lists 2ksbox's
+  # own licence and the notices; a package, its licenses/ too).
+  o="$(probe licenses licenses)"
+  [ -s "$dir/licenses.png" ] || { echo "Licences drew nothing: $o"; rc=1; }
 
   if [ -n "$broadway" ]; then kill "$broadway" 2>/dev/null; wait "$broadway" 2>/dev/null; fi
   return $rc

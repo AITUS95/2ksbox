@@ -49,7 +49,8 @@
 #   share/2ksbox/shaders/             presets, with --with-shaders
 #   share/2ksbox/desktop/             .desktop + AppStream, for install.sh
 #   share/icons/hicolor/<n>x<n>/apps/ the application icon, at every size
-#   share/doc/2ksbox/                 COPYING, notices, README
+#   share/doc/2ksbox/                 COPYING, notices, README, and
+#                                     licenses/, the texts the notices name
 #   install.sh                        copy the above into a prefix
 #
 # `2ksbox` is the product (2ksbox.com); `com._2ksbox.Launcher` is the
@@ -184,13 +185,22 @@ install -m644 packaging/linux/com._2ksbox.Launcher.metainfo.xml "$STAGE/share/2k
 # `share/icons/hicolor/<n>x<n>/apps/<app id>.png`, where a desktop looks
 # for it. `install.sh` copies `share/` wholesale, so the same tree works
 # for a distro package unpacked into /usr and for a prefix install. Every
-# size `scripts/gen-icons.sh` writes ships.
+# size `scripts/gen-icons.sh` writes ships up to 512: the 1024 is the App
+# Store's, hicolor stops at 512, and a Flatpak export refuses a larger
+# icon ("Image too large").
 for icon in packaging/icon/2ksbox-*.png; do
   size=${icon##*-}; size=${size%.png}
+  [ "$size" -le 512 ] || continue
   install -Dm644 "$icon" "$STAGE/share/icons/hicolor/${size}x${size}/apps/com._2ksbox.Launcher.png"
 done
 install -m755 packaging/linux/install.sh "$STAGE/install.sh"
 install -m644 COPYING THIRD-PARTY-NOTICES.md README.md "$STAGE/share/doc/2ksbox/"
+# The licence texts THIRD-PARTY-NOTICES.md points at, from the source tree
+# and the libraries' unpacked sources, and every shipped crate's own. It
+# fails, naming the file, when one is missing.
+lic=(--host linux --arch "$(uname -m)")
+[ ! -f "$drivers" ] || lic+=(--drivers)
+python3 tools/third-party-notices.py stage "$STAGE/share/doc/2ksbox/licenses" "${lic[@]}"
 
 # --- the check -------------------------------------------------------
 # GTK 4 is the one thing this package does not carry, so a user would

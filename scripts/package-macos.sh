@@ -24,6 +24,10 @@
 #                                                 # a .pkg signed as Mac Installer Distribution
 #                                                 # (--installer-identity NAME) instead of a
 #                                                 # notarized DMG. Into build/macos-app-store
+#   scripts/package-macos.sh --build N            # the Nth upload of this version (default 0):
+#                                                 # CFBundleVersion is A.B.(C*100+N), since App
+#                                                 # Store Connect never takes one twice, and
+#                                                 # CFBundleShortVersionString stays A.B.C
 #   scripts/package-macos.sh --x86_64             # on an Apple Silicon Mac: the Intel app, from
 #                                                 # scripts/build.sh --x86_64 (build/x86_64,
 #                                                 # build/deps/x86_64, target/x86_64-apple-darwin)
@@ -73,7 +77,7 @@ cd "$ROOT"
 [ "$(uname -s)" = Darwin ] || { echo "package-macos.sh: macOS only" >&2; exit 1; }
 
 BUILD=1 SIGN=1 NOTARIZE=1 DMG=1 OUT=""
-COMMUNITY=0 X86_64="" APP_STORE=0 PROVISION="" INSTALLER_IDENTITY=""
+COMMUNITY=0 X86_64="" APP_STORE=0 PROVISION="" INSTALLER_IDENTITY="" BUILD_NO=0
 IDENTITY="" PROFILE="2ksbox-notary"
 # The team that signs: David Rios Gomes Ltda, the company that owns the
 # name (TRADEMARKS.md). A keychain may hold other teams' identities too
@@ -95,6 +99,7 @@ while [ $# -gt 0 ]; do
     --app-store) APP_STORE=1; shift ;;
     --provision) PROVISION=$2; shift 2 ;;
     --installer-identity) INSTALLER_IDENTITY=$2; shift 2 ;;
+    --build) BUILD_NO=$2; shift 2 ;;
     -h|--help) sed -n '2,/^set /{/^#/p;}' "$0"; exit 0 ;;
     *) echo "package-macos.sh: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -144,6 +149,16 @@ case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
 echo "arch           $ARCH${ROSETTA:+ (under Rosetta: the Intel app, from $QB and $TD)}$([ "$COMMUNITY" = 1 ] && echo ", the community build")"
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+# The build number App Store Connect sees. Each upload needs one it has
+# never seen, across versions too, so a re-upload of A.B.C is
+# A.B.(C*100+N): 1.0.0, then 1.0.1 for its second upload, and 1.0.100
+# for version 1.0.1's first, always higher than the last.
+case "$BUILD_NO" in
+  [0-9]|[1-9][0-9]) ;;
+  *) echo "package-macos.sh: --build takes 0 to 99, not $BUILD_NO" >&2; exit 2 ;;
+esac
+IFS=. read -r v_major v_minor v_patch <<< "$VERSION"
+BUNDLE_VERSION="$v_major.$v_minor.$((v_patch * 100 + BUILD_NO))"
 APP="$OUT/2ksbox.app"
 C="$APP/Contents"
 
@@ -285,6 +300,14 @@ JSON
     warn "no ~/VulkanSDK/*/macOS/lib/libvulkan_kosmickrisp.dylib; the app will carry no Vulkan driver and Direct3D will be off on a machine without one"
   fi
 fi
+
+# The licence texts THIRD-PARTY-NOTICES.md points at, for what this app
+# carries (the drivers disc, the Vulkan pair), and every shipped crate's
+# own. It fails, naming the file, when one is missing.
+lic=(--host macos --arch "$ARCH")
+[ -z "$W11" ] || lic+=(--drivers)
+[ ! -f "$C/lib/2ksbox/libvulkan_kosmickrisp.dylib" ] || lic+=(--vulkan)
+python3 tools/third-party-notices.py stage "$C/share/doc/2ksbox/licenses" "${lic[@]}"
 
 # --- the dylib closure ------------------------------------------------
 # Everything outside /usr/lib and /System (Homebrew's glib/pixman/zstd...)
@@ -435,7 +458,7 @@ minos=${minos:-$FLOOR}
 # side. Neither may ever change once shipped.
 BUNDLE_ID=com.2ksbox.2ksbox
 [ "$COMMUNITY" = 1 ] && BUNDLE_ID=com.2ksbox.2ksbox-community
-write_plist() { sed -e "s/@VERSION@/$VERSION/" -e "s/@MINOS@/$1/" \
+write_plist() { sed -e "s/@VERSION@/$VERSION/" -e "s/@BUNDLE_VERSION@/$BUNDLE_VERSION/" -e "s/@MINOS@/$1/" \
   -e "s/@BUNDLE_ID@/$BUNDLE_ID/" packaging/macos/Info.plist.in > "$C/Info.plist"; }
 # The App Store build never gets a pre-26 version (ADR-019), whatever
 # its files would run on.
@@ -710,6 +733,11 @@ if [ "$APP_STORE" = 1 ]; then
     || { echo "package-macos.sh: $PROVISION lists devices: a development profile, not a Mac App Store one" >&2; exit 1; }
   echo "profile        $(pb Name) ($APP_ID, expires $(pb ExpirationDate))"
   cp "$PROVISION" "$C/embedded.provisionprofile"
+  # codesign's parser (AMFI) is stricter than plutil: it refuses a "--"
+  # inside a comment, which plutil -lint passes. xmllint refuses it too.
+  for f in packaging/macos/*.entitlements; do
+    xmllint --noout "$f" || { echo "package-macos.sh: $f is not well-formed XML; codesign will refuse it" >&2; exit 1; }
+  done
   launcher_ents=$(mktemp)
   sed -e "s/@APP_ID@/$APP_ID/" -e "s/@TEAM@/$TEAM/" packaging/macos/app-store.entitlements > "$launcher_ents"
   pick() { security find-identity -v -p "$1" | sed -n "s/.*\"\($2: .*($TEAM)\)\"/\1/p" | head -1; }
@@ -726,7 +754,9 @@ fi
 signing_entitlements() {
   if [ "$APP_STORE" = 0 ]; then entitlements_of "$1"; return; fi
   case "$1" in
-    "$C"/MacOS/2ksbox) echo "$launcher_ents" ;;
+    # The bundle's signature is its main executable's: signing the .app
+    # without them strips the launcher's sandbox and App ID again.
+    "$C"/MacOS/2ksbox|"$APP") echo "$launcher_ents" ;;
     */MacOS/2ksbox-player-aarch64) echo packaging/macos/app-store-hypervisor.entitlements ;;
     */MacOS/2ksbox-player) echo packaging/macos/app-store-player.entitlements ;;
     */libexec/2ksbox/qemu-img) echo packaging/macos/app-store-helper.entitlements ;;
@@ -819,7 +849,7 @@ if [ "$APP_STORE" = 1 ]; then
   productbuild --component "$APP" /Applications --sign "$INSTALLER_IDENTITY" "$pkg"
   pkgutil --check-signature "$pkg" | sed 's/^/  /'
   du -h "$pkg" | sed 's/^/package /'
-  echo "upload it with Transporter (or xcrun altool --upload-package); CFBundleVersion $VERSION must be new to App Store Connect"
+  echo "upload it with Transporter (or xcrun altool --upload-package); CFBundleVersion $BUNDLE_VERSION must be new to App Store Connect (--build N for a re-upload)"
 fi
 
 # --- notarize ---------------------------------------------------------

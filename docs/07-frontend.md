@@ -74,7 +74,13 @@ player line runs a machine with nothing else.
   the projects 2ksbox is built on, grouped by what they do for it, each
   a link with its licence. The list is `launcher_core::about` (the
   projects the app runs or ships, plus Wine; a library one of them pulls
-  in is theirs to credit), and `launcherx --about` prints it. mitsuami
+  in is theirs to credit), and `launcherx --about` prints it. Its
+  source link is this version's tag (`about::SOURCE_URL`), the source
+  behind a store build. Its Licences button (2026-10-17, user) opens a
+  window that lists 2ksbox's own licence, the third-party notices and
+  every text in the package's `licenses/` (texts, components, crates),
+  the selected one's text read-only beside the list
+  (`launcher_core::licenses`, `launcherx --licenses`). mitsuami
   (`launcher-mitsuami/src/about.rs`) opens it from an info icon at the end of
   the toolbar on Kirigami; elsewhere it is Help's About item (macOS's
   application menu, GTK's primary menu, Windows' title-bar menu bar): the
@@ -877,7 +883,7 @@ checkout it was built from (`target/`, `build/qemu`, `qemu/pc-bios`,
 <prefix>/share/2ksbox/shaders/                 presets, when a package ships them
 <prefix>/share/2ksbox/desktop/                 .desktop + metainfo, for install.sh
 <prefix>/share/icons/hicolor/<n>x<n>/apps/     the application icon, every size
-<prefix>/share/doc/2ksbox/                     COPYING, notices, README
+<prefix>/share/doc/2ksbox/                     COPYING, notices, README, licenses/
 ```
 
 Three rules hold it together:
@@ -904,15 +910,20 @@ and the 256 px PNG), so under Wayland its `app_id` is
 `com._2ksbox.Launcher`.
 
 **The icon is one master and one generator.** `packaging/icon/
-2ksbox.png` is padded to 512×512, and every size (16–512 PNGs and a
-four-size `.ico`) is a downscale made by `scripts/gen-icons.sh`. All
-are checked in, because nothing that needs one (an offline Flatpak, a
+2ksbox.png` and the Icon Composer document's monitor layer,
+`2ksbox.icon/Assets/monitor.png`, are its two masters, and every size is
+a downscale made by `scripts/gen-icons.sh`. Windows and Linux draw the
+monitor with no teal plate (user, 2026-10-17): the 16–1024 PNGs in
+`packaging/icon/` (Linux's hicolor set and the windows' own picture),
+the `.ico`, the Store logos and the manual's favicon, logo and front-page picture come from the monitor layer. macOS keeps
+the plate: `packaging/icon/macos/`, from `2ksbox.png`, is its `.icns`
+and its windows' picture. All are checked in, because nothing that needs one (an offline Flatpak, a
 build without ImageMagick, `install.sh`) can draw it.
 `gen-icons.sh --check` is the `icons` check. Linux
 installs the set under `share/icons/hicolor/` and writes one absolute
 path into the desktop entry's `Icon=` (a prefix outside `XDG_DATA_DIRS`
-cannot resolve a theme name). macOS builds its `.icns` from the same
-PNGs. On Windows the `.ico` goes *inside* every .exe as a resource, the
+cannot resolve a theme name). macOS builds its `.icns` from its own
+set. On Windows the `.ico` goes *inside* every .exe as a resource, the
 only thing Explorer reads: `packaging/windows/win-icon.rs` is
 `include!`d by the build scripts of `launcher-mitsuami`, `player` and
 `player-mitsuami` (a
