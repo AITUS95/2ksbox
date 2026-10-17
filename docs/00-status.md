@@ -396,10 +396,15 @@ tracks, plus the items no track owns.
     `pit-guest`; `package-linux.sh`). The PC's passed on 2026-10-17
     (`test.sh all`: 64 pass, the known `pit-guest`, 17 skips that need
     Linux, a display, Wine or a Windows 7 disc; `package-windows.sh
-    --msix` with the development identity). Left: the Store MSIX with
-    Partner Center's identity (not yet read off Partner Center) and the
-    certification kit on it, the Air's gate, the App Store package, then
-    the tag, which the user makes on the commit both packages come from.
+    --msix`; the Store MSIX, 1.0.0.0 with Partner Center's identity
+    `RoboportTecnologia.2ksbox`, sideloaded with `-Check` and through the
+    certification kit: `OVERALL_RESULT=PASS`, the two optional FAILs of
+    `build-windows.md`). Its listing, Store ID `9NVNN81VKF05`
+    (<https://apps.microsoft.com/detail/9NVNN81VKF05>), is live once
+    the submission is published; then `README.md` and the manual's
+    `install.mdx` link it. Left: the Microsoft submission, the Air's
+    gate, the App Store package, then the tag, which the user makes on
+    the commit both packages come from.
     The manual's release notes are the stores' *What's New*. Every
     package carries `licenses/` beside THIRD-PARTY-NOTICES.md
     (`tools/third-party-notices.py stage`, which fails on a missing text;
