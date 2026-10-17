@@ -185,9 +185,12 @@ install -m644 packaging/linux/com._2ksbox.Launcher.metainfo.xml "$STAGE/share/2k
 # `share/icons/hicolor/<n>x<n>/apps/<app id>.png`, where a desktop looks
 # for it. `install.sh` copies `share/` wholesale, so the same tree works
 # for a distro package unpacked into /usr and for a prefix install. Every
-# size `scripts/gen-icons.sh` writes ships.
+# size `scripts/gen-icons.sh` writes ships up to 512: the 1024 is the App
+# Store's, hicolor stops at 512, and a Flatpak export refuses a larger
+# icon ("Image too large").
 for icon in packaging/icon/2ksbox-*.png; do
   size=${icon##*-}; size=${size%.png}
+  [ "$size" -le 512 ] || continue
   install -Dm644 "$icon" "$STAGE/share/icons/hicolor/${size}x${size}/apps/com._2ksbox.Launcher.png"
 done
 install -m755 packaging/linux/install.sh "$STAGE/install.sh"

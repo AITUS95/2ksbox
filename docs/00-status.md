@@ -393,7 +393,11 @@ tracks, plus the items no track owns.
     the readback's wait (`tracks/m17-driver-perf.md`, `tools/w98-mp2.sh`).
 12. **Release 1.0.0** (`docs/release.md`, `scripts/release.sh`). The
     Linux gate passed on 2026-10-16 (`test.sh all`: 73 pass, the known
-    `pit-guest`; `package-linux.sh`). The PC's passed on 2026-10-17 from
+    `pit-guest`; `package-linux.sh`) and again on 2026-10-17 from
+    `86057b78`'s icons, `package-flatpak.sh` too (the Wine and KDE
+    add-ons; it had failed since 2026-10-07 on the 1024 icon, which
+    flatpak's export refuses, so Linux packages stop at 512). The PC's
+    passed on 2026-10-17 from
     `86057b78` (`test.sh all`: 65 pass, 0 fail, `pit-guest` included
     this time (an earlier run that day failed it as on Linux), 18 skips
     that need Linux, macOS, a display, Wine, the winetests or a Windows
