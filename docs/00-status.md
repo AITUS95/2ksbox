@@ -397,8 +397,8 @@ tracks, plus the items no track owns.
     `86057b78`'s icons, `package-flatpak.sh` too (the Wine and KDE
     add-ons; it had failed since 2026-10-07 on the 1024 icon, which
     flatpak's export refuses, so Linux packages stop at 512). The PC's
-    passed on 2026-10-17 from `86057b78` and again from `54623171`
-    (`test.sh all`: 65 pass, 0 fail, `pit-guest` included both times
+    passed on 2026-10-17 from `86057b78`, `54623171` and `a5a18ece`
+    (QEMU patch 94) (`test.sh all`: 65 pass, 0 fail, `pit-guest` included each time
     (an earlier run that day failed it as on Linux), 18 skips
     that need Linux, macOS, a display, Wine, the winetests or a Windows
     7 disc; `package-windows.sh --msix`; the Store MSIX, 1.0.0.0 with
