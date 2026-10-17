@@ -1127,6 +1127,27 @@ for a 32-bit operand in 64-bit mode) on a stack as wide as SS says.
 which pushes a word and a dword from VGA text memory; Warcraft III 1.0
 on the PC's XP machine. **Drop:** upstream's emulator implements PUSH.
 
+### 94-whpx-eoi-bql
+WHPX's APIC EOI exit (`WHvRunVpExitReasonX64ApicEoi`, the in-kernel
+LAPIC telling the userspace IOAPIC a level-triggered vector ended) called
+`ioapic_eoi_broadcast()` from the vCPU loop, which runs without the BQL,
+while a device raises its line under the BQL from another vCPU
+(`ioapic_set_irq()`). The EOI clears Remote IRR and then tests `irr`;
+the raise sets `irr` and then tests Remote IRR. Interleaved, neither
+delivers, and a level-triggered line stays high with nothing serviced:
+it never changes level again, so it is lost for good. d3dpt-vga's INTx
+under Windows 11 (track M25), with DWM composing at 60 frames/s and a
+fence interrupt per submission, lost it within a minute of a
+full-window repaint: a TDR with every fence done on the host, the last
+never reported and the device's `IRQ_STATUS` pending, then a restart.
+The exit now takes the BQL around the broadcast. **Test:** the PC's
+Windows 11 test machine (`D:\vms\win11-test`, track M25), `LOAD\anim.ps1`
+maximized at 1600x1200 on the WDDM driver from before the NOOVERWRITE
+change (a submission and a fence interrupt per DWM draw): a TDR within
+30-40 s in three runs of three without the patch, none in three runs of
+180 s with it. Backported to main on 2026-10-17 ahead of M25.
+**Drop:** upstream locks it.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

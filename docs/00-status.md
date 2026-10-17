@@ -674,6 +674,10 @@ to one subsystem lives in its design doc; pointers are at the end.
   instructions KVM's has and steps over them silently. PUSH was one
   (patch 93, 2026-10-12: Warcraft III's gamma ramp, our XP driver's
   `push [regs+0xa00]`, an unbalanced stack, a BSOD).
+- **A level-triggered interrupt lost for good under WHPX** (a TDR with
+  every fence done, the device's IRQ status pending): WHPX's EOI exit
+  broadcast to the IOAPIC without the BQL, racing a device's raise on
+  another vCPU. Patch 94 locks it (track M25, on main since 2026-10-17).
 
 ### Devices and corruption
 

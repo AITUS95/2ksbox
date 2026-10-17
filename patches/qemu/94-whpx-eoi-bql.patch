@@ -1,0 +1,33 @@
+WHPX's APIC EOI exit takes the BQL around ioapic_eoi_broadcast(). The
+vCPU loop runs without the BQL, and a device raises or lowers its line
+(ioapic_set_irq) under it from another vCPU. Unlocked, the EOI's clearing
+of Remote IRR and its test of irr interleave with the raise's setting of
+irr and its test of Remote IRR: neither delivers, and a level-triggered
+line stays high with nothing ever serviced again (it never changes level
+again). d3dpt-vga's INTx under a Windows 11 desktop composing at 60
+frames/s lost its interrupt so within a minute: a TDR with every fence
+done and the last one never reported (track M25). Drop when upstream
+locks it (or takes the EOI exit outside the unlocked loop).
+
+diff --git a/target/i386/whpx/whpx-all.c b/target/i386/whpx/whpx-all.c
+index b3bd765..d22c6eb 100644
+--- a/target/i386/whpx/whpx-all.c
++++ b/target/i386/whpx/whpx-all.c
+@@ -2352,7 +2352,17 @@ int whpx_vcpu_run(CPUState *cpu)
+ 
+         case WHvRunVpExitReasonX64ApicEoi:
+             assert(whpx_irqchip_in_kernel());
++            /*
++             * The loop runs without the BQL, and a device raises its line
++             * (ioapic_set_irq) under it from another vCPU: unlocked, the
++             * EOI's clearing of Remote IRR and its look at irr interleave
++             * with the raise's setting of irr and its look at Remote IRR,
++             * neither delivers, and a level-triggered line stays high
++             * with nothing ever serviced again.
++             */
++            bql_lock();
+             ioapic_eoi_broadcast(vcpu->exit_ctx.ApicEoi.InterruptVector);
++            bql_unlock();
+             break;
+ 
+         case WHvRunVpExitReasonX64Halt:
