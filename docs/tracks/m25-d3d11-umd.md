@@ -315,6 +315,25 @@ the rectangles drawn since the last one (a desktop that changes a little
 changes a little), and the readback's copy done at the flip instead of
 inside the present.
 
+**A game-like scene on Direct3D 10 / 11, 2026-10-17** (user: "create a
+mini game-like scene using directx 10/11 features, same way you did for
+directx 8/9"). `guest-tools/src/d3dgame11.c`, on d3dgame.h's scene: the
+cubes in one instanced draw with a texture array, the wave grid made on
+the GPU and captured by stream output, DrawAuto, geometry-shader
+billboards, GenerateMips, occlusion predicates and an FP16 target
+tonemapped by a fullscreen triangle with no vertex buffer, all at 10_0;
+`-compare N` checks frame N against WARP (docs/testing.md). On this PC's
+RTX 3090 natively: 9 pixels of 307,200 off. In the guest, first run: 351
+off, 342 in one band: **the red marker drew**. DXVK's d3d11 stubs
+`SetPredication` (it keeps the predicate and draws), so the executor now
+waits for a predicate's answer when it is set and skips the predicated
+operations itself (doc 14). Then: 9 off, x64 and the WoW64 32-bit build
+alike, the occlusion counts equal to WARP's (182 and 0); on the desktop
+through either swap chain model (screendumps), 34-37 frames/s windowed at
+640x480 with DISCARD, ~58 with FLIP_SEQUENTIAL. A console window over a
+program's own (a scheduled task's `cmd`) reads as the window missing in
+a screendump: `G11\g11.ps1` runs it under `conhost --headless`.
+
 ## Open
 
 - ~~**A TDR under a full-screen repaint**~~ (fixed by QEMU patch 94) (`LOAD\anim.ps1` maximized at

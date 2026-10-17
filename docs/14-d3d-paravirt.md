@@ -436,7 +436,17 @@ d3d11 where the Direct3D 9 side runs on the system's d3d9.
   `*SetConstantBuffers1`) and `CLEAR_VIEW`. DWM composes through this
   side since then. A view made again under its id (a flip-model swap
   chain's buffers rotated their identities) replaces the old one and is
-  bound again where the old one was.
+  bound again where the old one was. DWM composes here only while the
+  kernel driver claims WDDM 1.2 (track M25).
+- **Predication is the executor's.** DXVK's d3d11 keeps a predicate and
+  does everything anyway (its `SetPredication` is a stub, which the API
+  allows only for a `D3D11_QUERY_MISC_PREDICATEHINT` one), so
+  `SET_PREDICATION` waits for the predicate's answer on the host and,
+  while it equals the value, the executor skips the predicated
+  operations itself: draws, clears, copies, resolves, GenerateMips. Not
+  `RES_UPDATE`, which is the guest's UpdateSubresource and its dynamic
+  resources' maps alike, and a map is never predicated. Found by
+  `d3dgame11 -compare` (its red marker drew).
 
 The token set and its rules are `d3dpt_proto.h`'s; the track doc has
 what was found on the way.

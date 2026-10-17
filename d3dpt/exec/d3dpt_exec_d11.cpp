@@ -33,6 +33,8 @@
 #include <d3d11_1.h>
 #include <dxgi.h>
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -79,6 +81,7 @@ struct D11Ctx {
     ID3DDeviceContextState *state = nullptr;
     std::unordered_map<uint32_t, D11Obj> objs;
     uint32_t rtv[8] = {}, nrtv = 0, dsv = 0;    /* the bound targets (ids), whose resources a draw marks newer */
+    bool pred_skip = false;                     /* the predicate set holds: predicated operations are skipped (SET_PREDICATION) */
     void release() {
         for (auto &kv : objs) if (kv.second.p) kv.second.p->Release();
         objs.clear();
@@ -872,8 +875,42 @@ void blt(Run &r, const d3dpt_d11_blt *b)
     if (r.d.warn(0x61000000u)) r.x.log("d11: a Blt into resource %u, which only Direct3D 9 knows: not done yet", b->dst);
 }
 
+/* a predicate's answer, waited for (it ended before it was set, the API's
+ * rule); false (nothing skipped) if the host never answers */
+bool pred_holds(Run &r, ID3D11Predicate *pr)
+{
+    auto t0 = std::chrono::steady_clock::now();
+    BOOL v = FALSE;
+    for (;;) {
+        HRESULT hr = r.d.ctx->GetData(pr, &v, sizeof(v), 0);
+        if (hr == S_OK) return v != FALSE;
+        if (FAILED(hr) || std::chrono::steady_clock::now() - t0 > std::chrono::seconds(2)) {
+            if (r.d.warn(0x62000000u)) r.x.log("d11: a predicate unanswered (0x%08x): what it guards is done", (unsigned)hr);
+            return false;
+        }
+        std::this_thread::yield();
+    }
+}
+
+/* what predication skips (the API's list: draws, clears, copies, resolves,
+ * GenerateMips). Not RES_UPDATE: the guest's UpdateSubresource and its
+ * dynamic resources' maps (which predication never skips) are the same
+ * record, and the map's bytes must land */
+bool predicated(uint32_t op)
+{
+    switch (op) {
+    case D3DPT_D11_DRAW: case D3DPT_D11_DRAW_INDEXED: case D3DPT_D11_DRAW_INSTANCED: case D3DPT_D11_DRAW_INDEXED_INSTANCED:
+    case D3DPT_D11_DRAW_AUTO: case D3DPT_D11_CLEAR_RTV: case D3DPT_D11_CLEAR_DSV: case D3DPT_D11_CLEAR_VIEW:
+    case D3DPT_D11_COPY: case D3DPT_D11_COPY_REGION: case D3DPT_D11_RESOLVE: case D3DPT_D11_GEN_MIPS:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void run_tok(Run &r, const d3dpt_d11_tok *t)
 {
+    if (r.c.pred_skip && predicated(t->op)) return;
     const uint8_t *body = (const uint8_t *)(t + 1);
     uint32_t size = t->size - (uint32_t)sizeof(*t);
     D11 &d = r.d;
@@ -1051,7 +1088,8 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         IUnknown *p = nullptr;
         if (pred) { ID3D11Predicate *x = nullptr; hr = d.dev->CreatePredicate(&q, &x); p = x; }
         else { ID3D11Query *x = nullptr; hr = d.dev->CreateQuery(&q, &x); p = x; }
-        put_obj(r, a->id, D3DPT_D11K_QUERY, p, hr, pred ? 1 : 0);    /* stage: 1 for a predicate */
+        /* stage: 1 for a predicate, 2 more for one that is only a hint (D3D11_QUERY_MISC_PREDICATEHINT) */
+        put_obj(r, a->id, D3DPT_D11K_QUERY, p, hr, pred ? 1u | (a->misc & D3D11_QUERY_MISC_PREDICATEHINT ? 2u : 0u) : 0u);
         return;
     }
     case D3DPT_D11_SET_SHADER: {
@@ -1193,8 +1231,14 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
     case D3DPT_D11_SET_PREDICATION: {
         NEED(d3dpt_d11_ref);
         ID3D11Predicate *pr = a->a ? obj<ID3D11Predicate>(r, a->a, D3DPT_D11K_QUERY) : nullptr;
-        if (pr && r.c.objs[a->a].stage != 1) { r.fail(E_INVALIDARG); return; }    /* a plain query is no predicate */
+        uint32_t kind = pr ? r.c.objs[a->a].stage : 0;
+        if (pr && !(kind & 1)) { r.fail(E_INVALIDARG); return; }    /* a plain query is no predicate */
         ctx->SetPredication(pr, a->b);
+        /* DXVK's d3d11 keeps the predicate and does everything anyway (its
+         * SetPredication is a stub), and only a hint may be ignored: the
+         * predicate's answer is waited for here, and while it equals the
+         * value the predicated operations are skipped (run_tok) */
+        r.c.pred_skip = pr && !(kind & 2) && pred_holds(r, pr) == (a->b != 0);
         return;
     }
     case D3DPT_D11_DRAW: { NEED_N(8); const uint32_t *v = (const uint32_t *)body; mark_targets(r); ctx->Draw(v[0], v[1]); return; }

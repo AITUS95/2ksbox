@@ -163,6 +163,13 @@ i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pe
   -o "$T/d3dgame9.exe" "$ROOT/guest-tools/src/d3dgame9.c" -ld3d9 -lgdi32 -luser32
 i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pentium3 \
   -o "$T/d3dgame8.exe" "$ROOT/guest-tools/src/d3dgame8.c" -ld3d8 -lgdi32 -luser32
+# The same scene on Direct3D 11 at feature level 10_0 (track M25), for the
+# WDDM driver on Windows 11: shaders, instancing, a texture array, stream
+# output and DrawAuto, geometry shader billboards, GenerateMips, occlusion
+# predicates, an HDR target; -compare N checks frame N against WARP. 32-bit
+# like the rest, so on x64 Windows it runs on the WoW64 user-mode driver.
+i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pentium3 \
+  -o "$T/d3dgame11.exe" "$ROOT/guest-tools/src/d3dgame11.c" -ld3d11 -ldxgi -luuid -lgdi32 -luser32
 # Feature test (doc 14 P3): shaders, declarations, state blocks, queries, cube maps, surfaces.
 i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pentium3 \
   -o "$T/d3dfeat9.exe" "$ROOT/guest-tools/src/d3dfeat9.c" -ld3d9 -lgdi32 -luser32
