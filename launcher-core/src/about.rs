@@ -30,7 +30,10 @@ pub const NAME: &str = "2ksbox";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const TAGLINE: &str = "Run new and vintage OSes with a good looking CRT filter.";
 pub const LICENSE: &str = "Free software under the GNU GPL, version 2.";
-pub const URL: &str = "https://github.com/Roboport-Tecnologia/2ksbox";
+/// This version's source: the tag `scripts/release.sh` makes, which is
+/// the source behind the store builds (THIRD-PARTY-NOTICES.md).
+pub const SOURCE_URL: &str =
+    concat!("https://github.com/Roboport-Tecnologia/2ksbox/tree/v", env!("CARGO_PKG_VERSION"));
 /// The user manual (`manual/`, published by `.github/workflows/manual.yml`)
 /// and the menu item that opens it.
 pub const MANUAL: &str = "User Manual";
@@ -93,7 +96,7 @@ pub const GROUPS: &[Group] = &[
 pub fn text() -> String {
     use std::fmt::Write;
     let mut s = String::new();
-    let _ = writeln!(s, "{NAME} {VERSION}\n{TAGLINE}\n{LICENSE}\n{URL}\n{MANUAL}: {MANUAL_URL}\n\n{THANKS}");
+    let _ = writeln!(s, "{NAME} {VERSION}\n{TAGLINE}\n{LICENSE}\n{SOURCE_URL}\n{MANUAL}: {MANUAL_URL}\n\n{THANKS}");
     for group in GROUPS {
         let _ = writeln!(s, "\n{}", group.title);
         for c in group.credits {

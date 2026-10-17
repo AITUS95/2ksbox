@@ -74,7 +74,13 @@ player line runs a machine with nothing else.
   the projects 2ksbox is built on, grouped by what they do for it, each
   a link with its licence. The list is `launcher_core::about` (the
   projects the app runs or ships, plus Wine; a library one of them pulls
-  in is theirs to credit), and `launcherx --about` prints it. mitsuami
+  in is theirs to credit), and `launcherx --about` prints it. Its
+  source link is this version's tag (`about::SOURCE_URL`), the source
+  behind a store build. Its Licences button (2026-10-17, user) opens a
+  window that lists 2ksbox's own licence, the third-party notices and
+  every text in the package's `licenses/` (texts, components, crates),
+  the selected one's text read-only beside the list
+  (`launcher_core::licenses`, `launcherx --licenses`). mitsuami
   (`launcher-mitsuami/src/about.rs`) opens it from an info icon at the end of
   the toolbar on Kirigami; elsewhere it is Help's About item (macOS's
   application menu, GTK's primary menu, Windows' title-bar menu bar): the

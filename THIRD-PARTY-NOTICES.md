@@ -43,7 +43,18 @@ The source of every package is this repository at the release's tag,
 with its submodules (`qemu`, `third_party/*`). The libraries that
 `scripts/build-deps.sh` builds come from the tarballs it pins by URL and
 sha256, with the patches in `patches/deps/`. `docs/development.md` has
-the build.
+the build. The About window links the tag of the version it is.
+
+### Written offer
+
+For at least three years after we last distribute a version of 2ksbox
+in binary form, Roboport Tecnologia (David Rios Gomes Ltda) will give
+anyone who asks the complete corresponding source code of that
+version, for the parts under the GPL and the LGPL included, the
+libraries that `scripts/build-deps.sh` downloads among them. We charge
+no more than our cost of physically performing the copy. Write to
+contato@roboport.com.br and name the version, which the About window
+shows.
 
 ## QEMU
 

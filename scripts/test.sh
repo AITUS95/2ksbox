@@ -942,6 +942,10 @@ mitsuami_check() ( # the launcher's window, driven through its probes (doc 07, t
   # About, with the credits.
   o="$(probe about about)"
   [ -s "$dir/about.png" ] || { echo "About drew nothing: $o"; rc=1; }
+  # The Licences window, from About's button (a checkout lists 2ksbox's
+  # own licence and the notices; a package, its licenses/ too).
+  o="$(probe licenses licenses)"
+  [ -s "$dir/licenses.png" ] || { echo "Licences drew nothing: $o"; rc=1; }
 
   if [ -n "$broadway" ]; then kill "$broadway" 2>/dev/null; wait "$broadway" 2>/dev/null; fi
   return $rc
