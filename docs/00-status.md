@@ -389,8 +389,10 @@ tracks, plus the items no track owns.
     system-memory redirection (a STAGING copy the CPU reads, DWM's
     upload, one present per composition: the driver claims no GDI
     acceleration; CPU-visible texture bitmaps, `SupportSoftwareDeviceBitmaps`,
-    were tried and change nothing for the present, GDI acceleration proper
-    is untried; the track's "Where a DISCARD window's frame goes"; the x64 kernel
+    were tried and change nothing for the present; GDI acceleration,
+    claimed with RenderKm only logging, sends the present straight into
+    the window's `TEXTURE` bitmap (a steady 60 frames/s with vsync), so
+    doing RenderKm's operations on the host is the way; the track's "Where a DISCARD window's frame goes"; the x64 kernel
     driver's flips on the blank have been MMIO flips since 2026-10-18,
     `FlipOnVSyncMmIo`: a DMA flip held for the blank
     held every process's later fences, ~37 frames/s in runs of one and

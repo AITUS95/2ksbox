@@ -538,14 +538,39 @@ CPU-visible bitmaps change where GDI draws (into VRAM, an uncached BAR
 under WHPX, with no way for the host to see the writes) and nothing
 about the blt-model present; reverted. What is left is GDI acceleration
 proper (`SupportKernelModeCommandBuffer`, `DxgkDdiRenderKm`, type 1
-`TEXTURE` bitmaps the CPU never touches), unknown whether Windows 11
-then presents straight into them.
+`TEXTURE` bitmaps the CPU never touches).
+
+**GDI acceleration, logged only, the same day** (user: "yes, go on").
+`SupportKernelModeCommandBuffer` claimed, `DxgkDdiRenderKm` logging its
+commands and emitting an empty DMA buffer. Windows 11 asks for
+`STAGING_CPUVISIBLE` (type 2, 1920x1200 and the lookup table's 512x16),
+`STAGING` (3, 1920x64) and `LOOKUPTABLE` (4, 512x16 A8: ClearType's
+gamma); while the lookup table is refused it retries and stays on
+software GDI (no RenderKm at all). With all three taken it asks for
+**`TEXTURE` bitmaps** (type 1: 1920x1200, 1920x60, a window's 646x515,
+1x1), and RenderKm brings ColorFills into them and SRCCOPY BitBlts from a
+CPU-visible staging surface. Then **a DISCARD present copies straight
+from the swap chain's buffer into its window's `TEXTURE` bitmap** (no
+staging, no CPU copy), and d3dgame11 with vsync held 60.0 frames/s,
+16.61 ms in each present, over 1800 frames (median ~20 ms with doubled
+frames before). DWM opens the bitmaps through the Direct3D 11 driver
+(`OpenResource` 646x515, 1920x1200, 1920x60), so what it samples is a
+host object: a present's copy can be a copy on the host GPU. With
+nothing drawn the wallpaper and the window's inside were black; DWM's
+own title bars and taskbar drew. Reverted. Doing it for real: each
+RenderKm operation run on the host into the bitmap's object (BitBlt with
+its ROPs, ColorFill, AlphaBlend, StretchBlt, TransparentBlt, ClearType
+blend against the lookup table), the staging surfaces uploaded from VRAM
+where they are sources and read back where they are destinations, and
+the present's Blt into a bitmap as a host copy.
 
 ## Open
 
 - **A blt-model window** waits for DWM's composition through Windows'
   system-memory redirection (above). CPU-visible texture bitmaps do not
-  change it (tried); GDI acceleration proper might, untried.
+  change it; GDI acceleration does (logged only: the present goes
+  straight into the window's `TEXTURE` bitmap, a steady 60 frames/s),
+  once RenderKm's operations are done on the host.
 - DISCARD with vsync still spreads (median ~19-20 ms, ~50 of 380 frames
   doubled; the flip model holds 17); the same path.
 - The vertical blank's ±2 ms between the player and the device: not the
