@@ -423,6 +423,10 @@ tracks, plus the items no track owns.
     `LICENSES/LGPL-2.1-or-later.txt`, since Windows' unpack turns the
     `COPYING` symlink into a `.lnk`), and App Store re-uploads take
     `package-macos.sh --build N`.
+    **1.0.1** (2026-10-18): v1.0.0 is tagged on `775833c6`; 1.0.1
+    carries the TestFlight fixes (QEMU patch 95, the machines folder,
+    mitsuami 1.3.3's New Folder, the empty library's width). Its gates
+    run from the version bump's commit.
     THIRD-PARTY-NOTICES.md carries the written source offer (GPL-2
     §3(b); contato@roboport.com.br), About links this version's tag,
     and its Licences button shows every text the package carries
