@@ -11,7 +11,7 @@
   then DPI-aware from its first window, not from the call.
 -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="2ksbox" version="1.0.1.0" />
+  <assemblyIdentity type="win32" name="2ksbox" version="1.1.0.0" />
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
