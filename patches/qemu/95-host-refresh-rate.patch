@@ -1,0 +1,51 @@
+The rate the front end gives its guests' vertical blank, beside patch
+90's qemu_host_vblank() (track M25): qemu_host_set_refresh_mhz(), which
+the embed library's qemu_embed_set_refresh_rate (v15) calls, and
+qemu_host_refresh_mhz(), which d3dpt-vga reads into its HOST_MHZ register
+(register set v11) so the WDDM driver advertises its modes at the rate
+its vertical blank keeps (72 Hz on a 144 Hz screen) instead of 60.
+virtio-gpu gets the same rate through the console's UI info (its EDID);
+d3dpt-vga takes no UI info, since a console that does follows the
+window's size.
+
+diff --git a/include/ui/console.h b/include/ui/console.h
+index 7d4bce9..65ddb4c 100644
+--- a/include/ui/console.h
++++ b/include/ui/console.h
+@@ -451,6 +451,13 @@ void qemu_console_remove_notifier(Notifier *notifier);
+  */
+ void qemu_host_vblank_add_notifier(Notifier *notifier);
+ void qemu_host_vblank(void);
++/*
++ * The rate the front end gives its guests' vertical blank, in mHz (0 when
++ * it named none): what it calls qemu_host_vblank() at, for a display
++ * device to advertise to its guest (d3dpt-vga's HOST_MHZ). Any thread.
++ */
++void qemu_host_set_refresh_mhz(uint32_t mhz);
++uint32_t qemu_host_refresh_mhz(void);
+ void qemu_console_notify(QemuConsoleEventType type, QemuConsole *con);
+ 
+ /* vnc.c */
+diff --git a/ui/console.c b/ui/console.c
+index 9b17cea..220c78d 100644
+--- a/ui/console.c
++++ b/ui/console.c
+@@ -1145,6 +1145,18 @@ void qemu_host_vblank(void)
+     notifier_list_notify(&host_vblank_notifiers, NULL);
+ }
+ 
++static uint32_t host_refresh_mhz;
++
++void qemu_host_set_refresh_mhz(uint32_t mhz)
++{
++    qatomic_set(&host_refresh_mhz, mhz);
++}
++
++uint32_t qemu_host_refresh_mhz(void)
++{
++    return qatomic_read(&host_refresh_mhz);
++}
++
+ /*
+  * Called by main(), after creating QemuConsoles
+  * and before initializing ui (sdl/vnc/...).

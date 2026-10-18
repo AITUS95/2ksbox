@@ -391,7 +391,12 @@ tracks, plus the items no track owns.
     became MMIO flips, `FlipOnVSyncMmIo`: a DMA flip held for the blank
     held every process's later fences, ~37 frames/s in runs of one and
     two blanks, and the no-wait DMA flip was bugcheck 0x113 at the
-    adapter's stop; the track's "Flips that hold nothing"); which multisample claim the runtime refuses; DXVK's
+    adapter's stop; the track's "Flips that hold nothing"); the guest's
+    vertical blank follows the host's again (the player answers a blank
+    wait Windows refuses as occluded with DWM's composition, and logs it;
+    QEMU patch 95 and register set v11's `HOST_MHZ` give the driver's modes
+    the blank's real rate; "The host's vertical blank, again"), its ±2 ms
+    left to the executor's batch under the BQL; which multisample claim the runtime refuses; DXVK's
     d3d11 and dxgi in the packages and the Linux / macOS executor builds;
     then 10_1 and 11_0 (compute, unordered access views, tessellation)
     and Direct3D 10 programs. The kernel driver claims WDDM 1.2 since

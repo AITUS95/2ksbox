@@ -1080,6 +1080,10 @@ static uint64_t d3dpt_vga_regs_read(void *opaque, hwaddr addr, unsigned size)
         return s->copy_src;
     case D3DPT_FB_REG_COPY_LIST_COUNT:
         return s->copy_count;
+    case D3DPT_FB_REG_HOST_MHZ:
+        /* the rate the front end's blanks come at (QEMU patch 95): the
+         * guest's modes say it, so its DXGI times frames by it */
+        return qemu_host_refresh_mhz();
     case D3DPT_FB_REG_GAMMA_ENABLE:
         return s->gamma_on;
     case D3DPT_FB_REG_MODE_COUNT:

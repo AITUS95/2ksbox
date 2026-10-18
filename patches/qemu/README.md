@@ -1148,6 +1148,20 @@ change (a submission and a fence interrupt per DWM draw): a TDR within
 180 s with it. Backported to main on 2026-10-17 ahead of M25.
 **Drop:** upstream locks it.
 
+### 95-host-refresh-rate
+The rate the front end gives its guests' vertical blank, beside patch
+90's host blank (track M25): `qemu_host_set_refresh_mhz()`, which the
+embed library's `qemu_embed_set_refresh_rate` (API v15) also calls, and
+`qemu_host_refresh_mhz()`, which `d3dpt-vga` returns from its `HOST_MHZ`
+register (register set v11). The WDDM driver advertises its modes at that
+rate (72 Hz on a 144 Hz screen) where they all said 60 while the device's
+blank followed the host's. virtio-gpu has it already, in the EDID from the
+console's UI info; `d3dpt-vga` takes no UI info, because a console that
+does is one whose guest follows the window's size (the player's
+`display_follows_window`). **Test:** the M25 test machine
+(`D:\vms\win11-test`): the driver's `refresh` log line and d3dgame11's
+`-trace` intervals. **Drop:** with patch 90.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

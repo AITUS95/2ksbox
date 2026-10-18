@@ -287,6 +287,7 @@ void qemu_embed_set_window_size(qemu_embed_t *e, uint32_t w, uint32_t h, uint32_
 
 void qemu_embed_set_refresh_rate(qemu_embed_t *e, uint32_t mhz)
 {
+    qemu_host_set_refresh_mhz(mhz);     /* for a device with no UI info (patch 95) */
     if (qatomic_xchg(&e->refresh_mhz, mhz) != mhz) {
         aio_bh_schedule_oneshot(qemu_get_aio_context(), bh_window_size, e);
     }

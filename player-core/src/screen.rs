@@ -74,6 +74,10 @@ struct Shared {
     screen: Mutex<Option<platform::Screen>>,
     /// Host blanks per guest frame; 0 for no ticks.
     every: AtomicU32,
+    /// The screen's refresh period in microseconds (16,667 when its rate
+    /// is not known): the pace of a stand-in for its blank.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    period_us: AtomicU32,
     stop: AtomicBool,
 }
 
@@ -82,6 +86,7 @@ impl HostVBlank {
         let shared = Arc::new(Shared {
             screen: Mutex::new(None),
             every: AtomicU32::new(0),
+            period_us: AtomicU32::new(16_667),
             stop: AtomicBool::new(false),
         });
         if platform::HAS_VBLANK {
@@ -99,6 +104,8 @@ impl HostVBlank {
     pub fn follow(&self, window: &(impl HasWindowHandle + HasDisplayHandle), every: Option<u32>) {
         let screen = raw(window).and_then(|(w, d)| platform::screen_name(w, d));
         *self.shared.screen.lock().unwrap() = screen;
+        let mhz = refresh_mhz(window).filter(|&m| m >= 1000).unwrap_or(60_000);
+        self.shared.period_us.store((1_000_000_000u64 / mhz as u64) as u32, Ordering::Relaxed);
         self.shared.every.store(every.unwrap_or(0), Ordering::Relaxed);
     }
 }
@@ -114,10 +121,11 @@ mod platform {
     use super::Shared;
     use qemu_embed::Qemu;
     use std::sync::atomic::Ordering;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use wgpu::rwh::{RawDisplayHandle, RawWindowHandle};
     use windows_sys::Wdk::Graphics::Direct3D::*;
     use windows_sys::Win32::Devices::Display::*;
+    use windows_sys::Win32::Graphics::Dwm::DwmFlush;
     use windows_sys::Win32::Graphics::Gdi::*;
 
     pub const HAS_VBLANK: bool = true;
@@ -200,11 +208,39 @@ mod platform {
         }
     }
 
+    /// STATUS_GRAPHICS_PRESENT_OCCLUDED
+    const OCCLUDED: i32 = 0xC01E_0006_u32 as i32;
+
+    /// DWM's next composition, as a stand-in for the screen's blank: DWM
+    /// composes on the real blank even where the blank's own event is
+    /// refused. With nothing to compose `DwmFlush` returns at once, so a
+    /// tick comes no sooner than three quarters of the screen's period
+    /// after the last.
+    fn dwm_tick(shared: &Shared, last: &mut Instant) {
+        let floor = Duration::from_micros(shared.period_us.load(Ordering::Relaxed) as u64 * 3 / 4);
+        loop {
+            unsafe { DwmFlush() };
+            let now = Instant::now();
+            if now.duration_since(*last) >= floor {
+                *last = now;
+                return;
+            }
+            std::thread::sleep((floor - now.duration_since(*last)).min(Duration::from_millis(2)));
+        }
+    }
+
     /// The host-vblank thread: the monitor's adapter, opened again when the
-    /// window moves to another screen, and its vertical blank event.
+    /// window moves to another screen, and its vertical blank event. Where
+    /// the event is refused as occluded (seen on the PC with the Meta Quest
+    /// runtime installed, 2026-10-18: every wait failed at once, and the
+    /// guest fell back to its own timer unseen), DWM's composition stands
+    /// in for it.
     pub fn vblank_loop(shared: &Shared, vm: Qemu) {
         let mut open: Option<Open> = None;
         let mut count = 0u32;
+        let mut occluded = false;
+        let mut failed = 0i32;
+        let mut last = Instant::now();
         while !shared.stop.load(Ordering::Relaxed) {
             let every = shared.every.load(Ordering::Relaxed);
             let want = shared.screen.lock().unwrap().clone();
@@ -228,11 +264,35 @@ mod platform {
             }
             let o = open.as_ref().unwrap();
             let w = D3DKMT_WAITFORVERTICALBLANKEVENT { hAdapter: o.adapter, hDevice: 0, VidPnSourceId: o.source };
-            if unsafe { D3DKMTWaitForVerticalBlankEvent(&w) } != 0 {
-                // the monitor went (unplugged, the adapter reset): again
-                close(&mut open);
-                std::thread::sleep(Duration::from_millis(100));
-                continue;
+            match unsafe { D3DKMTWaitForVerticalBlankEvent(&w) } {
+                0 => {
+                    if occluded {
+                        eprintln!("[display] the host screen's vertical blank is back");
+                        occluded = false;
+                    }
+                    failed = 0;
+                    last = Instant::now();
+                }
+                OCCLUDED => {
+                    if !occluded {
+                        eprintln!(
+                            "[display] the host screen's vertical blank is refused (occluded): \
+                             DWM's composition stands in for it"
+                        );
+                        occluded = true;
+                    }
+                    dwm_tick(shared, &mut last);
+                }
+                st => {
+                    // the monitor went (unplugged, the adapter reset): again
+                    if st != failed {
+                        eprintln!("[display] the host screen's vertical blank failed ({:#010x})", st as u32);
+                        failed = st;
+                    }
+                    close(&mut open);
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
             }
             count = count.wrapping_add(1);
             if count % every == 0 {

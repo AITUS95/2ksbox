@@ -96,6 +96,11 @@
  * Direct3D 11 user-mode driver refuses to open, and Windows puts Direct3D
  * 11 on the Direct3D 9 driver (d3d10level9) as before.
  *
+ * Version 11 (M25): HOST_MHZ, the rate the front end gives the guest's
+ * vertical blank (the host screen's, divided to 90 Hz or under: 72 on a
+ * 144 Hz screen), so the WDDM driver advertises its modes at the rate
+ * IRQ_VBLANK then keeps (host-vblank) instead of 60.
+ *
  * **Versions only add.** Every driver (the XP miniport, the 9x display
  * driver and mini-VDD) accepts any VERSION at or above the one it was
  * built with and refuses only an older one, because a newer register set is
@@ -116,7 +121,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_FB_VERSION      10u
+#define D3DPT_FB_VERSION      11u
 #define D3DPT_FB_MAGIC        0x42463344u          /* "D3FB" at REG_MAGIC */
 
 /* PCI identity: QEMU/Bochs pseudo vendor, our device id ("3D00"). The INF
@@ -212,6 +217,8 @@
 #define D3DPT_FB_REG_COPY_SRC_VRAM 0x110u /* RW: VRAM_VRAM: the source's byte offset in VRAM */
 #define D3DPT_FB_REG_COPY_LIST_COUNT 0x114u /* RW: entries in the page list: a copy that would read
                                           * past them is refused (nothing copied) */
+#define D3DPT_FB_REG_HOST_MHZ    0x118u  /* R (version 11): the guest's vertical blank as the front end
+                                          * gives it, in mHz (71999 for 72 Hz); 0 = none named */
 #define D3DPT_FB_DMA_OK          0u
 #define D3DPT_FB_DMA_NO_ROOM     1u      /* the batch has no room for them: ring the doorbell first */
 #define D3DPT_FB_DMA_BAD         2u      /* no window, a size not a multiple of 8, or memory the device cannot read */

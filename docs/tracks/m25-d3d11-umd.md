@@ -434,6 +434,61 @@ Windows turning the screen off (`SetVidPnSourceVisibility 0`, the adapter
 to D3) leaves the device's last frame up, which reads as a frozen guest;
 the test machine's display and sleep timeouts are off (`powercfg`).
 
+**The host's vertical blank, again, 2026-10-18** (the user: "first fix
+vblank syncing with host"; M24's design, `screen::HostVBlank`, QEMU patch
+90, `d3dpt-vga`'s `host-vblank`). Two faults:
+
+- **The host's blanks had stopped coming.** The device's last summary
+  read `16284 the host's, 20413 the timer's`, and not one came after: the
+  frame traces above ran on the device's own 60 Hz timer. On the PC's new
+  screen (an LG 4K at 60 Hz, the Meta Quest runtime installed)
+  `D3DKMTWaitForVerticalBlankEvent` failed at once with
+  `STATUS_GRAPHICS_PRESENT_OCCLUDED` (0xC01E0006), as did
+  `DCompositionWaitForCompositorClock`, while `DwmFlush` kept DWM's
+  16.7 ms. The player's thread took every failure for a monitor gone,
+  reopened it, and said nothing. Now an occluded wait is answered by DWM's
+  next composition (never sooner than three quarters of the screen's
+  period after the last tick, as an idle DWM returns at once), and the
+  player says which: `[display] the host screen's vertical blank is
+  refused (occluded): DWM's composition stands in for it`, `... is back`,
+  `... failed (0x...)`. The refusal comes and goes with the host's display
+  (the next boot waited on the real blank again).
+- **The modes said 60 Hz whatever the blank's rate.** QEMU patch 95 keeps
+  the rate the player gives the guest's blank (`qemu_embed_set_refresh_rate`,
+  72 Hz on a 144 Hz screen), `d3dpt-vga` reads it out of `HOST_MHZ`
+  (register set v11), and the WDDM driver advertises every mode at it, a
+  rational (59,997/1000 here; DWM's `rateRefresh` now 16.665 ms, 16.819
+  before). Not through the console's UI info, as virtio-gpu has it: a
+  device that takes UI info is one whose guest follows the window's size.
+  The made-up EDID's range limits are 24-240 Hz, 15-255 kHz and 2550 MHz
+  (50-75 Hz, 80 kHz and 170 MHz before: 72 Hz on a 144 Hz screen is
+  86 kHz at 1920x1200 and 155 kHz at 3840x2160 with no blanking). A
+  changed EDID is a new monitor to an installed guest, which starts it at
+  1024x768 once (the user: no problem, for now).
+
+On the way: `ChangeDisplaySettingsEx` with `CDS_UPDATEREGISTRY` from a
+scheduled task fails (-1) for a monitor Windows has stored nothing for,
+while the same change without the registry succeeds: the test's tool, not
+the driver. `SETRES\setres.ps1` on the test machine (`size.txt` beside it,
+"W H") now makes the change without the registry, then saves the active
+configuration as the Settings app does (`SetDisplayConfig` with
+`SDC_SAVE_TO_DATABASE`); the new monitor came back at 1920x1200 after a
+restart.
+
+Measured with the host's blank: DWM composes 223 of 300 frames in its
+16-17 ms bucket (`guest-tools/viogpudo/dwm-pace.ps1`, 5th to 95th
+percentile 14.6-18.0 ms, none doubled); d3dgame11 windowed with vsync,
+flip model, 149 of 201 frames at 16.5-17.5 ms, 12 doubled. Timestamps at
+both ends (removed) put the ±2 ms between the player and the device: the
+host's blanks reached QEMU 13.8-19.5 ms apart (87 of 600 off by over
+1 ms), the guest's interrupt 13.6-19.4. A blank waits for the main loop,
+and the main loop for the BQL, which a vCPU holds through a whole batch:
+the DOORBELL write runs the executor inside it, 1-3 ms for a DWM frame.
+Releasing the BQL around `submit` alone (a prototype) bugchecked the guest
+at boot twice: the batch needs the device's state guarded properly first.
+`scripts/test.sh all` on the PC with these changes: 67 passed, 16 skipped,
+none failed.
+
 ## Open
 
 - **A blt-model window through VRAM.** DISCARD's present still reads
@@ -444,8 +499,10 @@ the test machine's display and sleep timeouts are off (`powercfg`).
   not pacing. The copy belongs on the host GPU when both allocations
   have host objects, which wants the device's copy to reach the
   executor in order with the submissions.
-- Frame intervals with vsync spread over ~13-23 ms around the blank
-  (~52 frames/s windowed): the blank's own timing on WHPX, unmeasured.
+- DISCARD with vsync still spreads (4-34 ms, the flip model holds 17);
+  the blt model's own path.
+- The vertical blank's ±2 ms between the player and the device: the
+  executor runs a batch inside the DOORBELL write, under the BQL (above).
 - The screen Windows turned off still shows the last frame (above); the
   device could show black while the source is invisible.
 

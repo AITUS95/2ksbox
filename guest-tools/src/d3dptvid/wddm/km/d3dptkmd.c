@@ -79,9 +79,9 @@ typedef struct D3DPT_ADAPTER {
     ULONG regs_len;
     volatile ULONG *regs;             /* BAR 1 mapped (kernel VA) */
     ULONG seg_size;                   /* VRAM below the Direct3D command window */
-    struct { ULONG w, h, hz; } modes[64];   /* the host's 32-bpp modes (MODE_*), then the widescreen sizes */
+    struct { ULONG w, h, mhz; } modes[64];  /* the host's 32-bpp modes (MODE_*), then the widescreen sizes */
     ULONG nmodes;
-    ULONG cur_w, cur_h, cur_pitch, cur_hz;  /* what CommitVidPn programmed */
+    ULONG cur_w, cur_h, cur_pitch, cur_mhz; /* what CommitVidPn programmed */
     PUCHAR vram;                      /* the segment mapped (kernel VA): the "GPU" is the CPU */
     ULONG vram_map;                   /* bytes mapped: the segment, then the cursor image */
     ULONG cursor_off;                 /* VRAM offset of the cursor image (above the segment), 0 = none */
@@ -315,8 +315,8 @@ static NTSTATUS find_bars(D3DPT_ADAPTER *a)
 
 /* The sizes a Windows 10 / 11 desktop is expected to offer that the
  * host's table (an XP-era one of 4:3 and 5:4 sizes, shared with the XP
- * miniport) lacks, at 60 Hz. The device takes any linear mode it is
- * given; the table only advertises. */
+ * miniport) lacks. The device takes any linear mode it is given; the
+ * table only advertises. */
 static const struct { USHORT w, h; } wide_sizes[] = {
     { 1280, 720 }, { 1280, 800 }, { 1366, 768 }, { 1440, 900 }, { 1600, 900 }, { 1680, 1050 },
     { 1920, 1080 }, { 1920, 1200 }, { 2560, 1440 }, { 2560, 1600 }, { 3840, 2160 },
@@ -329,12 +329,24 @@ static const struct { USHORT w, h; } wide_sizes[] = {
  * DWM keeps three primaries, a full-screen intermediate and the windows'
  * surfaces, and a segment it overflows pages every frame (with the
  * default 63 MiB, up to 1920x1200; vgamem_mb=256 adds 2560x1600,
- * vgamem_mb=512 3840x2160). */
+ * vgamem_mb=512 3840x2160).
+ *
+ * Every mode is at the rate the device's vertical blank keeps: HOST_MHZ
+ * (register set v11), the front end's (72 Hz on a 144 Hz screen), whose
+ * blanks raise IRQ_VBLANK. Advertised at 60 there, DWM and DXGI timed
+ * frames by a rate the blanks did not come at. 60 Hz (the table's rates
+ * for the table's sizes) when the device names none. */
 static void read_modes(D3DPT_ADAPTER *a)
 {
     volatile ULONG *r = a->regs;
-    ULONG n = r[D3DPT_FB_REG_MODE_COUNT / 4], i, k, table;
+    ULONG n = r[D3DPT_FB_REG_MODE_COUNT / 4], i, k, table, host = 0;
 
+    if (r[D3DPT_FB_REG_VERSION / 4] >= 11u) {
+        host = r[D3DPT_FB_REG_HOST_MHZ / 4];
+        if (host < 24000 || host > 240000) {
+            host = 0;                           /* none named, or nonsense */
+        }
+    }
     a->nmodes = 0;
     for (i = 0; i < n && a->nmodes < RTL_NUMBER_OF(a->modes); i++) {
         ULONG w, h, bpp, hz;
@@ -349,7 +361,7 @@ static void read_modes(D3DPT_ADAPTER *a)
         }
         a->modes[a->nmodes].w = w;
         a->modes[a->nmodes].h = h;
-        a->modes[a->nmodes].hz = hz ? hz : 60;
+        a->modes[a->nmodes].mhz = host ? host : (hz ? hz : 60) * 1000;
         a->nmodes++;
     }
     table = a->nmodes;
@@ -366,13 +378,14 @@ static void read_modes(D3DPT_ADAPTER *a)
         }
         a->modes[a->nmodes].w = w;
         a->modes[a->nmodes].h = h;
-        a->modes[a->nmodes].hz = 60;
+        a->modes[a->nmodes].mhz = host ? host : 60000;
         a->nmodes++;
     }
     dbg_hex("d3dptkmd: modes ", a->nmodes);
     dbg_hex(" of ", n);
     dbg_hex(" and widescreen ", a->nmodes - table);
-    dbg_puts("\n");
+    dbg_hex(", refresh (mHz) ", host ? host : 60000);
+    dbg_puts(host ? " (the host's)\n" : "\n");
 }
 
 static void unmap(D3DPT_ADAPTER *a);
@@ -983,8 +996,11 @@ static const UCHAR edid_block[128] = {
     /* monitor name */
     0x00, 0x00, 0x00, 0xfc, 0x00, '2', 'k', 's', 'b', 'o', 'x', 0x0a,
     0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    /* range limits: 50-75 Hz, 30-80 kHz, 170 MHz */
-    0x00, 0x00, 0x00, 0xfd, 0x00, 0x32, 0x4b, 0x1e, 0x50, 0x11, 0x00, 0x0a,
+    /* range limits: 24-240 Hz, 15-255 kHz, 2550 MHz. The modes carry the
+     * host's rate (read_modes) with no blanking: 72 Hz on a 144 Hz screen
+     * is 86 kHz at 1920x1200 and 155 kHz at 3840x2160, past the 50-75 Hz
+     * and 80 kHz this said until register set v11 */
+    0x00, 0x00, 0x00, 0xfd, 0x00, 0x18, 0xf0, 0x0f, 0xff, 0xff, 0x00, 0x0a,
     0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
     /* dummy */
     0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -2988,18 +3004,19 @@ static NTSTATUS APIENTRY d3dpt_collect_dbg_info(IN_CONST_HANDLE h, IN_CONST_PDXG
 /* ------------------------------------------------------------- VidPN */
 
 /* A mode as the video signal a target and the monitor see: progressive,
- * no blanking (the player shows the active area as it is). */
-static void signal_info(D3DKMDT_VIDEO_SIGNAL_INFO *s, ULONG w, ULONG h, ULONG hz)
+ * no blanking (the player shows the active area as it is), its rate in
+ * mHz. */
+static void signal_info(D3DKMDT_VIDEO_SIGNAL_INFO *s, ULONG w, ULONG h, ULONG mhz)
 {
     s->VideoStandard = D3DKMDT_VSS_OTHER;
     s->TotalSize.cx = w;
     s->TotalSize.cy = h;
     s->ActiveSize = s->TotalSize;
-    s->VSyncFreq.Numerator = hz;
-    s->VSyncFreq.Denominator = 1;
-    s->HSyncFreq.Numerator = hz * h;
-    s->HSyncFreq.Denominator = 1;
-    s->PixelRate = (SIZE_T)w * h * hz;
+    s->VSyncFreq.Numerator = mhz;
+    s->VSyncFreq.Denominator = 1000;
+    s->HSyncFreq.Numerator = mhz * h;
+    s->HSyncFreq.Denominator = 1000;
+    s->PixelRate = (SIZE_T)((ULONGLONG)w * h * mhz / 1000);
     s->ScanLineOrdering = D3DDDI_VSSLO_PROGRESSIVE;
 }
 
@@ -3030,7 +3047,7 @@ static NTSTATUS APIENTRY d3dpt_recommend_monitor_modes(IN_CONST_HANDLE h,
         if (!NT_SUCCESS(mi->pfnCreateNewModeInfo(r->hMonitorSourceModeSet, &m))) {
             break;
         }
-        signal_info(&m->VideoSignalInfo, a->modes[i].w, a->modes[i].h, a->modes[i].hz);
+        signal_info(&m->VideoSignalInfo, a->modes[i].w, a->modes[i].h, a->modes[i].mhz);
         m->ColorBasis = D3DKMDT_CB_SRGB;
         m->ColorCoeffDynamicRanges.FirstChannel = 8;
         m->ColorCoeffDynamicRanges.SecondChannel = 8;
@@ -3120,7 +3137,7 @@ static NTSTATUS fill_target_modes(const D3DPT_ADAPTER *a, const DXGK_VIDPN_INTER
         if (!NT_SUCCESS(ti->pfnCreateNewModeInfo(hset, &m))) {
             break;
         }
-        signal_info(&m->VideoSignalInfo, a->modes[i].w, a->modes[i].h, a->modes[i].hz);
+        signal_info(&m->VideoSignalInfo, a->modes[i].w, a->modes[i].h, a->modes[i].mhz);
         m->Preference = preferred(a, i) ? D3DKMDT_MP_PREFERRED : D3DKMDT_MP_NOTPREFERRED;
         if (!NT_SUCCESS(ti->pfnAddMode(hset, m))) {
             ti->pfnReleaseModeInfo(hset, m);
@@ -3301,10 +3318,10 @@ static NTSTATUS APIENTRY d3dpt_commit_vidpn(IN_CONST_HANDLE h, IN_CONST_PDXGKARG
         a->cur_w = w;
         a->cur_h = ht;
         a->cur_pitch = m->Format.Graphics.Stride;
-        a->cur_hz = 60;
+        a->cur_mhz = 60000;
         for (i = 0; i < a->nmodes; i++) {
             if (a->modes[i].w == w && a->modes[i].h == ht) {
-                a->cur_hz = a->modes[i].hz;
+                a->cur_mhz = a->modes[i].mhz;
                 break;
             }
         }
@@ -3312,7 +3329,7 @@ static NTSTATUS APIENTRY d3dpt_commit_vidpn(IN_CONST_HANDLE h, IN_CONST_PDXGKARG
         a->regs[D3DPT_FB_REG_HEIGHT / 4] = ht;
         a->regs[D3DPT_FB_REG_BPP / 4] = 32;
         a->regs[D3DPT_FB_REG_PITCH / 4] = a->cur_pitch;
-        a->regs[D3DPT_FB_REG_HZ / 4] = a->cur_hz;
+        a->regs[D3DPT_FB_REG_HZ / 4] = (a->cur_mhz + 500) / 1000;  /* the device's own timer's */
         dbg_hex("d3dptkmd: CommitVidPn ", w);
         dbg_hex(" x ", ht);
         dbg_hex(" pitch ", a->cur_pitch);
@@ -3515,7 +3532,7 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 {
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
     LARGE_INTEGER due;
-    ULONG hz = a->cur_hz ? a->cur_hz : 60, period_ms = 1000 / hz;
+    ULONG mhz = a->cur_mhz ? a->cur_mhz : 60000, period_ms = 1000000 / mhz;
 
     dbg_hex("d3dptkmd: ControlInterrupt type=", (ULONG)type);
     dbg_hex(" enable=", (ULONG)enable);
