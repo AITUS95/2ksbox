@@ -673,9 +673,13 @@ Protocol v28:
   into its staging twin and leaves the copy into VRAM owed. It is paid
   at the next batch if the GPU is done (`DO_NOT_WAIT`), before anything
   else reads that allocation's VRAM (`exec_d11_sync`, a later readback,
-  `SYNC`), and by the display: `d3dpt-vga`'s refresh calls the new
-  optional `d3dpt_exec_settle` under `exec_lock` (a try-lock: with a
-  batch running, the batch or the next refresh pays it). An executor
+  `SYNC`), and by the display: `d3dpt-vga`'s refresh and its flip-push
+  (the page copied at the flip's register write) call the new optional
+  `d3dpt_exec_settle` under `exec_lock`, waiting for a running batch.
+  The first version settled only at the refresh, with a try-lock: the
+  flip-push copied the page before it was paid, and everything that moved
+  on the desktop flickered with its own past (the user: "like reverb"),
+  the frame of two or three flips before. An executor
   never asked to settle (the remote one under Wine) defers nothing. A
   guest CPU write to that VRAM (`RES_DIRTY`) drops what is owed. The
   first build recursed: the VRAM lookup syncs the allocation, which

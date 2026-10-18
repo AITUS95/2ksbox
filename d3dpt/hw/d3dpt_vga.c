@@ -593,6 +593,21 @@ static void fb_flip_rate(D3dptVgaState *s)
     s->flips_last = s->flips;
 }
 
+/* A flip's readback the executor may still owe VRAM (protocol v28,
+ * RES_SCANOUT) goes there before anything shows VRAM. Waited for, not
+ * tried: a page shown before it was paid was that buffer's frame from two
+ * or three flips ago, everything that moved flickering with its own past
+ * (track M25). A batch holding the lock gave up the BQL, so this waits for
+ * the batch and not the other way round. */
+static void fb_settle(D3dptVgaState *s)
+{
+    if (s->exec && s->lib->settle) {
+        qemu_mutex_lock(&s->exec_lock);
+        s->lib->settle(s->exec);
+        qemu_mutex_unlock(&s->exec_lock);
+    }
+}
+
 static bool d3dpt_vga_gfx_update(void *opaque)
 {
     D3dptVgaState *s = opaque;
@@ -634,14 +649,7 @@ static bool d3dpt_vga_gfx_update(void *opaque)
         return true;
     }
 
-    if (s->exec && s->lib->settle && qemu_mutex_trylock(&s->exec_lock) == 0) {
-        /* a flip's readback the executor may still owe VRAM (protocol v28,
-         * RES_SCANOUT) is there before it is shown; with a batch running
-         * (a vCPU holds the lock) the batch's own check or the next
-         * refresh does it */
-        s->lib->settle(s->exec);
-        qemu_mutex_unlock(&s->exec_lock);
-    }
+    fb_settle(s);
     if (s->gamma_dirty) {
         /* a new ramp recolours every pixel; a 32 bpp mode moves between
          * VRAM itself and the shadow the ramp is applied in */
@@ -1035,6 +1043,7 @@ static void fb_flip_push(D3dptVgaState *s)
     if (s->pal_dirty && m.bpp == 8) {
         fb_apply_palette(s);
     }
+    fb_settle(s);           /* the page's pixels, if the executor still owes them */
     fb_make_src(s, &m);
     s->lin = m;
     g_free(memory_region_snapshot_and_clear_dirty(&s->vga.vram, m.offset,
