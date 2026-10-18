@@ -39,6 +39,10 @@
  * component type, constant buffers bound with offsets (SET_CB1) and
  * ClearView (CLEAR_VIEW).
  *
+ * v27 (M25): GDI (op 110), the WDDM kernel driver's GDI acceleration: a
+ * RenderKm copy or fill, or a present into a window's redirection bitmap,
+ * done by the host between its Direct3D 11 objects or VRAM.
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT_PROTO_H
@@ -46,7 +50,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_PROTO_VERSION   26u
+#define D3DPT_PROTO_VERSION   27u
 
 #define D3DPT_SHM_SIZE        0x04000000u          /* 64 MiB */
 #define D3DPT_CMD_OFFSET      0x00001000u          /* records start after the header page */
@@ -126,6 +130,7 @@ enum d3dpt_op {
                                          * of a render-target texture's mip level, after the texture's VRAM_SURFACE; a
                                          * SETRENDERTARGET / READBACK / VRAM_DIRTY of it is that level of the texture (v19) */
     D3DPT_OP_D11 = 109,                 /* body: d3dpt_d11 + tokens: a Direct3D 11 context's run (v25; see below) */
+    D3DPT_OP_GDI = 110,                 /* body: d3dpt_gdi + n d3dpt_gdi_rect: a GDI copy or fill (v27; forward) */
     D3DPT_OP_MAX
 };
 
@@ -147,6 +152,29 @@ typedef struct d3dpt_query_get { uint32_t handle, ret_off, flags, size; } d3dpt_
  * the previous one in VRAM at its own pitch, DirectDraw layout). A P8
  * (palettized) texture's palette arrives in the DP2 stream as the runtime's
  * SETPALETTE / UPDATEPALETTE tokens; the host expands the indices (v8) */
+/* GDI (v27): the WDDM kernel driver's GDI acceleration (RenderKm) and its
+ * presents into a window's redirection bitmap. Each side is an allocation:
+ * its handle (0: none), its VRAM place and its size and D3DDDIFORMAT (32
+ * bits a pixel only). A side the host has a Direct3D 11 object of is that
+ * object (a redirection bitmap's, D3DPT_GDI_TEXTURE, made at its first
+ * use); any other is its VRAM, the host's pixels put there first. COPY
+ * copies each rectangle from its source corner (SRCCOPY); FILL fills it
+ * with `color` (PATCOPY, A8R8G8B8). */
+enum { D3DPT_GDI_COPY = 1, D3DPT_GDI_FILL = 2 };
+#define D3DPT_GDI_TEXTURE 0x1u
+#define D3DPT_GDI_VRAM    0x2u      /* this side is its VRAM even where the host has an object of it (a bitmap paged
+                                     * in or out: the object written back first, re-read after) */
+typedef struct d3dpt_gdi_side {
+    uint32_t handle, flags;
+    uint32_t offset, pitch;
+    uint32_t width, height, format, pad;
+} d3dpt_gdi_side;
+typedef struct d3dpt_gdi {
+    uint32_t op, color, n, pad;         /* D3DPT_GDI_*; rectangles after this */
+    d3dpt_gdi_side src, dst;            /* FILL: src unused */
+} d3dpt_gdi;
+typedef struct d3dpt_gdi_rect { int32_t sx, sy, l, t, r, b; } d3dpt_gdi_rect;   /* a destination rectangle, its source corner */
+
 typedef struct d3dpt_vram_surface {
     uint32_t handle, offset;
     uint32_t width, height, pitch, format;

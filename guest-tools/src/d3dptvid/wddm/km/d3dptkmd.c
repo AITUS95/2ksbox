@@ -182,6 +182,12 @@ typedef struct D3DPT_ALLOC {
     ULONG cur_seg, cur_addr;          /* where the last Patch saw it (dxgkrnl skips a Patch where nothing moved) */
 } D3DPT_ALLOC;
 
+/* GDI acceleration (track M25, x64): RenderKm's copies and fills and a
+ * present into a window's redirection bitmap done by the host. On by
+ * default on this experimental track; the service key's GdiAcceleration
+ * = 0 turns it off. */
+static ULONG g_gdi_accel = 1;
+
 /* The DEBUG register of the adapter that started last: stubs called with
  * no adapter handle (Unload, ControlEtwLogging) log through it too. */
 static volatile ULONG *g_regs;
@@ -729,6 +735,13 @@ static NTSTATUS driver_caps(const D3DPT_ADAPTER *a, DXGK_DRIVERCAPS *c)
     c->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
     c->SupportPerEngineTDR = 1;
     c->SupportDirectFlip = 1;
+    if (g_gdi_accel && a->d3d) {
+        /* GDI acceleration: redirection bitmaps the host keeps, GDI's
+         * operations through RenderKm (a present into one then lands
+         * there, where a blt-model window's went through a staging copy
+         * the CPU read; track M25) */
+        c->PresentationCaps.SupportKernelModeCommandBuffer = 1;
+    }
 #else
     c->WDDMVersion = DXGKDDI_WDDMv1;
 #endif
@@ -1361,6 +1374,27 @@ static NTSTATUS APIENTRY d3dpt_get_standard_allocation_driver_data(IN_CONST_HAND
         d.h = g->pCreateStagingSurfaceData->Height;
         d.format = D3DDDIFMT_X8R8G8B8;
         break;
+#ifdef D3DPT_WDDM12
+    case D3DKMDT_STANDARDALLOCATION_GDISURFACE: {
+        /* GDI acceleration: the redirection bitmaps (TEXTURE) and the
+         * surfaces GDI's CPU fills and reads (the staging ones, ClearType's
+         * lookup table); with any of them refused GDI stays in software */
+        const D3DKMDT_GDISURFACEDATA *gs = g->pCreateGdiSurfaceData;
+
+        if (!g_gdi_accel || (gs->Type != D3DKMDT_GDISURFACE_TEXTURE && gs->Type != D3DKMDT_GDISURFACE_STAGING_CPUVISIBLE &&
+                             gs->Type != D3DKMDT_GDISURFACE_STAGING && gs->Type != D3DKMDT_GDISURFACE_LOOKUPTABLE)) {
+            dbg_hex("d3dptkmd: GDI surface type ", (ULONG)gs->Type);
+            dbg_puts(" refused\n");
+            return STATUS_NOT_SUPPORTED;
+        }
+        d.kind = D3DPT_ALLOC_GDI;
+        d.source = (ULONG)gs->Type;
+        d.w = gs->Width;
+        d.h = gs->Height;
+        d.format = gs->Format;
+        break;
+    }
+#endif
     default:
         dbg_hex("d3dptkmd: GetStandardAllocationDriverData type ", (ULONG)g->StandardAllocationType);
         dbg_puts(" refused\n");
@@ -1373,6 +1407,11 @@ static NTSTATUS APIENTRY d3dpt_get_standard_allocation_driver_data(IN_CONST_HAND
     } else if (g->StandardAllocationType == D3DKMDT_STANDARDALLOCATION_STAGINGSURFACE) {
         g->pCreateStagingSurfaceData->Pitch = d.pitch;
     }
+#ifdef D3DPT_WDDM12
+    else if (g->StandardAllocationType == D3DKMDT_STANDARDALLOCATION_GDISURFACE) {
+        g->pCreateGdiSurfaceData->Pitch = d.pitch;
+    }
+#endif
     g->AllocationPrivateDriverDataSize = sizeof(d);
     g->ResourcePrivateDriverDataSize = 0;
     if (g->pAllocationPrivateDriverData) {
@@ -1429,6 +1468,14 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
                 al->d.levels = 1;
                 al->d.nlv = 0;
                 al->handle = (ULONG)InterlockedIncrement(&a->next_handle);
+            } else if (d->kind == D3DPT_ALLOC_GDI && d->source == D3DPT_GDISURF_TEXTURE) {
+                /* a redirection bitmap: GDI draws into it and DWM samples
+                 * it through the host's object (the GDI record), a render
+                 * target texture there; the CPU never sees it */
+                al->d.caps = D3DPT_VS_RENDER_TARGET | D3DPT_VS_TEXTURE;
+                al->d.levels = 1;
+                al->d.nlv = 0;
+                al->handle = (ULONG)InterlockedIncrement(&a->next_handle);
             }
         }
         info->Alignment = 0;
@@ -1438,14 +1485,17 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
         RtlZeroMemory(&info->PreferredSegment, sizeof(info->PreferredSegment));
         /* the primary is scanned out and the host reads Direct3D's
          * resources from VRAM, so those are VRAM only; the rest may stay in
-         * system memory behind the aperture (bit 1: segment 2) */
-        info->SupportedReadSegmentSet = d->kind == D3DPT_ALLOC_PRIMARY || d->kind == D3DPT_ALLOC_D3D ? 1 : 3;
+         * system memory behind the aperture (bit 1: segment 2); the host
+         * reads and writes GDI's surfaces in VRAM too */
+        info->SupportedReadSegmentSet =
+            d->kind == D3DPT_ALLOC_PRIMARY || d->kind == D3DPT_ALLOC_D3D || d->kind == D3DPT_ALLOC_GDI ? 1 : 3;
         info->SupportedWriteSegmentSet = info->SupportedReadSegmentSet;
         info->EvictionSegmentSet = 0;
         info->MaximumRenamingListLength = 0;
         info->hAllocation = al;
         info->Flags.Value = 0;
-        info->Flags.CpuVisible = d->kind != D3DPT_ALLOC_D3D || !d->shared;
+        info->Flags.CpuVisible = (d->kind != D3DPT_ALLOC_D3D || !d->shared) &&
+                                 !(d->kind == D3DPT_ALLOC_GDI && d->source == D3DPT_GDISURF_TEXTURE);
         info->pAllocationUsageHint = NULL;
         info->AllocationPriority = d->kind == D3DPT_ALLOC_PRIMARY ? D3DDDI_ALLOCATIONPRIORITY_HIGH
                                                                   : D3DDDI_ALLOCATIONPRIORITY_NORMAL;
@@ -1566,19 +1616,19 @@ static NTSTATUS APIENTRY d3dpt_close_allocation(IN_CONST_HANDLE h, IN_CONST_PDXG
  * whose size takes the reader to the next one.
  */
 #define D3DPT_PKT_MAGIC 0x3d504b54u             /* "TKP=" */
-enum { PKT_TRANSFER = 1, PKT_FILL, PKT_BLT, PKT_COLORFILL, PKT_FLIP, PKT_MAP, PKT_UNMAP, PKT_REG, PKT_D3D, PKT_FIX };
+enum { PKT_TRANSFER = 1, PKT_FILL, PKT_BLT, PKT_COLORFILL, PKT_FLIP, PKT_MAP, PKT_UNMAP, PKT_REG, PKT_D3D, PKT_FIX, PKT_GDI };
 
 typedef struct PKT_HDR { ULONG magic, op, size; } PKT_HDR;
 
 /* one side of a paging transfer: a segment address, or system memory */
 typedef struct PKT_MEM { ULONG seg, addr; PMDL mdl; ULONG mdl_off; } PKT_MEM;
 
-typedef struct PKT_TRANSFER_T { PKT_HDR h; ULONG bytes; PKT_MEM src, dst; } PKT_TRANSFER_T;
+typedef struct PKT_TRANSFER_T { PKT_HDR h; ULONG bytes, offset; PKT_MEM src, dst; struct D3DPT_ALLOC *al; } PKT_TRANSFER_T;
 typedef struct PKT_FILL_T { PKT_HDR h; ULONG bytes, pattern, seg, addr; } PKT_FILL_T;
 
 /* A surface of a present: its slot in the allocation list, where it is
  * (from that list at Present, again at Patch), its pitch and pixel size. */
-typedef struct PKT_SURF { ULONG index, seg, addr, pitch, bpp; } PKT_SURF;
+typedef struct PKT_SURF { ULONG index, seg, addr, pitch, bpp; struct D3DPT_ALLOC *al; } PKT_SURF;
 /* a destination rectangle and the source corner it copies from */
 typedef struct PKT_RECT { LONG sx, sy, l, t, r, b; } PKT_RECT;
 typedef struct PKT_BLT_T { PKT_HDR h; PKT_SURF src, dst; ULONG color, n; PKT_RECT r[1]; } PKT_BLT_T;
@@ -1604,6 +1654,10 @@ typedef struct PKT_D3D_T { PKT_HDR h; ULONG count; } PKT_D3D_T;
  * fix-up packet comes before the records it patches. */
 typedef struct PKT_FIX_E { ULONG kind, add, off; struct D3DPT_ALLOC *al; } PKT_FIX_E;
 typedef struct PKT_FIX_T { PKT_HDR h; ULONG n; PKT_FIX_E e[1]; } PKT_FIX_T;
+/* GDI acceleration (RenderKm): a copy or a fill the host does (the GDI
+ * record, d3dpt_proto.h), its allocations where the last Patch saw them;
+ * a PKT_REG of the DMA buffer's whole allocation list comes first */
+typedef struct PKT_GDI_T { PKT_HDR h; ULONG op, color, n; struct D3DPT_ALLOC *src, *dst; PKT_RECT r[1]; } PKT_GDI_T;
 
 static void pkt_hdr(PKT_HDR *p, ULONG op, ULONG size)
 {
@@ -2179,6 +2233,127 @@ static void pkt_time(ULONG op, LARGE_INTEGER t0)
     g_pkt_t0 = t1.QuadPart;
 }
 
+/* ------------------------------------------------- GDI acceleration */
+
+/* One side of a GDI record: the allocation's host handle (registered where
+ * it is now first), its VRAM place, size and format. FALSE: not in VRAM. */
+static BOOLEAN gdi_side(D3DPT_ADAPTER *a, d3dpt_gdi_side *s, D3DPT_ALLOC *al)
+{
+    RtlZeroMemory(s, sizeof(*s));
+    if (!al || al->cur_seg != 1) {
+        return FALSE;
+    }
+    if (al->handle && al->host_addr != al->cur_addr) {
+        d3d_register(a, al, al->cur_addr);
+    }
+    s->handle = al->handle;
+    s->flags = al->d.kind == D3DPT_ALLOC_GDI && al->d.source == D3DPT_GDISURF_TEXTURE ? D3DPT_GDI_TEXTURE : 0;
+    s->offset = al->cur_addr;
+    s->pitch = al->d.pitch;
+    s->width = al->d.w;
+    s->height = al->d.h;
+    s->format = al->d.format;
+    return TRUE;
+}
+
+/* The GDI record of a copy (src set) or a fill; FALSE if a side is not in
+ * VRAM or the window has no room */
+static BOOLEAN gdi_record(D3DPT_ADAPTER *a, ULONG op, ULONG color, D3DPT_ALLOC *src, D3DPT_ALLOC *dst,
+                          const PKT_RECT *r, ULONG n)
+{
+    d3dpt_gdi g;
+    d3dpt_gdi *out;
+
+    RtlZeroMemory(&g, sizeof(g));
+    g.op = op;
+    g.color = color;
+    g.n = n;
+    if (!gdi_side(a, &g.dst, dst) || (op == D3DPT_GDI_COPY && !gdi_side(a, &g.src, src))) {
+        static ULONG logged;
+
+        if (logged < 16) {      /* an allocation outside VRAM: the operation is lost */
+            logged++;
+            dbg_hex("d3dptkmd: a GDI record dropped, op ", op);
+            dbg_hex(" dst kind ", dst ? dst->d.kind * 16 + dst->d.source : 0);
+            dbg_hex(" seg ", dst ? dst->cur_seg : 0);
+            dbg_hex(" src kind ", src ? src->d.kind * 16 + src->d.source : 0);
+            dbg_hex(" seg ", src ? src->cur_seg : 0);
+            dbg_puts("\n");
+        }
+        return FALSE;
+    }
+    out = d3dpt_enc_cmd(&a->enc, D3DPT_OP_GDI, sizeof(g), n * sizeof(d3dpt_gdi_rect));
+    if (!out) {
+        return FALSE;
+    }
+    *out = g;
+    RtlCopyMemory(out + 1, r, n * sizeof(d3dpt_gdi_rect));     /* PKT_RECT is d3dpt_gdi_rect's layout */
+    return TRUE;
+}
+
+/* A present into a window's redirection bitmap (GDI acceleration): a
+ * copy the host does, so the bitmap's object, which DWM samples, has it */
+static BOOLEAN gdi_present(D3DPT_ADAPTER *a, const PKT_BLT_T *p)
+{
+    if (!a->d3d || p->h.op != PKT_BLT || !p->dst.al || p->dst.al->d.kind != D3DPT_ALLOC_GDI ||
+        p->dst.al->d.source != D3DPT_GDISURF_TEXTURE) {
+        return FALSE;
+    }
+    return gdi_record(a, D3DPT_GDI_COPY, 0, p->src.al, p->dst.al, p->r, p->n);
+}
+
+/* A redirection bitmap paged out of VRAM or into it (GDI drawing on it
+ * with the CPU goes through system memory): its pixels are the host's
+ * object, so the object is written into the VRAM a transfer reads (before
+ * it, the batch run first) and re-read from the VRAM a transfer wrote */
+static void gdi_paged(D3DPT_ADAPTER *a, const PKT_TRANSFER_T *t, BOOLEAN before)
+{
+    const D3DPT_ALLOC *al = t->al;
+    d3dpt_gdi_side obj, vram;
+    d3dpt_gdi g;
+    d3dpt_gdi_rect *r;
+    d3dpt_gdi *out;
+
+    if (!a->d3d || !al || al->d.kind != D3DPT_ALLOC_GDI || al->d.source != D3DPT_GDISURF_TEXTURE || !al->handle ||
+        (before ? t->src.seg : t->dst.seg) != 1) {
+        return;
+    }
+    /* a transfer in pieces: written back before the first, re-read after the last */
+    if (before ? t->offset != 0 : (SIZE_T)t->offset + t->bytes < al->size) {
+        return;
+    }
+    RtlZeroMemory(&obj, sizeof(obj));
+    obj.handle = al->handle;
+    obj.pitch = al->d.pitch;
+    obj.width = al->d.w;
+    obj.height = al->d.h;
+    obj.format = al->d.format;
+    vram = obj;
+    vram.flags = D3DPT_GDI_VRAM;
+    vram.offset = (before ? t->src.addr : t->dst.addr) - t->offset;     /* the allocation's start */
+    obj.offset = vram.offset;
+    /* written back, an object only if the host has one (else VRAM onto
+     * itself); re-read, the object made if it is not yet */
+    obj.flags = before ? 0 : D3DPT_GDI_TEXTURE;
+    RtlZeroMemory(&g, sizeof(g));
+    g.op = D3DPT_GDI_COPY;
+    g.n = 1;
+    g.src = before ? obj : vram;
+    g.dst = before ? vram : obj;
+    out = d3dpt_enc_cmd(&a->enc, D3DPT_OP_GDI, sizeof(g), sizeof(*r));
+    if (!out) {
+        return;
+    }
+    *out = g;
+    r = (d3dpt_gdi_rect *)(out + 1);
+    r->sx = r->sy = r->l = r->t = 0;
+    r->r = (LONG)al->d.w;
+    r->b = (LONG)al->d.h;
+    if (before) {
+        d3dpt_enc_flush(&a->enc);   /* in VRAM before the transfer reads it */
+    }
+}
+
 static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
 {
     ULONG off = 0;
@@ -2195,15 +2370,27 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
         }
         switch (hd->op) {
         case PKT_TRANSFER:
+            gdi_paged(a, (const PKT_TRANSFER_T *)hd, TRUE);
             run_transfer(a, (const PKT_TRANSFER_T *)hd);
+            gdi_paged(a, (const PKT_TRANSFER_T *)hd, FALSE);
             break;
         case PKT_FILL:
             run_fill(a, (const PKT_FILL_T *)hd);
             break;
         case PKT_BLT:
         case PKT_COLORFILL:
-            run_blt(a, (const PKT_BLT_T *)hd);
+            if (!gdi_present(a, (const PKT_BLT_T *)hd)) {
+                run_blt(a, (const PKT_BLT_T *)hd);
+            }
             break;
+        case PKT_GDI: {
+            const PKT_GDI_T *g = (const PKT_GDI_T *)hd;
+
+            if (a->d3d) {
+                gdi_record(a, g->op, g->color, g->src, g->dst, g->r, g->n);
+            }
+            break;
+        }
         case PKT_FLIP:
             if (((const PKT_FLIP_T *)hd)->src.seg == 1 && a->flip_defer) {
                 a->flip_addr = ((const PKT_FLIP_T *)hd)->src.addr;     /* SubmitCommand queues it */
@@ -2466,6 +2653,8 @@ static NTSTATUS APIENTRY d3dpt_build_paging_buffer(IN_CONST_HANDLE h, IN_PDXGKAR
         }
         pkt_hdr(&p->h, PKT_TRANSFER, sizeof(*p));
         p->bytes = (ULONG)b->Transfer.TransferSize;
+        p->al = (D3DPT_ALLOC *)b->Transfer.hAllocation;
+        p->offset = (ULONG)b->Transfer.TransferOffset;
         alloc_at(b->Transfer.hAllocation, b->Transfer.Destination.SegmentId,
                  b->Transfer.Destination.SegmentAddress.LowPart);
         transfer_side(&p->src, b->Transfer.Source.SegmentId, b->Transfer.Source.SegmentAddress,
@@ -2562,6 +2751,7 @@ static void surf_from_list(PKT_SURF *s, const DXGK_ALLOCATIONLIST *list, ULONG i
     s->addr = list[index].PhysicalAddress.LowPart;
     s->pitch = al ? al->d.pitch : 0;
     s->bpp = al ? al->d.bpp : 4;
+    s->al = (D3DPT_ALLOC *)al;
 }
 
 /*
@@ -2666,6 +2856,167 @@ static NTSTATUS APIENTRY d3dpt_present(IN_CONST_HANDLE h, INOUT_PDXGKARG_PRESENT
  * where. The user-mode driver keeps its buffer small enough that one DMA
  * buffer always takes it.
  */
+#ifdef D3DPT_WDDM12
+/* A GDI command's rectangles: its sub-rectangles (or the destination
+ * rectangle alone), each with its source corner when there is a source */
+static void gdi_rects(const RECT *dr, ULONG nsub, const RECT *sub, const RECT *sr, PKT_RECT *out, ULONG n)
+{
+    ULONG i;
+
+    for (i = 0; i < n; i++) {
+        const RECT *d = nsub ? &sub[i] : dr;
+
+        out[i].l = d->left;
+        out[i].t = d->top;
+        out[i].r = d->right;
+        out[i].b = d->bottom;
+        out[i].sx = sr ? sr->left + (d->left - dr->left) : 0;
+        out[i].sy = sr ? sr->top + (d->top - dr->top) : 0;
+    }
+}
+
+/*
+ * GDI acceleration's command buffer (RenderKm): a registration packet of
+ * the allocation list, as Render's, then a packet for each copy (SRCCOPY)
+ * and fill (PATCOPY), which the submission hands the host as GDI records.
+ * The other operations are not done yet (logged). Commands that do not fit
+ * the DMA buffer go in the next (MultipassOffset: the next command's
+ * offset).
+ */
+static ULONG g_gdi_skip[24];          /* RenderKm's operations not done yet, by kind (d3dpt_render_km) */
+static LARGE_INTEGER g_gdi_skip_t0;
+
+static DXGKDDI_RENDERKM d3dpt_render_km;
+static NTSTATUS APIENTRY d3dpt_render_km(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDER r)
+{
+    static ULONG skipped;
+    PKT_REG_T *reg = (PKT_REG_T *)r->pDmaBuffer;
+    D3DDDI_PATCHLOCATIONLIST *out = r->pPatchLocationListOut;
+    ULONG nal = r->AllocationListSize, reg_size, i, off;
+    PUCHAR dma, first, end;
+
+    UNREFERENCED_PARAMETER(h);
+    reg_size = FIELD_OFFSET(PKT_REG_T, e) + (nal ? nal : 1) * sizeof(PKT_REG_E);
+    if (reg_size > r->DmaSize || nal > r->PatchLocationListOutSize) {
+        dbg_hex("d3dptkmd: RenderKm: allocations ", nal);
+        dbg_puts(" do not fit one DMA buffer\n");
+        return STATUS_INVALID_PARAMETER;
+    }
+    pkt_hdr(&reg->h, PKT_REG, reg_size);
+    reg->n = nal;
+    for (i = 0; i < nal; i++) {
+        PKT_REG_E *e = &reg->e[i];
+
+        e->index = i;
+        e->seg = 0;
+        e->addr = 0;
+        e->al = (D3DPT_ALLOC *)r->pAllocationList[i].hDeviceSpecificAllocation;
+        RtlZeroMemory(out, sizeof(*out));
+        out->AllocationIndex = i;
+        out->PatchOffset = (UINT)((PUCHAR)&e->seg - (PUCHAR)r->pDmaBuffer);
+        out++;
+    }
+    first = dma = (PUCHAR)r->pDmaBuffer + reg_size;
+    end = (PUCHAR)r->pDmaBuffer + r->DmaSize;
+    for (off = r->MultipassOffset; off + FIELD_OFFSET(DXGK_RENDERKM_COMMAND, Command) <= r->CommandLength;) {
+        const DXGK_RENDERKM_COMMAND *c = (const DXGK_RENDERKM_COMMAND *)((const UCHAR *)r->pCommand + off);
+        const RECT *dr = NULL, *sr = NULL, *sub = NULL;
+        ULONG op = 0, color = 0, si = ~0u, di = ~0u, nsub = 0, n, size;
+        PKT_GDI_T *g;
+
+        if (c->CommandSize < (ULONG)FIELD_OFFSET(DXGK_RENDERKM_COMMAND, Command) || c->CommandSize > r->CommandLength - off) {
+            dbg_hex("d3dptkmd: RenderKm: a broken command at ", off);
+            dbg_puts("\n");
+            break;
+        }
+        if (c->OpCode == DXGK_GDIOP_BITBLT && c->Command.BitBlt.Rop == DXGK_GDIROP_SRCCOPY) {
+            op = D3DPT_GDI_COPY;
+            dr = &c->Command.BitBlt.DstRect;
+            sr = &c->Command.BitBlt.SrcRect;
+            si = c->Command.BitBlt.SrcAllocationIndex;
+            di = c->Command.BitBlt.DstAllocationIndex;
+            nsub = c->Command.BitBlt.NumSubRects;
+            sub = c->Command.BitBlt.pSubRects;
+        } else if (c->OpCode == DXGK_GDIOP_COLORFILL && c->Command.ColorFill.Rop == DXGK_GDIROPCF_PATCOPY) {
+            op = D3DPT_GDI_FILL;
+            color = c->Command.ColorFill.Color;
+            dr = &c->Command.ColorFill.DstRect;
+            di = c->Command.ColorFill.DstAllocationIndex;
+            nsub = c->Command.ColorFill.NumSubRects;
+            sub = c->Command.ColorFill.pSubRects;
+        } else if (c->OpCode != DXGK_GDIOP_ESCAPE) {
+            /* not done yet: counted by operation (and a BitBlt's or a
+             * ColorFill's ROP), logged every 5 s below */
+            ULONG k = (ULONG)c->OpCode & 7;
+
+            if (c->OpCode == DXGK_GDIOP_BITBLT) {
+                k = 8 + (c->Command.BitBlt.Rop & 7);
+            } else if (c->OpCode == DXGK_GDIOP_COLORFILL) {
+                k = 16 + (c->Command.ColorFill.Rop & 7);
+            }
+            g_gdi_skip[k]++;
+        }
+        if (op && di < nal && (op == D3DPT_GDI_FILL || si < nal) && (!nsub || sub)) {
+            n = nsub ? nsub : 1;
+            size = FIELD_OFFSET(PKT_GDI_T, r) + n * sizeof(PKT_RECT);
+            if (size > (ULONG)(end - dma)) {
+                if (dma != first) {
+                    r->MultipassOffset = off;          /* the rest in the next DMA buffer */
+                    r->pDmaBuffer = dma;
+                    r->pPatchLocationListOut = out;
+                    return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
+                }
+                n = (ULONG)((end - dma - FIELD_OFFSET(PKT_GDI_T, r)) / sizeof(PKT_RECT));     /* alone too big: cut */
+                size = FIELD_OFFSET(PKT_GDI_T, r) + n * sizeof(PKT_RECT);
+                dbg_hex("d3dptkmd: RenderKm: sub-rectangles cut to ", n);
+                dbg_puts("\n");
+            }
+            g = (PKT_GDI_T *)dma;
+            pkt_hdr(&g->h, PKT_GDI, size);
+            g->op = op;
+            g->color = color;
+            g->n = n;
+            g->src = op == D3DPT_GDI_COPY ? (D3DPT_ALLOC *)r->pAllocationList[si].hDeviceSpecificAllocation : NULL;
+            g->dst = (D3DPT_ALLOC *)r->pAllocationList[di].hDeviceSpecificAllocation;
+            gdi_rects(dr, nsub, sub, sr, g->r, n);
+            dma += size;
+        }
+        off += c->CommandSize;
+    }
+    {
+        LARGE_INTEGER f, now = KeQueryPerformanceCounter(&f);
+
+        if (!g_gdi_skip_t0.QuadPart) {
+            g_gdi_skip_t0 = now;
+        } else if (now.QuadPart - g_gdi_skip_t0.QuadPart > 5 * f.QuadPart && skipped < 64) {
+            ULONG k, any = 0;
+
+            for (k = 0; k < RTL_NUMBER_OF(g_gdi_skip); k++) {
+                any |= g_gdi_skip[k];
+            }
+            if (any) {
+                skipped++;
+                dbg_puts("d3dptkmd: RenderKm in 5 s, not done yet:");
+                for (k = 0; k < RTL_NUMBER_OF(g_gdi_skip); k++) {
+                    if (g_gdi_skip[k]) {
+                        dbg_puts(k < 8 ? " op" : k < 16 ? " bitblt-rop" : " fill-rop");
+                        dbg_hex("", k & 7);
+                        dbg_hex("=", g_gdi_skip[k]);
+                    }
+                }
+                dbg_puts("\n");
+            }
+            RtlZeroMemory(g_gdi_skip, sizeof(g_gdi_skip));
+            g_gdi_skip_t0 = now;
+        }
+    }
+    r->MultipassOffset = off;
+    r->pDmaBuffer = dma;
+    r->pPatchLocationListOut = out;
+    return STATUS_SUCCESS;
+}
+#endif
+
 static DXGKDDI_RENDER d3dpt_render;
 static NTSTATUS APIENTRY d3dpt_render(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDER r)
 {
@@ -3563,12 +3914,37 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 
 /* ------------------------------------------------------------- entry */
 
+/* The service key's GdiAcceleration (REG_DWORD, 0: off), read once */
+static void read_settings(PUNICODE_STRING reg)
+{
+    RTL_QUERY_REGISTRY_TABLE q[2];
+    WCHAR path[260];
+    ULONG v = 1, def = 1, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
+
+    if (!n || n >= RTL_NUMBER_OF(path)) {
+        return;
+    }
+    RtlCopyMemory(path, reg->Buffer, n * sizeof(WCHAR));
+    path[n] = 0;
+    RtlZeroMemory(q, sizeof(q));
+    q[0].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_TYPECHECK;
+    q[0].Name = L"GdiAcceleration";
+    q[0].EntryContext = &v;
+    q[0].DefaultType = (REG_DWORD << RTL_QUERY_REGISTRY_TYPECHECK_SHIFT) | REG_DWORD;
+    q[0].DefaultData = &def;
+    q[0].DefaultLength = sizeof(def);
+    if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, path, q, NULL, NULL))) {
+        g_gdi_accel = v != 0;
+    }
+}
+
 DRIVER_INITIALIZE DriverEntry;
 NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
 {
     DRIVER_INITIALIZATION_DATA init;
     NTSTATUS st;
 
+    read_settings(reg);
     RtlZeroMemory(&init, sizeof(init));
     init.Version = DXGKDDI_INTERFACE_VERSION;
 
@@ -3627,6 +4003,9 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
     init.DxgkDdiOpenAllocation = d3dpt_open_allocation;
     init.DxgkDdiCloseAllocation = d3dpt_close_allocation;
     init.DxgkDdiRender = d3dpt_render;
+#ifdef D3DPT_WDDM12
+    init.DxgkDdiRenderKm = d3dpt_render_km;
+#endif
     init.DxgkDdiPresent = d3dpt_present;
 
     init.DxgkDdiUpdateOverlay = d3dpt_update_overlay;

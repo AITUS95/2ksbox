@@ -434,6 +434,14 @@ d3d11 where the Direct3D 9 side runs on the system's d3d9.
   reports it as register set v10's `CAP_D3D11`, without which the guest
   driver does not open and Windows keeps Direct3D 11 on the Direct3D 9
   driver (d3d10level9, feature level 9_3).
+- Protocol v27 (M25) is the WDDM kernel driver's GDI acceleration (the
+  service key's `GdiAcceleration` = 0 turns it off): the `GDI` record (op 110), a copy
+  or a fill between two allocations, each the host's Direct3D 11 object
+  of it (a window's redirection bitmap, made at its first use) or its
+  VRAM. RenderKm's SRCCOPY BitBlts and PATCOPY ColorFills come as these,
+  and so does a present into a redirection bitmap, a copy on the host
+  GPU. A bitmap paged out of VRAM is written back from its object first
+  and re-read after it comes in (`D3DPT_GDI_VRAM`).
 - Protocol v26 (M25 step 4) is the 11.1 interface's: a signature entry's
   component type, constant buffers bound with offsets (`SET_CB1`,
   `*SetConstantBuffers1`) and `CLEAR_VIEW`. DWM composes through this

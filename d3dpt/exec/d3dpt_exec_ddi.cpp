@@ -3676,6 +3676,8 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
     }
     case D3DPT_OP_D11:
         return exec_d11_op(b, c);
+    case D3DPT_OP_GDI:
+        return exec_d11_gdi(b, c);
     default:
         return false;
     }

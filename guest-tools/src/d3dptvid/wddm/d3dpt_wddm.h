@@ -75,7 +75,9 @@ typedef struct D3DPT_ESC {
  * makes absolute when it registers the allocation with the host.
  */
 #define D3DPT_ALLOC_MAGIC 0x3d41544cu             /* "LTA=" */
-enum { D3DPT_ALLOC_PRIMARY = 1, D3DPT_ALLOC_SHADOW, D3DPT_ALLOC_STAGING, D3DPT_ALLOC_D3D };
+enum { D3DPT_ALLOC_PRIMARY = 1, D3DPT_ALLOC_SHADOW, D3DPT_ALLOC_STAGING, D3DPT_ALLOC_D3D,
+       D3DPT_ALLOC_GDI };                         /* a GDI surface (GDI acceleration, x64): its D3DKMDT_GDISURFACETYPE in `source` */
+#define D3DPT_GDISURF_TEXTURE 1u                  /* D3DKMDT_GDISURFACE_TEXTURE: a redirection bitmap, the host's object */
 #define D3DPT_ALLOC_MAX_LV (6 * 16)               /* a cube's six faces of 16 levels, less one, plus a volume's pair */
 
 typedef struct D3DPT_ALLOC_DESC {

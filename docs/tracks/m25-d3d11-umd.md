@@ -564,15 +564,66 @@ blend against the lookup table), the staging surfaces uploaded from VRAM
 where they are sources and read back where they are destinations, and
 the present's Blt into a bitmap as a host copy.
 
+**GDI acceleration, copies, fills and the present, 2026-10-18** (user:
+"start with copies, fills and the present"; then "this branch is
+experimental, you can leave it on"). On by default on this branch: the
+x64 kernel driver claims `SupportKernelModeCommandBuffer` when the
+executor is present, unless the service key's `GdiAcceleration` is 0
+(`HKLM\SYSTEM\CurrentControlSet\Services\d3dptkmd`, read at
+DriverEntry; a restart applies it). Then:
+
+- **GDI surfaces** (`GetStandardAllocationDriverData`'s `GDISURFACE`):
+  `TEXTURE` bitmaps (a host handle, a render-target texture there, not
+  CPU-visible), the two staging types and ClearType's lookup table, all
+  in VRAM (kind `D3DPT_ALLOC_GDI`, the type in `source`).
+- **RenderKm** (`d3dpt_render_km`): a `PKT_REG` of the allocation list,
+  as Render's, then a `PKT_GDI` per SRCCOPY BitBlt and PATCOPY ColorFill
+  (their sub-rectangles; `MultipassOffset` the next command's offset
+  when the DMA buffer is full); the submission hands each to the host as
+  protocol v27's `GDI` record. The other operations are counted and
+  logged every 5 s (`RenderKm in 5 s, not done yet`).
+- **The host** (`exec_d11_gdi`): each side is the bitmap's Direct3D 11
+  object (made at its first use; DWM's `RES_CREATE` then finds it) or
+  VRAM (the staging surfaces; the host's pixels synced there first):
+  `CopySubresourceRegion` (through a temporary within one bitmap when the
+  rectangles overlap), `UpdateSubresource` from VRAM, a staged readback
+  into VRAM, `memmove`; fills by `ClearView` with alpha 255 (GDI leaves a
+  fill's alpha 0, and DWM composes the bitmap with it: a white fill came
+  out black).
+- **The present** into a `TEXTURE` bitmap is the same record, a copy on
+  the host GPU (`gdi_present`), where a blt-model window's frame went
+  through a staging surface the CPU read.
+- **Paging**: a bitmap transferred out of VRAM is written back from its
+  object first, and re-read after a transfer brings it in (`gdi_paged`,
+  `D3DPT_GDI_VRAM`): GDI drawing on the CPU pages it through system
+  memory (the logon's 1920x1200 bitmap went out and in once).
+
+d3dgame11 windowed, DISCARD, with it on: with vsync 304 of 380 frames at
+15.5-17.8 ms and 1 doubled (median 16.7 ms; 57 and 56 before), unsynced
+**340 frames/s** (93 before; the flip model's 323), 300 host copies in
+each 5 s, the scene right on the screen. **GDI's own content is not
+there yet**: the wallpaper and a classic dialog's inside (`winver`) stay
+black, Notepad's text area blank. For `winver` the host got one fill of
+a 403x20 band (and, another boot, a white fill of the whole window) and
+nothing else: no copy, no paging, and its bitmap's VRAM was black when
+re-read (a destructive test, removed), so its drawing reaches the window
+some way not found yet; ColorFill's PATINVERT (the caret) and the other
+operations are not done. Off (`GdiAcceleration` = 0) nothing changes:
+Windows asks for no GDI surface.
+
 ## Open
 
-- **A blt-model window** waits for DWM's composition through Windows'
-  system-memory redirection (above). CPU-visible texture bitmaps do not
-  change it; GDI acceleration does (logged only: the present goes
-  straight into the window's `TEXTURE` bitmap, a steady 60 frames/s),
-  once RenderKm's operations are done on the host.
-- DISCARD with vsync still spreads (median ~19-20 ms, ~50 of 380 frames
-  doubled; the flip model holds 17); the same path.
+- **GDI acceleration's content** (above): how a classic window's and
+  the wallpaper's drawing reach their bitmaps with it on, then the other
+  RenderKm operations (the ROPs, AlphaBlend, StretchBlt, TransparentBlt,
+  ClearType). Before the track merges it must draw every window or go
+  back to off by default; with it on a blt-model (DISCARD) window
+  presents at the flip model's pace.
+- **A blt-model window** without it waits for DWM's composition through
+  Windows' system-memory redirection (above); CPU-visible texture
+  bitmaps do not change that.
+- DISCARD with vsync without it still spreads (median ~19-20 ms, ~50 of
+  380 frames doubled; the flip model holds 17); the same path.
 - The vertical blank's ±2 ms between the player and the device: not the
   executor's batch (above); where it comes from is open.
 - The screen Windows turned off still shows the last frame (above); the

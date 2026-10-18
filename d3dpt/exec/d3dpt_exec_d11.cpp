@@ -67,11 +67,13 @@ struct D11Res {
      * shared surface DWM composes) is read back before that code uses it
      * (exec_d11_sync) */
     bool newer = false;
+    ID3D11RenderTargetView *gdi_rtv = nullptr;  /* GDI's fills (v27) */
     void release() {
         if (res) res->Release();
         if (stage) stage->Release();
         if (resolve) resolve->Release();
-        res = nullptr; stage = nullptr; resolve = nullptr;
+        if (gdi_rtv) gdi_rtv->Release();
+        res = nullptr; stage = nullptr; resolve = nullptr; gdi_rtv = nullptr;
     }
 };
 
@@ -1335,9 +1337,198 @@ void prof_tok(Exec &x, D11 &d, uint32_t op, std::chrono::steady_clock::time_poin
     d.prof_t0 = now;
 }
 
+/* ------------------------------------------------------------------ GDI */
+
+/* One side of a GDI operation (v27): the host's object of it, or its VRAM */
+struct GdiSide {
+    D11Res *obj = nullptr;
+    uint8_t *mem = nullptr;
+    uint32_t pitch = 0, w = 0, h = 0, handle = 0;
+};
+
+/* a redirection bitmap's object, made at its first use (GDI may draw into
+ * it before DWM opens it; DWM's RES_CREATE then finds it here) */
+D11Res *gdi_object(Exec &x, D11 &d, const d3dpt_gdi_side &s)
+{
+    D11Res r;
+    r.d.res = s.handle;
+    r.d.dim = 3;                                /* D3D11_RESOURCE_DIMENSION_TEXTURE2D */
+    r.d.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    r.d.bind = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+    r.d.width = s.width;
+    r.d.height = s.height;
+    r.d.depth = r.d.mips = r.d.array = r.d.samples = 1;
+    if (FAILED(res_create(x, d, r))) return nullptr;
+    D11Res &nr = d.res[s.handle];
+    nr.release();
+    nr = r;
+    return &nr;
+}
+
+bool gdi_side(Exec &x, D11 &d, const d3dpt_gdi_side &s, GdiSide &o)
+{
+    /* 32 bits a pixel: D3DDDIFMT_A8R8G8B8, X8R8G8B8 */
+    if ((s.format != 21 && s.format != 22) || !s.width || !s.height || s.width > 16384 || s.height > 16384) return false;
+    o.w = s.width;
+    o.h = s.height;
+    o.handle = s.handle;
+    if (s.handle && !(s.flags & D3DPT_GDI_VRAM)) {
+        D11Res *r = res_of(d, s.handle);
+        if (!r && (s.flags & D3DPT_GDI_TEXTURE)) r = gdi_object(x, d, s);
+        if (r && r->res && r->d.dim == 3 && r->d.samples <= 1 && r->d.width >= s.width && r->d.height >= s.height &&
+            (r->d.format == DXGI_FORMAT_B8G8R8A8_UNORM || r->d.format == DXGI_FORMAT_B8G8R8X8_UNORM ||
+             r->d.format == DXGI_FORMAT_B8G8R8A8_TYPELESS)) {
+            o.obj = r;
+            return true;
+        }
+    }
+    if (!x.vram || s.pitch < s.width * 4 || (uint64_t)s.offset + (uint64_t)s.pitch * (s.height - 1) + s.width * 4 > x.vram_size)
+        return false;
+    if (s.handle && !(s.flags & D3DPT_GDI_VRAM)) {
+        /* what the host drew into it goes to VRAM first */
+        exec_d11_sync(x, s.handle);
+        exec_ddi_vram_sync(x, s.handle);
+    }
+    o.mem = x.vram + s.offset;
+    o.pitch = s.pitch;
+    return true;
+}
+
+/* a rectangle inside both sides (the source's at its corner) */
+bool gdi_rect_ok(const d3dpt_gdi_rect &r, const GdiSide &dst, const GdiSide *src)
+{
+    if (r.l < 0 || r.t < 0 || r.r <= r.l || r.b <= r.t || (uint32_t)r.r > dst.w || (uint32_t)r.b > dst.h) return false;
+    if (!src) return true;
+    int64_t sr = (int64_t)r.sx + (r.r - r.l), sb = (int64_t)r.sy + (r.b - r.t);
+    return r.sx >= 0 && r.sy >= 0 && sr <= src->w && sb <= src->h;
+}
+
+void gdi_written(Exec &x, D11Res *obj, const GdiSide &s, uint32_t first_row, uint32_t rows)
+{
+    if (obj) {
+        if (!obj->layout.empty()) obj->newer = true;
+        return;
+    }
+    if (s.handle) exec_ddi_vram_written(x, s.handle);
+    if (x.ops.vram_dirty)
+        x.ops.vram_dirty(x.ops.ud, (uint32_t)(s.mem - x.vram) + first_row * s.pitch, rows * s.pitch);
+}
+
+void gdi_fill(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, const GdiSide &dst)
+{
+    uint32_t c = g.color;
+    if (dst.obj) {
+        if (!dst.obj->gdi_rtv && FAILED(d.dev->CreateRenderTargetView(dst.obj->res, nullptr, &dst.obj->gdi_rtv))) return;
+        /* opaque: GDI leaves a fill's alpha 0, and DWM composes a
+         * redirection bitmap with its alpha (a white fill came out black) */
+        const float col[4] = { ((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, 1.0f };
+        std::vector<D3D11_RECT> rects;
+        for (uint32_t i = 0; i < g.n; i++)
+            if (gdi_rect_ok(rc[i], dst, nullptr)) rects.push_back({ rc[i].l, rc[i].t, rc[i].r, rc[i].b });
+        if (rects.empty()) return;
+        d.ctx->ClearView(dst.obj->gdi_rtv, col, rects.data(), (UINT)rects.size());
+        gdi_written(x, dst.obj, dst, 0, 0);
+        return;
+    }
+    for (uint32_t i = 0; i < g.n; i++) {
+        const d3dpt_gdi_rect &r = rc[i];
+        if (!gdi_rect_ok(r, dst, nullptr)) continue;
+        for (int32_t y = r.t; y < r.b; y++) {
+            uint32_t *p = (uint32_t *)(dst.mem + (uint64_t)y * dst.pitch) + r.l;
+            for (int32_t i2 = 0; i2 < r.r - r.l; i2++) p[i2] = c;
+        }
+        gdi_written(x, nullptr, dst, (uint32_t)r.t, (uint32_t)(r.b - r.t));
+    }
+}
+
+void gdi_copy(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, const GdiSide &src, const GdiSide &dst)
+{
+    for (uint32_t i = 0; i < g.n; i++) {
+        const d3dpt_gdi_rect &r = rc[i];
+        if (!gdi_rect_ok(r, dst, &src)) continue;
+        uint32_t w = (uint32_t)(r.r - r.l), h = (uint32_t)(r.b - r.t);
+        D3D11_BOX box = { (UINT)r.sx, (UINT)r.sy, 0, (UINT)r.sx + w, (UINT)r.sy + h, 1 };
+        if (src.obj && dst.obj) {
+            bool overlap = src.obj == dst.obj && r.sx < r.r && r.l < (int32_t)(r.sx + w) && r.sy < r.b && r.t < (int32_t)(r.sy + h);
+            if (!overlap) {
+                d.ctx->CopySubresourceRegion(dst.obj->res, 0, (UINT)r.l, (UINT)r.t, 0, src.obj->res, 0, &box);
+            } else {
+                /* within one bitmap, overlapping (a scroll): through a copy of the source */
+                D3D11_TEXTURE2D_DESC t = { w, h, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, { 1, 0 }, D3D11_USAGE_DEFAULT, 0, 0, 0 };
+                ID3D11Texture2D *tmp = nullptr;
+                if (FAILED(d.dev->CreateTexture2D(&t, nullptr, &tmp))) continue;
+                d.ctx->CopySubresourceRegion(tmp, 0, 0, 0, 0, src.obj->res, 0, &box);
+                d.ctx->CopySubresourceRegion(dst.obj->res, 0, (UINT)r.l, (UINT)r.t, 0, tmp, 0, nullptr);
+                tmp->Release();
+            }
+            gdi_written(x, dst.obj, dst, 0, 0);
+        } else if (dst.obj) {
+            D3D11_BOX db = { (UINT)r.l, (UINT)r.t, 0, (UINT)r.r, (UINT)r.b, 1 };
+            d.ctx->UpdateSubresource(dst.obj->res, 0, &db, src.mem + (uint64_t)r.sy * src.pitch + (uint64_t)r.sx * 4, src.pitch, 0);
+            gdi_written(x, dst.obj, dst, 0, 0);
+        } else if (src.obj) {
+            /* a readback: through a staging copy of the rectangle */
+            D3D11_TEXTURE2D_DESC t = { w, h, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, { 1, 0 }, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0 };
+            ID3D11Texture2D *stg = nullptr;
+            if (FAILED(d.dev->CreateTexture2D(&t, nullptr, &stg))) continue;
+            d.ctx->CopySubresourceRegion(stg, 0, 0, 0, 0, src.obj->res, 0, &box);
+            D3D11_MAPPED_SUBRESOURCE m;
+            if (SUCCEEDED(d.ctx->Map(stg, 0, D3D11_MAP_READ, 0, &m))) {
+                for (uint32_t y = 0; y < h; y++)
+                    memcpy(dst.mem + (uint64_t)(r.t + y) * dst.pitch + (uint64_t)r.l * 4, (const uint8_t *)m.pData + (uint64_t)y * m.RowPitch, w * 4);
+                d.ctx->Unmap(stg, 0);
+            }
+            stg->Release();
+            gdi_written(x, nullptr, dst, (uint32_t)r.t, h);
+        } else {
+            /* VRAM to VRAM, bottom up when the rows overlap downwards */
+            bool up = src.mem == dst.mem && r.t > r.sy;
+            for (uint32_t k = 0; k < h; k++) {
+                uint32_t y = up ? h - 1 - k : k;
+                memmove(dst.mem + (uint64_t)(r.t + y) * dst.pitch + (uint64_t)r.l * 4,
+                        src.mem + (uint64_t)(r.sy + y) * src.pitch + (uint64_t)r.sx * 4, w * 4);
+            }
+            gdi_written(x, nullptr, dst, (uint32_t)r.t, h);
+        }
+    }
+}
+
 } // namespace
 
 /* ------------------------------------------------------------- the API */
+
+/* v27's GDI record (d3dpt_exec_ddi.cpp's dispatch) */
+bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c)
+{
+    Exec &x = b.x;
+    auto *g = body<d3dpt_gdi>(c, 0, b);
+    if (!g) return true;
+    if (sizeof(d3dpt_cmd) + sizeof(*g) + (uint64_t)g->n * sizeof(d3dpt_gdi_rect) > c->size) { b.err = D3DPT_ERR_MALFORMED; return true; }
+    D11 *d = d11(x);
+    if (!d) return true;
+    const d3dpt_gdi_rect *rc = (const d3dpt_gdi_rect *)(g + 1);
+    GdiSide src, dst;
+    if (!gdi_side(x, *d, g->dst, dst)) {
+        if (d->warn(0x63000000u)) x.log("d11: a GDI operation with a destination of format %u, %ux%u: not done", g->dst.format, g->dst.width, g->dst.height);
+        return true;
+    }
+    switch (g->op) {
+    case D3DPT_GDI_FILL:
+        gdi_fill(x, *d, *g, rc, dst);
+        break;
+    case D3DPT_GDI_COPY:
+        if (!gdi_side(x, *d, g->src, src)) {
+            if (d->warn(0x64000000u)) x.log("d11: a GDI copy from format %u, %ux%u: not done", g->src.format, g->src.width, g->src.height);
+            return true;
+        }
+        gdi_copy(x, *d, *g, rc, src, dst);
+        break;
+    default:
+        if (d->warn(0x65000000u | (g->op & 0xffff))) x.log("d11: GDI operation %u unknown", g->op);
+        break;
+    }
+    return true;
+}
 
 bool exec_d11_op(Batch &b, const d3dpt_cmd *c)
 {

@@ -164,6 +164,7 @@ void exec_ddi_device_reset(Exec &x);
  * allocation the kernel driver released; a guest context it destroyed
  * (true if it was a Direct3D 11 one) */
 bool exec_d11_op(Batch &b, const d3dpt_cmd *c);
+bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c);   /* v27's GDI record */
 bool exec_d11_available(Exec &x);
 void exec_d11_sync(Exec &x, uint32_t handle);
 void exec_d11_vram_release(Exec &x, uint32_t handle);
