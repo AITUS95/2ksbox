@@ -301,7 +301,9 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    over its error (checked on Broadway with `LAUNCHER_PLAYER_BIN` on a
    missing file; an alert's text can't be selected, mitsuami has no
    option for it); an empty library
-   is a title, its folder and New machine. These buttons have no "…"
+   is a title, its folder and New machine, beside an empty sidebar on
+   macOS and GTK (2026-10-18, user: without it the window opened only
+   as wide as the details, the sidebar's width missing). These buttons have no "…"
    (user): toolbar and action buttons go without it on every platform
    today, as UTM's and VirtualBox's do. `Sidebar` was not used: its
    items are fixed when it is built and have no second line. Checked

@@ -380,12 +380,13 @@ pub fn MachinesWindow() -> impl View {
                 </Show>
                 {toolbar_buttons}
             </Toolbar>
-            <Show when=move || library.read(Machines::is_empty) fallback=|| view! { <MachineLibrary/> }>
-                <Column grow=1.0 gap=Spacing::Md align=Align::Center justify=Justify::Center padding=Spacing::Xl>
-                    <Text text_style=TextStyle::Title>"No machines yet"</Text>
-                    <Text color=Color::SecondaryLabel>{move || library.read(|m| m.library_dir.display().to_string())}</Text>
-                    <Button role=ButtonRole::Default @click=move || wizard.open_fresh()>"New machine"</Button>
-                </Column>
+            // With a sidebar, it stays while the library is empty: the
+            // window's size counts it, so it opens as wide as it will be.
+            <Show
+                when=move || !cfg!(sidebar) && library.read(Machines::is_empty)
+                fallback=|| view! { <MachineLibrary/> }
+            >
+                <NoMachines/>
             </Show>
             <WizardWindow/>
             <CloneWindow/>
@@ -406,10 +407,24 @@ fn MachineLibrary() -> impl View {
     view! {
         <Row grow=1.0 min_height=0>
             <MachineList/>
-            <Show when=move || library.current().is_some()>
+            <Show when=move || library.current().is_some() fallback=|| view! { <NoMachines/> }>
                 <Details/>
             </Show>
         </Row>
+    }
+}
+
+/// An empty library: where its machines go, and the way to make one.
+#[component]
+fn NoMachines() -> impl View {
+    let library = use_store::<Library>();
+    let wizard = use_store::<Wizard>();
+    view! {
+        <Column grow=1.0 gap=Spacing::Md align=Align::Center justify=Justify::Center padding=Spacing::Xl>
+            <Text text_style=TextStyle::Title>"No machines yet"</Text>
+            <Text color=Color::SecondaryLabel>{move || library.read(|m| m.library_dir.display().to_string())}</Text>
+            <Button role=ButtonRole::Default @click=move || wizard.open_fresh()>"New machine"</Button>
+        </Column>
     }
 }
 
