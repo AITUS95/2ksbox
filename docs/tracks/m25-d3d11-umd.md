@@ -386,15 +386,68 @@ don't have terrible frame pacing. the desktop is already feeling better
 than the viogpudo one". `scripts/test.sh all` on the PC with these
 changes: 67 passed, 16 skipped, none failed.
 
+**Flips that hold nothing, 2026-10-18** (the user, watching d3dgame11
+windowed with DISCARD: "it oscilates between fast and slow. like,
+several frames fast, then several slow"). Not the VRAM crossings: a
+per-frame trace (`d3dgame11 -trace N`) had runs of ~33 ms frames and
+runs of ~17 ms, nearly all of each inside `Present`, the executor and
+DWM mostly idle (`D3DPT_D11_PROF=1`). The kernel driver held a flip's
+fence until the vertical blank (the 600 frames/s fix of M20), and fences
+complete in order, so **every process's later submissions** waited behind
+DWM's flip: a present just before DWM's took one blank, one just after
+it two, and the phase between the two clocks drifted.
+
+- `FlipOnVSyncWithNoWait` alone (the flip's fence done at once, the
+  scanout and a CRTC_VSYNC at the blank) was bugcheck 0x113, subtype
+  0x35, at the adapter's next stop (the restart ~9-14 s into each boot,
+  or a reinstall): `VIDMM_FLIP_QUEUE_REFERENCES::ReleaseReference` on a
+  destroyed allocation with 0x5a / 0x65 / 0xb3 flips still counted on
+  source 0. Read in dxgmms1 with cdb: a DMA flip's queue entry is
+  retired only when a vertical blank's cookie matches the address the
+  entry holds, which none of ours ever did. Reporting the shown flip
+  when the blank's interrupt went off did not help. The guest sat in
+  recovery (QMP `send-key ret` twice gets past it).
+- **`FlipOnVSyncMmIo`** (with `FlipOnVSyncWithNoWait`, x64 only): a flip
+  on the blank is no DMA buffer (`Present` gets a NULL one) but
+  `SetVidPnSourceAddress` with `FlipOnNextVSync`, called once the
+  frame's rendering is done; the driver latches it and the blank shows it
+  and reports **the very 64-bit `PrimaryAddress`** it was given
+  (`shown_pa`), which is what the cookie is compared with. No fence
+  waits for a blank any more; dxgkrnl paces the flips itself.
+
+d3dgame11 windowed at 640x480, `-novsync`: DISCARD 70-115 frames/s
+(30-45 before), FLIP_SEQUENTIAL ~400 (~57); with vsync, ~50-57, the
+frame intervals one spread around 17-20 ms instead of two runs;
+full-screen d3dgame9 still exactly 60. The driver reinstalled and the
+boot-time restart stopped the adapter with no bugcheck after ~19,700
+blanks of DWM's MMIO flips. A redirection bitmap preferring the aperture
+(the CPU reads it, and VRAM is an uncached BAR under WHPX) measured no
+gain (84-89 against 79-93) and was left out. `scripts/test.sh all` on
+the PC: 67 passed, 16 skipped, none failed (run from the PowerShell
+tool: `win.ps1` started from Git Bash gets `pwd` as `C:/...`, whose
+colon breaks `PATH`, and the player's two checks fail with no output).
+
+Also: `D3D11Trace` / `D3D11Exclude` never reached a 32-bit program (its
+`RegGetValueA` read `WOW6432Node`); it asks for the 64-bit view now
+(`RRF_SUBKEY_WOW6464KEY`, defined by hand: the EWDK's headers predate it).
+Windows turning the screen off (`SetVidPnSourceVisibility 0`, the adapter
+to D3) leaves the device's last frame up, which reads as a frozen guest;
+the test machine's display and sleep timeouts are off (`powercfg`).
+
 ## Open
 
 - **A blt-model window through VRAM.** DISCARD's present still reads
   the buffer back into VRAM, the kernel driver's Present copies it into
   DWM's redirection surface there (the device's COPY registers, on the
-  vCPU), and DWM's d3d11 object uploads it again: ~37 frames/s against
-  flip's ~57. The copy belongs on the host GPU when both allocations
+  vCPU), and DWM's d3d11 object uploads it again. Since the MMIO flips
+  it runs at 70-115 frames/s unsynced (above), so this is throughput,
+  not pacing. The copy belongs on the host GPU when both allocations
   have host objects, which wants the device's copy to reach the
   executor in order with the submissions.
+- Frame intervals with vsync spread over ~13-23 ms around the blank
+  (~52 frames/s windowed): the blank's own timing on WHPX, unmeasured.
+- The screen Windows turned off still shows the last frame (above); the
+  device could show black while the source is invisible.
 
 - ~~**A TDR under a full-screen repaint**~~ (fixed by QEMU patch 94) (`LOAD\anim.ps1` maximized at
   1600x1200, before the NOOVERWRITE change; not seen in one run after

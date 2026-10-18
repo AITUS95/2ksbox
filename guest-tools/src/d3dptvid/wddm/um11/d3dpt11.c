@@ -141,6 +141,10 @@ static BOOL g_d11_win7;                     /* D3D11Win7: only the Windows 7 int
  * (REG_MULTI_SZ; "*" for every process): D3D11Exclude keeps a process on
  * Direct3D 9's driver (d3d10level9), D3D11Trace logs every call,
  * D3D11Win7 offers only the Windows 7 interface (an A/B for the 11.1 one) */
+#ifndef RRF_SUBKEY_WOW6464KEY
+#define RRF_SUBKEY_WOW6464KEY 0x00010000          /* winreg.h after the EWDK's 10.0.19041 */
+#endif
+
 static BOOL listed(const char *value)
 {
     char names[1024], exe[MAX_PATH], *base;
@@ -148,7 +152,9 @@ static BOOL listed(const char *value)
     const char *n;
 
     ZeroMemory(names, sizeof(names));
-    if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\2ksbox", value, RRF_RT_REG_MULTI_SZ, NULL, names, &size) != ERROR_SUCCESS) {
+    /* the 64-bit view in a WoW64 process too, not WOW6432Node */
+    if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\2ksbox", value, RRF_RT_REG_MULTI_SZ | RRF_SUBKEY_WOW6464KEY, NULL, names,
+                     &size) != ERROR_SUCCESS) {
         return FALSE;
     }
     if (!GetModuleFileNameA(NULL, exe, sizeof(exe))) {

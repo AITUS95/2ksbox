@@ -100,6 +100,10 @@ struct D11 {
     std::unordered_map<uint32_t, D11Ctx> ctxs;
     std::unordered_map<uint32_t, int> warned;
     bool warn(uint32_t key) { return warned[key]++ == 0; }
+    /* D3DPT_D11_PROF set: each token kind's count and time, logged every 5 s */
+    bool prof = false;
+    std::chrono::steady_clock::time_point prof_t0;
+    uint64_t prof_ns[64] = {}, prof_n[64] = {};
 };
 
 D11 *&d11_of(Exec &x)
@@ -400,6 +404,8 @@ bool d11_open(Exec &x, D11 &d)
     }
     d.ctx->SwapDeviceContextState(d.idle, nullptr);
     x.log("d11: Direct3D 11 device (%s), feature level 0x%x", where.c_str(), (unsigned)got);
+    d.prof = env("D3DPT_D11_PROF") != nullptr;
+    d.prof_t0 = std::chrono::steady_clock::now();
     return true;
 }
 
@@ -1307,6 +1313,28 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
 #undef NEED_N
 }
 
+void prof_tok(Exec &x, D11 &d, uint32_t op, std::chrono::steady_clock::time_point t0)
+{
+    auto now = std::chrono::steady_clock::now();
+    d.prof_ns[op & 63] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(now - t0).count();
+    d.prof_n[op & 63]++;
+    auto span = std::chrono::duration_cast<std::chrono::milliseconds>(now - d.prof_t0).count();
+    if (span < 5000) return;
+    char line[1024];
+    size_t n = (size_t)snprintf(line, sizeof line, "d11: prof %lld ms: token count us", (long long)span);
+    uint64_t total = 0;
+    for (uint32_t i = 0; i < 64; i++) {
+        total += d.prof_ns[i];
+        if (d.prof_ns[i] >= 1000000 && n < sizeof line - 40)
+            n += (size_t)snprintf(line + n, sizeof line - n, " %u:%llu:%llu", i, (unsigned long long)d.prof_n[i],
+                                  (unsigned long long)(d.prof_ns[i] / 1000));
+    }
+    x.log("%s; all %llu us", line, (unsigned long long)(total / 1000));
+    memset(d.prof_ns, 0, sizeof d.prof_ns);
+    memset(d.prof_n, 0, sizeof d.prof_n);
+    d.prof_t0 = now;
+}
+
 } // namespace
 
 /* ------------------------------------------------------------- the API */
@@ -1331,7 +1359,9 @@ bool exec_d11_op(Batch &b, const d3dpt_cmd *c)
         const d3dpt_d11_tok *t = (const d3dpt_d11_tok *)p;
         if (t->size < sizeof(*t) || t->size % 4 || t->size > (uint32_t)(end - p)) { b.err = D3DPT_ERR_MALFORMED; return true; }
         HRESULT before = r.hr;
+        auto t0 = d->prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
         run_tok(r, t);
+        if (d->prof) prof_tok(x, *d, t->op, t0);
         if (FAILED(r.hr) && SUCCEEDED(before) && d->warn(0x7f000000u | t->op))
             x.log("d11: context 0x%08x token %u: 0x%08x (said once per kind)", a->ctx, t->op, (unsigned)r.hr);
         p += t->size;

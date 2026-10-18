@@ -878,11 +878,17 @@ int main(int argc, char **argv)
     ID3D11Texture2D *bb = NULL;
     HRESULT hr;
     int i, result = 0;
+    LARGE_INTEGER qpf, q0, q1;
+    LONGLONG present_ticks = 0;
+    unsigned present_n = 0;
+    int trace_frames = 0;           /* -trace N: each of the first N frames' interval and Present time */
+    LONGLONG last_q = 0;
 
     game_init(&G, argc, argv);
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-warp")) use_warp = 1;
         else if (!strcmp(argv[i], "-flip")) use_flip = 1;
+        else if (!strcmp(argv[i], "-trace") && i + 1 < argc) trace_frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-compare") && i + 1 < argc) compare_frame = atoi(argv[++i]);
     }
     if (compare_frame >= 0 && !G.o.frames) G.o.frames = compare_frame + 1;   /* a fixed step: both frames the same */
@@ -916,6 +922,7 @@ int main(int argc, char **argv)
     if (FAILED(hr)) return 1;
     game_log("d3dgame11: stream output %s, occlusion predicates %s", X.so_ok ? "on" : "off", X.pred_ok ? "on" : "off");
 
+    QueryPerformanceFrequency(&qpf);
     while (!G.quit && game_pump()) {
         float dt = game_step(&G);
         if (!rtv_back) {
@@ -931,12 +938,24 @@ int main(int argc, char **argv)
         }
         render(&X, rtv_back, G.o.w, G.o.h);
         if (G.o.dump_frame >= 0 && (int)G.frame == G.o.dump_frame) dump_frame();
+        QueryPerformanceCounter(&q0);
         hr = IDXGISwapChain_Present(swap, G.o.novsync ? 0 : 1, 0);
+        QueryPerformanceCounter(&q1);
+        present_ticks += q1.QuadPart - q0.QuadPart;
+        present_n++;
+        if ((int)G.frame <= trace_frames)
+            game_log("d3dgame11: frame %u: %.2f ms since the last, present %.2f ms", G.frame,
+                     last_q ? (q1.QuadPart - last_q) * 1000.0 / qpf.QuadPart : 0.0, (q1.QuadPart - q0.QuadPart) * 1000.0 / qpf.QuadPart);
+        last_q = q1.QuadPart;
         if (FAILED(hr)) { game_log("d3dgame11: Present %s", hr_str(hr)); break; }
         if (use_flip && rtv_back) { ID3D11RenderTargetView_Release(rtv_back); rtv_back = NULL; }
         if (dt < 0) {
             char title[96];
-            snprintf(title, sizeof(title), "d3dgame11: %.1f fps, frame %u", G.fps, G.frame);
+            /* and the mean time inside Present, which a blt model's copy through DWM lengthens */
+            snprintf(title, sizeof(title), "d3dgame11: %.1f fps, frame %u, present %.2f ms", G.fps, G.frame,
+                     present_n ? present_ticks * 1000.0 / qpf.QuadPart / present_n : 0.0);
+            present_ticks = 0;
+            present_n = 0;
             SetWindowTextA(hwnd, title);
             game_log("%s", title);
         }

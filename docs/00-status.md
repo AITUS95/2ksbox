@@ -385,9 +385,13 @@ tracks, plus the items no track owns.
     and the script warns twice before it changes anything; next, run it
     from the disc on a fresh overlay.
 11a. **M25, Direct3D 10 and 11** (`tracks/m25-d3d11-umd.md`, "Open"):
-    a blt-model (DISCARD) window's frame still crosses VRAM twice (~37
-    frames/s windowed against flip's ~57): the present's copy belongs on
-    the host GPU; which multisample claim the runtime refuses; DXVK's
+    a blt-model (DISCARD) window's frame still crosses VRAM twice (the
+    present's copy belongs on the host GPU; 70-115 frames/s unsynced
+    since 2026-10-18, when the x64 kernel driver's flips on the blank
+    became MMIO flips, `FlipOnVSyncMmIo`: a DMA flip held for the blank
+    held every process's later fences, ~37 frames/s in runs of one and
+    two blanks, and the no-wait DMA flip was bugcheck 0x113 at the
+    adapter's stop; the track's "Flips that hold nothing"); which multisample claim the runtime refuses; DXVK's
     d3d11 and dxgi in the packages and the Linux / macOS executor builds;
     then 10_1 and 11_0 (compute, unordered access views, tessellation)
     and Direct3D 10 programs. The kernel driver claims WDDM 1.2 since

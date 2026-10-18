@@ -116,17 +116,25 @@ typedef struct D3DPT_ADAPTER {
     KDPC vsync_dpc;
     volatile LONG vsync_on;
     BOOLEAN vsync_ready;              /* the timer and its DPC initialized (StartDevice) */
-    volatile ULONG scan_addr;         /* what the scanout shows (OFFSET), as the vsync reports it */
-    /* a flip with a flip interval waits for the vertical blank, as a GPU's
-     * flip has a built-in wait for it (FlipWithNoWait says when not): its
-     * address goes to the scanout there, and its fence, and every fence
-     * submitted after it, is reported done there too, in order. Without it
-     * a full-screen Direct3D program presented as fast as it could draw
-     * (D3DGAME9 at 600 frames a second, track M20). Changed only under the
-     * interrupt's synchronization */
+    volatile ULONG scan_addr;         /* what the scanout shows (OFFSET) */
+    /* a flip with a flip interval waits for the vertical blank: its
+     * address goes to the scanout there. The x64 driver's are MMIO flips
+     * (SetVidPnSourceAddress), which dxgkrnl itself paces by the blank's
+     * report. A DMA flip (the 32-bit driver's) has a GPU's built-in wait
+     * (FlipWithNoWait says when not): its fence, and every fence submitted
+     * after it, is reported done at the blank too, in order. Without a
+     * wait a full-screen Direct3D program presented as fast as it could
+     * draw (D3DGAME9 at 600 frames a second, track M20). Changed only
+     * under the interrupt's synchronization */
     BOOLEAN flip_defer;               /* the submission being run is such a flip (SubmitCommand) */
     BOOLEAN flip_pending;             /* flip_addr waits for the vertical blank */
+    BOOLEAN flip_vram;                /* ... and is the scanout's (segment 1); else only reported */
     ULONG flip_addr;
+    /* what dxgkrnl named the shown surface by (SetVidPnSourceAddress's
+     * PrimaryAddress, a flip's), as every vertical blank reports it: an
+     * MMIO flip (FlipOnVSyncMmIo) is retired only by a CRTC_VSYNC with
+     * the very address it was given */
+    ULONGLONG shown_pa, flip_pa;
     BOOLEAN fence_held;               /* held_fence waits for the vertical blank */
     LONG held_fence;
     /* Direct3D: the command window (d3dpt_proto.h) the user-mode driver's
@@ -487,6 +495,7 @@ static NTSTATUS d3dpt_start_device(IN_CONST_PVOID ctx, IN_PDXGK_START_INFO start
     a->fence_done = a->fence_notify = a->preempt_fence = 0;
     a->vsync_on = 0;
     a->scan_addr = 0;
+    a->shown_pa = 0;
     a->vsync_irq = version >= 6u && (a->regs[D3DPT_FB_REG_CAPS / 4] & D3DPT_FB_CAP_IRQ);
     a->vsync_isr = 0;
     a->dma = a->d3d && version >= 7u && (a->regs[D3DPT_FB_REG_CAPS / 4] & D3DPT_FB_CAP_DMA);
@@ -682,6 +691,19 @@ static NTSTATUS driver_caps(const D3DPT_ADAPTER *a, DXGK_DRIVERCAPS *c)
 #endif
     c->MaxAllocationListSlotId = 16;
     c->MaxQueuedFlipOnVSync = 1;
+#ifdef _WIN64
+    /* flips on the vertical blank are MMIO flips (SetVidPnSourceAddress
+     * with FlipOnNextVSync, its address reported back by the blank), so
+     * no flip sits in a DMA buffer holding the fences behind it: DWM's
+     * flip, held for the blank, held every process's later submissions
+     * too, and a window's blt-model present finished one or two blanks
+     * late, in drifting runs (track M25). A DMA flip with no wait
+     * instead (FlipOnVSyncWithNoWait alone) left its references in
+     * dxgmms1's flip queue, never retired, and the adapter's stop was
+     * bugcheck 0x113, subtype 0x35. */
+    c->FlipCaps.FlipOnVSyncWithNoWait = 1;
+    c->FlipCaps.FlipOnVSyncMmIo = 1;
+#endif
     c->GpuEngineTopology.NbAsymetricProcessingNodes = 1;
     /* the blits are memcpy row by row: a screen-to-screen blit whose
      * rectangles overlap comes through a staging copy instead */
@@ -2169,9 +2191,12 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
         case PKT_FLIP:
             if (((const PKT_FLIP_T *)hd)->src.seg == 1 && a->flip_defer) {
                 a->flip_addr = ((const PKT_FLIP_T *)hd)->src.addr;     /* SubmitCommand queues it */
+                a->flip_pa = a->flip_addr;
+                a->flip_vram = TRUE;
             } else if (((const PKT_FLIP_T *)hd)->src.seg == 1) {
                 a->regs[D3DPT_FB_REG_OFFSET / 4] = ((const PKT_FLIP_T *)hd)->src.addr;
                 a->scan_addr = ((const PKT_FLIP_T *)hd)->src.addr;
+                a->shown_pa = a->scan_addr;
             }
             break;
         case PKT_MAP:
@@ -2238,6 +2263,7 @@ static BOOLEAN notify_completed(PVOID ctx)
 }
 
 static void release_flip_sync(D3DPT_ADAPTER *a);
+static void flip_shown_sync(D3DPT_ADAPTER *a);
 
 /* A preemption answers with every fence done: the work behind a flip held
  * for the vertical blank has run already (the host ran it inside
@@ -2254,8 +2280,13 @@ static BOOLEAN notify_preempted(PVOID ctx)
 
     a->preempts++;
     if (a->fence_held || a->flip_pending) {
+        BOOLEAN shown = a->flip_pending && !a->fence_held;     /* an MMIO flip's */
+
         a->preempts_held++;
         release_flip_sync(a);
+        if (shown) {
+            flip_shown_sync(a);
+        }
     }
     RtlZeroMemory(&n, sizeof(n));
     n.InterruptType = DXGK_INTERRUPT_DMA_PREEMPTED;
@@ -2288,8 +2319,11 @@ static void release_flip_sync(D3DPT_ADAPTER *a)
 {
     if (a->flip_pending) {
         a->flip_pending = FALSE;
-        a->regs[D3DPT_FB_REG_OFFSET / 4] = a->flip_addr;
-        a->scan_addr = a->flip_addr;
+        if (a->flip_vram) {
+            a->regs[D3DPT_FB_REG_OFFSET / 4] = a->flip_addr;
+            a->scan_addr = a->flip_addr;
+        }
+        a->shown_pa = a->flip_pa;
     }
     if (a->fence_held) {
         a->fence_held = FALSE;
@@ -2297,10 +2331,33 @@ static void release_flip_sync(D3DPT_ADAPTER *a)
     }
 }
 
+/* an MMIO flip shown with no vertical blank to report it (the blank's
+ * interrupt off, a preemption): dxgkrnl retires one only from a
+ * CRTC_VSYNC with its address, and holds the allocation in its flip
+ * queue until then (an adapter stop with one unretired is bugcheck
+ * 0x113, subtype 0x35) */
+static void flip_shown_sync(D3DPT_ADAPTER *a)
+{
+    DXGKARGCB_NOTIFY_INTERRUPT_DATA n;
+
+    RtlZeroMemory(&n, sizeof(n));
+    n.InterruptType = DXGK_INTERRUPT_CRTC_VSYNC;
+    n.CrtcVsync.VidPnTargetId = 0;
+    n.CrtcVsync.PhysicalAddress.QuadPart = (LONGLONG)a->shown_pa;
+    a->dxgk.DxgkCbNotifyInterrupt(a->dxgk.DeviceHandle, &n);
+    a->dxgk.DxgkCbQueueDpc(a->dxgk.DeviceHandle);
+}
+
 static KSYNCHRONIZE_ROUTINE release_flip;
 static BOOLEAN release_flip(PVOID ctx)
 {
-    release_flip_sync((D3DPT_ADAPTER *)ctx);
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
+    BOOLEAN shown = a->flip_pending && !a->fence_held;     /* an MMIO flip's */
+
+    release_flip_sync(a);
+    if (shown) {
+        flip_shown_sync(a);
+    }
     return TRUE;
 }
 
@@ -2514,6 +2571,9 @@ static NTSTATUS APIENTRY d3dpt_present(IN_CONST_HANDLE h, INOUT_PDXGKARG_PRESENT
     if (p->Flags.Flip) {
         PKT_FLIP_T *f = (PKT_FLIP_T *)p->pDmaBuffer;
 
+        if (!f) {
+            return STATUS_SUCCESS;  /* an MMIO flip: SetVidPnSourceAddress shows it */
+        }
         if (p->DmaSize < sizeof(*f)) {
             return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
         }
@@ -3265,21 +3325,46 @@ static NTSTATUS APIENTRY d3dpt_commit_vidpn(IN_CONST_HANDLE h, IN_CONST_PDXGKARG
     return STATUS_SUCCESS;
 }
 
-/* The primary's address in segment 1 (VRAM) is the scanout's offset. */
+/* The primary's address in segment 1 (VRAM) is the scanout's offset. An
+ * MMIO flip (FlipOnNextVSync, called at DIRQL under the interrupt's
+ * synchronization) waits for the vertical blank, which shows it and
+ * reports its address; with the blank off it shows, and is reported, now. */
 static DXGKDDI_SETVIDPNSOURCEADDRESS d3dpt_set_vidpn_source_address;
 static NTSTATUS APIENTRY d3dpt_set_vidpn_source_address(IN_CONST_HANDLE h,
                                                         IN_CONST_PDXGKARG_SETVIDPNSOURCEADDRESS s)
 {
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
+    static ULONG logged;
 
     alloc_at(s->hAllocation, s->PrimarySegment, s->PrimaryAddress.LowPart);
-    if (s->PrimarySegment == 1) {
-        a->regs[D3DPT_FB_REG_OFFSET / 4] = s->PrimaryAddress.LowPart;
-        a->scan_addr = s->PrimaryAddress.LowPart;
+    if (s->Flags.FlipOnNextVSync) {
+        InterlockedIncrement(&g_flips_submitted);
+        a->flip_pending = TRUE;
+        a->flip_vram = s->PrimarySegment == 1;
+        a->flip_addr = s->PrimaryAddress.LowPart;
+        a->flip_pa = (ULONGLONG)s->PrimaryAddress.QuadPart;
+        if (!a->vsync_on) {
+            BOOLEAN held = a->fence_held;
+
+            release_flip_sync(a);
+            if (!held) {
+                flip_shown_sync(a);
+            }
+        }
+    } else {
+        if (s->PrimarySegment == 1) {
+            a->regs[D3DPT_FB_REG_OFFSET / 4] = s->PrimaryAddress.LowPart;
+            a->scan_addr = s->PrimaryAddress.LowPart;
+        }
+        a->shown_pa = (ULONGLONG)s->PrimaryAddress.QuadPart;
     }
-    dbg_hex("d3dptkmd: SetVidPnSourceAddress segment ", s->PrimarySegment);
-    dbg_hex(" at ", s->PrimaryAddress.LowPart);
-    dbg_puts("\n");
+    if (logged < 16 || !s->Flags.FlipOnNextVSync) {
+        logged++;
+        dbg_hex("d3dptkmd: SetVidPnSourceAddress segment ", s->PrimarySegment);
+        dbg_hex(" at ", s->PrimaryAddress.LowPart);
+        dbg_hex(" flags ", s->Flags.Value);
+        dbg_puts("\n");
+    }
     return STATUS_SUCCESS;
 }
 
@@ -3382,7 +3467,7 @@ static BOOLEAN notify_vsync(PVOID ctx)
     RtlZeroMemory(&n, sizeof(n));
     n.InterruptType = DXGK_INTERRUPT_CRTC_VSYNC;
     n.CrtcVsync.VidPnTargetId = 0;
-    n.CrtcVsync.PhysicalAddress.LowPart = a->scan_addr;
+    n.CrtcVsync.PhysicalAddress.QuadPart = (LONGLONG)a->shown_pa;
     a->dxgk.DxgkCbNotifyInterrupt(a->dxgk.DeviceHandle, &n);
     a->dxgk.DxgkCbQueueDpc(a->dxgk.DeviceHandle);
     return TRUE;
