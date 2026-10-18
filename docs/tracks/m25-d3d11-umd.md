@@ -686,9 +686,11 @@ Protocol v28:
   settled the same entry again (a stack overflow in the vCPU thread);
   an entry leaves the list before it is paid.
 
-d3dgame11 windowed, one run each, the profile on: **flip model unsynced
-560 frames/s** (323 before), with vsync 60.0 frames/s at 16.4 ms in each
-present; a readback's wait for the GPU 0.03-0.5 ms where it was 2-4;
+d3dgame11 windowed, one run each, the profile on: flip model unsynced
+560 frames/s with the flicker (the try-locked settle), **~350-440 with
+it fixed** (900 frames in 2.0-2.6 s, three runs; 323 before), with vsync
+60.0 frames/s at 16.4 ms in each present (with the flicker); the user
+then saw the desktop right ("it looks good now"); a readback's wait for the GPU 0.03-0.5 ms where it was 2-4;
 the desktop draws, the clock current. DISCARD unchanged, as above (~80
 unsynced, 47 with vsync): its present still goes through STAGING, now
 with a `SYNC` (~1.1 ms, the GPU's frame) where the readback was.

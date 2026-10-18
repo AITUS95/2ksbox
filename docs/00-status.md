@@ -416,7 +416,7 @@ tracks, plus the items no track owns.
     253 → 323 frames/s, DWM's pace unchanged; "Batches without the BQL";
     since protocol v28 a flip's readback is finished when the host's GPU
     is done or the display needs it, `d3dpt_exec_settle`, not waited for
-    in the batch: flip model unsynced 323 → 560 frames/s);
+    in the batch: flip model unsynced 323 → ~350-440 frames/s);
     which multisample claim the runtime refuses; DXVK's
     d3d11 and dxgi in the packages and the Linux / macOS executor builds;
     then 10_1 and 11_0 (compute, unordered access views, tessellation)
