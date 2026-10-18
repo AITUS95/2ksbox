@@ -732,7 +732,9 @@ if [ "$APP_STORE" = 1 ]; then
   ! pb ProvisionedDevices >/dev/null \
     || { echo "package-macos.sh: $PROVISION lists devices: a development profile, not a Mac App Store one" >&2; exit 1; }
   echo "profile        $(pb Name) ($APP_ID, expires $(pb ExpirationDate))"
-  cp "$PROVISION" "$C/embedded.provisionprofile"
+  # -X: no extended attributes. A profile downloaded in a browser is
+  # quarantined, and App Store Connect rejects an app that carries it.
+  cp -X "$PROVISION" "$C/embedded.provisionprofile"
   # codesign's parser (AMFI) is stricter than plutil: it refuses a "--"
   # inside a comment, which plutil -lint passes. xmllint refuses it too.
   for f in packaging/macos/*.entitlements; do
@@ -765,6 +767,17 @@ signing_entitlements() {
        echo "" ;;
   esac
 }
+
+# Nothing in the bundle may be quarantined: App Store Connect rejects the
+# upload, and Gatekeeper treats the file as downloaded. Anything staged
+# from a download (a browser, a fetched dependency) brings the attribute
+# with it, so strip it before the signature seals the bundle.
+xattr -r -d com.apple.quarantine "$APP" 2>/dev/null || true
+if xattr -r "$APP" 2>/dev/null | grep -q com.apple.quarantine; then
+  echo "package-macos.sh: still quarantined:" >&2
+  xattr -r "$APP" 2>/dev/null | grep com.apple.quarantine | sed "s|$APP/||; s/^/  /" >&2
+  exit 1
+fi
 
 if [ "$SIGN" = 1 ]; then
   if [ -z "$IDENTITY" ]; then
@@ -830,7 +843,9 @@ if [ "$SIGN" = 1 ]; then
     [ -f "$ics/icon_512x512@2x.png" ] || { echo "package-macos.sh: the icon has no 512x512@2x" >&2; exit 1; }
     [ "$(plutil -extract ITSAppUsesNonExemptEncryption raw "$C/Info.plist" 2>/dev/null)" = false ] \
       || { echo "package-macos.sh: Info.plist lacks ITSAppUsesNonExemptEncryption=false" >&2; exit 1; }
-    echo "store checks   512@2x icon; ITSAppUsesNonExemptEncryption false"
+    ! xattr -r "$APP" 2>/dev/null | grep -q com.apple.quarantine \
+      || { echo "package-macos.sh: the signed app carries com.apple.quarantine" >&2; exit 1; }
+    echo "store checks   512@2x icon; ITSAppUsesNonExemptEncryption false; no quarantine"
   else
     # The question Gatekeeper will ask on the other Mac. Before notarization
     # it answers "not notarized", which is the one remaining step, not a

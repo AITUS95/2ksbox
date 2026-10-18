@@ -481,6 +481,14 @@ passes (the script now runs `xmllint` over them first), and the `.app`'s
 own signature must carry the launcher's entitlements, or it re-signs
 the launcher without its sandbox. No upload yet.
 
+**No file in the app may carry `com.apple.quarantine`** (2026-10-18,
+twice): App Store Connect rejects such an upload over its entitlements.
+A provisioning profile downloaded in a browser is quarantined, and a
+plain `cp` carried that into `Contents/embedded.provisionprofile` for
+1.0.0 and again for 1.1.0. The script now copies the profile with
+`cp -X`, strips the attribute from the whole bundle before signing,
+and refuses a package in which any file still has it.
+
 Ad hoc signed with the sandbox (2026-10-06), the launcher's library
 moves into its container, a path no panel granted is refused
 (`--keep-grant`), and a cue sheet in the container whose track is
