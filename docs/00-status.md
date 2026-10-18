@@ -1,4 +1,4 @@
-# 0. Status and how to resume (updated 2026-10-16)
+# 0. Status and how to resume (updated 2026-10-18)
 
 The handoff for a new session: the tracks and what each owns, where each
 area stands, the everyday commands, open threads, next steps and the
@@ -530,6 +530,14 @@ to one subsystem lives in its design doc; pointers are at the end.
   and VirtualBox call). Carbon's public `PushSymbolicHotKeyMode` is a
   stub on macOS 26 (reads back as pushed, changes nothing), and an event
   tap with Accessibility never sees those chords. Doc 03 "Input path".
+
+- **The App Store's installer leaves the app's files compressed**
+  (`ls -lO` says `compressed`), and `lseek(SEEK_DATA)` answers `ENXIO`
+  at every offset of such a file. QEMU took it for one hole, so pflash
+  loaded nothing and Windows 11 on Arm from TestFlight sat at "Guest has
+  not initialized the display" with an all-zero flash (`xp /4x 0` over
+  QMP; 2026-10-18). Patch 95; a check against an installed app needs
+  its own copies, `ditto --hfsCompression` makes one (`compressed-file`).
 
 ### The player and the QEMU thread
 

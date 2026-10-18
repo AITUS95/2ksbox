@@ -755,6 +755,20 @@ win11snap_check() { # a Windows 11 machine's offline snapshot holds its firmware
   return $rc
 }
 
+compressed_check() { # a file macOS keeps compressed reads as data (patch 95; the App Store's firmware)
+  local dir="$OUT/compressed" map
+  rm -rf "$dir"; mkdir -p "$dir"
+  yes 2ksbox | head -c 4194304 > "$dir/plain.img"
+  ditto --hfsCompression "$dir/plain.img" "$dir/packed.img" || { echo "ditto failed"; return 1; }
+  ls -lO "$dir/packed.img" | grep -q compressed || { echo "ditto left the copy uncompressed"; return 1; }
+  # pflash's blk_pread_nonzeroes() reads only what block status calls data
+  map="$($QIMG map --output=json -f raw "$dir/packed.img")" || { echo "qemu-img map failed"; return 1; }
+  case "$map" in
+    *'"zero": true'*|*'"data": false'*) echo "a compressed file reads as a hole: $map"; return 1 ;;
+  esac
+  echo "a compressed file is all data to block status"
+}
+
 snaptree_check() { # the snapshot window's tree (doc 07): the launcher's own record over a qcow2, which keeps none
   local rc=0 dir="$OUT/snaptree" img=$QIMG bundle disk copy o want
   rm -rf "$dir"; mkdir -p "$dir/library"
@@ -2432,6 +2446,9 @@ host_stage() {
     skip snapshot-tree "needs $LAUNCHERX and $QIMG"
     skip win11-snapshots "needs $LAUNCHERX and $QIMG"
   fi
+  if [ "$OS" = Darwin ] && [ -x $QIMG ]; then
+    run_check compressed-file compressed-file.log compressed_check || true
+  elif [ "$OS" = Darwin ]; then skip compressed-file "needs $QIMG"; fi
   # The first-run shader offer and the starter profiles behind it. Needs
   # the preset collection to check what a "yes" writes, so it is skipped
   # on a checkout without the submodule rather than downloading 50 MB

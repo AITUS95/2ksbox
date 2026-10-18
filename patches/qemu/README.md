@@ -1148,6 +1148,22 @@ change (a submission and a fence interrupt per DWM draw): a TDR within
 180 s with it. Backported to main on 2026-10-17 ahead of M25.
 **Drop:** upstream locks it.
 
+### 95-file-posix-macos-compressed
+On macOS, `lseek(SEEK_DATA)` answers `ENXIO` at every offset of a file
+the file system keeps compressed (decmpfs: the data fork is empty), and
+file-posix's `find_allocation()` read that as a trailing hole, so block
+status called the whole file zeros. The App Store's installer leaves an
+app's files that way, and QEMU 11's pflash loads its image with
+`blk_pread_nonzeroes()`, which reads only data: the TestFlight build's
+Windows 11 on Arm machine had an all-zero flash and its CPU spun at the
+exception vector ("Guest has not initialized the display (yet)"). An
+`ENXIO` on a file with `UF_COMPRESSED` now reports no information
+(`-ENOTSUP`), which block status reads as data. **Test:**
+`compressed-file` in `scripts/test.sh` (`qemu-img map` of a compressed
+copy); by hand, `xp /4x 0` over QMP on a `virt` board with the installed
+app's `2ksbox-aarch64-code.fd` shows `0x14000400`, not zeros (2026-10-18).
+**Drop:** upstream handles compressed files in `find_allocation()`.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;
