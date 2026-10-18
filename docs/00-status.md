@@ -385,10 +385,13 @@ tracks, plus the items no track owns.
     and the script warns twice before it changes anything; next, run it
     from the disc on a fresh overlay.
 11a. **M25, Direct3D 10 and 11** (`tracks/m25-d3d11-umd.md`, "Open"):
-    a blt-model (DISCARD) window's frame still crosses VRAM twice (the
-    present's copy belongs on the host GPU; 70-115 frames/s unsynced
-    since 2026-10-18, when the x64 kernel driver's flips on the blank
-    became MMIO flips, `FlipOnVSyncMmIo`: a DMA flip held for the blank
+    a blt-model (DISCARD) window's present goes through Windows'
+    system-memory redirection (a STAGING copy the CPU reads, DWM's
+    upload, one present per composition: the driver claims no GDI
+    acceleration, so redirection surfaces in video memory would be the
+    fix; the track's "Where a DISCARD window's frame goes"; the x64 kernel
+    driver's flips on the blank have been MMIO flips since 2026-10-18,
+    `FlipOnVSyncMmIo`: a DMA flip held for the blank
     held every process's later fences, ~37 frames/s in runs of one and
     two blanks, and the no-wait DMA flip was bugcheck 0x113 at the
     adapter's stop; the track's "Flips that hold nothing"); the guest's
@@ -396,7 +399,10 @@ tracks, plus the items no track owns.
     wait Windows refuses as occluded with DWM's composition, and logs it;
     QEMU patch 95 and register set v11's `HOST_MHZ` give the driver's modes
     the blank's real rate; "The host's vertical blank, again"), its ±2 ms
-    left to the executor's batch under the BQL; which multisample claim the runtime refuses; DXVK's
+    open (not the batch: under a hardware accelerator the executor's
+    batch runs without the BQL since 2026-10-18, flip model unsynced
+    253 → 323 frames/s, DWM's pace unchanged; "Batches without the BQL");
+    which multisample claim the runtime refuses; DXVK's
     d3d11 and dxgi in the packages and the Linux / macOS executor builds;
     then 10_1 and 11_0 (compute, unordered access views, tessellation)
     and Direct3D 10 programs. The kernel driver claims WDDM 1.2 since

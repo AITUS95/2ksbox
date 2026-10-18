@@ -46,8 +46,11 @@ guest (XP / Win98)                      host (QEMU process)
   mapped through the device mapper; protocol v21 dropped both. The
   driver writes records until a sync point (a DP2 call that needs its
   result, a readback, a query) and rings the adapter's doorbell once. The batch runs synchronously on the vCPU
-  thread under the BQL; a decoder thread waits until a measurement asks
-  for it.
+  thread, under the BQL with TCG and without it under a hardware
+  accelerator (track M25: the device's own lock serialises the executor,
+  and its re-entrancy guard is lowered meanwhile, or another vCPU's
+  register read is refused and reads 0); a decoder thread waits until a
+  measurement asks for it.
 - **Protocol.** `d3dpt/d3dpt_proto.h` is the one header for the display
   drivers, the adapter and the executor (`D3DPT_PROTO_VERSION`, 22
   today; v21 dropped the guest DLLs' records, whose op numbers stay

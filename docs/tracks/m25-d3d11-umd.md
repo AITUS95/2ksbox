@@ -489,20 +489,50 @@ at boot twice: the batch needs the device's state guarded properly first.
 `scripts/test.sh all` on the PC with these changes: 67 passed, 16 skipped,
 none failed.
 
+**Batches without the BQL, 2026-10-18** (user: "continue with driver
+optimization"). Under a hardware accelerator `d3dpt-vga` now drops the
+BQL around the executor's `submit` (its own `exec_lock` serialises the
+executor's calls; TCG keeps the BQL). The executor reads only RAM (the
+window, VRAM) and calls back only the log and `memory_region_set_dirty`;
+a reset pauses the vCPUs and waits for this one to hold the BQL again.
+The earlier prototype's bugcheck, and this one's first boots, were **0x119
+subtype 1, fence 0 reported** (minidumps read with cdb in the guest; the
+driver's fence reports logged): QEMU's re-entrancy guard is the device's,
+not the thread's, so while one vCPU sat in the DOORBELL write another
+vCPU's register read was refused (`Blocked re-entrant IO on
+MemoryRegion: d3dpt-vga.regs at addr: 0xBC`, FENCE_DONE), read 0, and
+the interrupt service reported fence 0. The doorbell lowers the guard
+while the BQL is away and raises it again under it (the executor makes
+no DMA). One run each on the same build, the BQL held / released: d3dgame11
+windowed, flip model, unsynced **253 / 323 frames/s**, DISCARD 83 / 93;
+with vsync, flip 296 / 311 of 380 frames at 15.5-17.8 ms (13 / 5
+doubled), DISCARD 73 / 57 (47 / 56 doubled, within one run's noise).
+**DWM's pace did not change** (`dwm-pace.ps1` p5-p95 14.4-18.1 / 14.4-18.2
+ms): the ±2 ms on the guest's blank is not the batch under the BQL, as
+guessed above.
+
+**Where a DISCARD window's frame goes.** The kernel driver's Present of a
+blt-model window copies the buffer into a **STAGING** standard allocation
+(no host handle), not into a surface DWM samples: the driver claims no
+GDI hardware acceleration, so every window's redirection surface is in
+system memory, and Windows reads the staging copy with the CPU and DWM
+uploads it again. Each present waits for a DWM composition (unsynced it
+measures 16-17 ms in `Present`, ~60-90 frames/s). A copy on the host GPU
+has no destination object to copy into, so `PRESENT_BLT` (a host-side
+present copy, drafted) was dropped. What would change it: redirection
+surfaces in video memory, `SupportSoftwareDeviceBitmaps` (CPU-visible
+texture redirection bitmaps) or full GDI acceleration, both of which
+change every window and not only Direct3D ones.
+
 ## Open
 
-- **A blt-model window through VRAM.** DISCARD's present still reads
-  the buffer back into VRAM, the kernel driver's Present copies it into
-  DWM's redirection surface there (the device's COPY registers, on the
-  vCPU), and DWM's d3d11 object uploads it again. Since the MMIO flips
-  it runs at 70-115 frames/s unsynced (above), so this is throughput,
-  not pacing. The copy belongs on the host GPU when both allocations
-  have host objects, which wants the device's copy to reach the
-  executor in order with the submissions.
-- DISCARD with vsync still spreads (4-34 ms, the flip model holds 17);
-  the blt model's own path.
-- The vertical blank's ±2 ms between the player and the device: the
-  executor runs a batch inside the DOORBELL write, under the BQL (above).
+- **A blt-model window** waits for DWM's composition through Windows'
+  system-memory redirection (above): GDI redirection surfaces in video
+  memory would take the staging copy and the upload away.
+- DISCARD with vsync still spreads (median ~19-20 ms, ~50 of 380 frames
+  doubled; the flip model holds 17); the same path.
+- The vertical blank's ±2 ms between the player and the device: not the
+  executor's batch (above); where it comes from is open.
 - The screen Windows turned off still shows the last frame (above); the
   device could show black while the source is invisible.
 

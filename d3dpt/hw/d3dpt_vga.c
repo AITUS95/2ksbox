@@ -36,6 +36,9 @@
 #include "qemu/units.h"
 #include "qemu/error-report.h"
 #include "qemu/timer.h"
+#include "qemu/thread.h"
+#include "qemu/main-loop.h"
+#include "system/tcg.h"
 #include "qapi/error.h"
 #include "hw/pci/pci_device.h"
 #include "hw/core/qdev-properties.h"
@@ -146,6 +149,7 @@ struct D3dptVgaState {
     bool d3d11;                 /* the executor runs Direct3D 11 (CAP_D3D11, M25) */
     bool exec_tried;
     uint32_t d3d_err;           /* last D3DPT_ERR_* of the doorbell */
+    QemuMutex exec_lock;        /* the executor's calls: a batch runs without the BQL (d3d_doorbell) */
     uint32_t batches;
     int64_t exec_ns;            /* host time inside the executor, all batches */
     uint32_t batches_last;      /* both at the last rate report */
@@ -786,8 +790,39 @@ static void d3d_doorbell(D3dptVgaState *s)
          * host's share flat is a slow guest, and one that halves with the
          * share grown is us (3DMark slow after some reboots). */
         int64_t t0 = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+        /* The batch runs without the BQL under a hardware accelerator
+         * (track M25): a DWM frame keeps the executor 1-3 ms, and with the
+         * BQL held the main loop (the vertical blank's timer, the host's
+         * blanks) and every other vCPU's exits waited for it. The executor
+         * reads the window and VRAM, which are RAM, and calls back only
+         * d3d_log and d3d_vram_dirty, neither of which needs the BQL; its
+         * own calls are serialised by exec_lock. A reset waits: it pauses
+         * the vCPUs, and this one stops only once it holds the BQL again.
+         * Under TCG the BQL stays held (a vCPU inside a translation block's
+         * I/O, and round-robin vCPUs gain nothing). */
+        bool unlock = !tcg_enabled() && bql_locked();
+        uint32_t err;
 
-        s->d3d_err  = s->lib->submit(s->exec, win, D3DPT_SHM_SIZE);
+        /* QEMU's re-entrancy guard is the device's, not the thread's: left
+         * engaged, another vCPU's register access during the batch was
+         * refused as re-entrant ("Blocked re-entrant IO"), its read gave
+         * 0, and the interrupt service reported fence 0 (bugcheck 0x119,
+         * subtype 1). The executor makes no DMA, so the guard is lowered
+         * while the BQL is away and raised again under it. */
+        bool guard = DEVICE(s)->mem_reentrancy_guard.engaged_in_io;
+
+        if (unlock) {
+            DEVICE(s)->mem_reentrancy_guard.engaged_in_io = false;
+            bql_unlock();
+        }
+        qemu_mutex_lock(&s->exec_lock);
+        err = s->lib->submit(s->exec, win, D3DPT_SHM_SIZE);
+        qemu_mutex_unlock(&s->exec_lock);
+        if (unlock) {
+            bql_lock();
+            DEVICE(s)->mem_reentrancy_guard.engaged_in_io = guard;
+        }
+        s->d3d_err = err;
         s->exec_ns += qemu_clock_get_ns(QEMU_CLOCK_REALTIME) - t0;
     } else {
         s->d3d_err = D3DPT_ERR_HOST;
@@ -833,8 +868,10 @@ static uint32_t d3d_dma_append(D3dptVgaState *s, uint32_t count)
 static void d3d_reset(D3dptVgaState *s)
 {
     if (s->exec) {
+        qemu_mutex_lock(&s->exec_lock);
         s->lib->attach(s->exec, 0);
         s->lib->attach(s->exec, 1);
+        qemu_mutex_unlock(&s->exec_lock);
     }
     if (s->cmd_offset) {
         memset(memory_region_get_ram_ptr(&s->vga.vram) + s->cmd_offset, 0, sizeof(d3dpt_shm_hdr));
@@ -1370,6 +1407,7 @@ static void d3dpt_vga_realize(PCIDevice *dev, Error **errp)
     D3dptVgaState *s = D3DPT_VGA(dev);
     VGACommonState *vga = &s->vga;
 
+    qemu_mutex_init(&s->exec_lock);
     /* no-exec=on, d3d9= and exec= before the library is chosen, and the
      * library chosen here rather than at the first D3D_STATUS read: the
      * out-of-process executor (M15) wants VRAM as a region of its shared
