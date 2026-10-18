@@ -94,7 +94,7 @@ impl Library {
     /// (Help's `library::CHOOSE_FOLDER`, and the start's question), then
     /// the library on what was picked. Cancel changes nothing.
     pub async fn choose_dir(self) {
-        let mut request = OpenFile::new().title(library::QUESTION.prompt).directories();
+        let mut request = OpenFile::new().title(library::PROMPT).directories();
         if let Some(home) = library::choose_start() {
             request = request.start_folder(home);
         }
@@ -106,9 +106,24 @@ impl Library {
     /// Keep `dir` as the machines folder and show what is in it.
     pub fn use_dir(&self, dir: &Path) {
         if let Err(e) = library::choose_dir(dir) {
-            self.failure.set(Some((library::QUESTION.failed.into(), format!("{}: {e}", dir.display()))));
+            self.failure.set(Some((library::FAILED.into(), format!("{}: {e}", dir.display()))));
             return;
         }
+        self.reload_dir();
+    }
+
+    /// The start question's other answer (`library::keep_platform_dir`):
+    /// the folder used so far, kept; in the sandbox, nothing.
+    pub fn keep_platform_dir(&self) {
+        match library::keep_platform_dir() {
+            Ok(Some(_)) => self.reload_dir(),
+            Ok(None) => {}
+            Err(e) => self.failure.set(Some((library::FAILED.into(), e.to_string()))),
+        }
+    }
+
+    /// The library on `library::default_dir()` again, rescanned.
+    fn reload_dir(&self) {
         self.write(|m| {
             m.library_dir = library::default_dir();
             m.refresh();
@@ -200,10 +215,11 @@ pub fn MachinesWindow() -> impl View {
     // The window's task, which ends with it.
     spawn_local(library.poll());
     crate::shot::arm(&["", "select", "create", "clonego", "firstrun"]);
-    // The first-run offer asks on a real start, and on
-    // `firstrun[:<answers>]` with scripted answers; every other headless
-    // screen runs without it.
-    if std::env::var_os("LAUNCHER_SCREEN").is_none() {
+    // The first-run offer (and the machines folder's question) asks on a
+    // real start, and on `firstrun[:<answers>]` with scripted answers;
+    // every other headless screen, and a packager's bare `LAUNCHER_SHOT`,
+    // runs without it.
+    if std::env::var_os("LAUNCHER_SCREEN").is_none() && std::env::var_os("LAUNCHER_SHOT").is_none() {
         offer.start(library, shaders, None);
     }
     if let Some(answers) = crate::shot::screen("firstrun") {

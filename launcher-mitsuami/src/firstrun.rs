@@ -4,14 +4,14 @@
 //! what came of it. The steps and every sentence are the core's. The
 //! question and the outcome are the platform's own alert.
 //!
-//! Before it, in the macOS App Sandbox, the question of where the
-//! machines go (`launcher_core::library::needs_dir`): an alert, then a
-//! folder dialog, so the two never stand on each other.
+//! Before it, until one is chosen, the question of where the machines
+//! go (`launcher_core::library::needs_dir`): an alert, then a folder
+//! dialog, so the two never stand on each other.
 //!
 //! `LAUNCHER_SCREEN=firstrun[:<answers>]` scripts the alerts instead:
 //! each one prints what it would have shown and takes the next answer
 //! (`yes`, `no`, `retry`, `cancel`, `ok`; for the machines folder
-//! `choose` followed by the folder, or `later`), since a native alert
+//! `choose` followed by the folder, or `use` / `later`), since a native alert
 //! can't be pressed headless. With no answer left it leaves the question
 //! up.
 
@@ -156,13 +156,16 @@ impl Offer {
         }
     }
 
-    /// Where the machines go: "Choose Folder…" opens the folder dialog,
-    /// "Later" keeps the app's own storage for this run.
+    /// Where the machines go: "Choose Folder…" opens the folder dialog;
+    /// the other answer keeps the default folder, or in the sandbox
+    /// ("Later") the app's own storage for this run.
     async fn ask_folder(answers: &Answers, library: Library) {
-        let q = &machines_folder::QUESTION;
-        let message = Message { step: Step::Asking, headline: q.headline.into(), detail: q.detail.into() };
-        if answers.ask(&message, &[q.choose, q.later], AlertStyle::Info).await != Some(0) {
-            return;
+        let q = machines_folder::question();
+        let message = Message { step: Step::Asking, headline: q.headline.into(), detail: q.detail };
+        match answers.ask(&message, &[q.choose, q.other], AlertStyle::Info).await {
+            Some(0) => {}
+            Some(_) => return library.keep_platform_dir(),
+            None => return,
         }
         match answers {
             Answers::Alert(..) => library.choose_dir().await,

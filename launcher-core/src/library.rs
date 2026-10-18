@@ -11,12 +11,11 @@ pub const BUNDLE_FILE: &str = "machine.toml";
 /// Help's item that opens `default_dir()` in the file manager.
 pub const OPEN_FOLDER: &str = "Open Machines Folder";
 
-/// Help's item that picks the folder again, in the sandbox only
-/// (`asks_for_dir`).
+/// Help's item that picks the machines folder again (`choose_dir`).
 pub const CHOOSE_FOLDER: &str = "Choose Machines Folder…";
 
 /// The library directory: the folder the user chose (`chosen_dir`), else
-/// the platform data dir (`~/.local/share` on Linux, `~/Library/Application
+/// (`platform_dir`) the platform data dir (`~/.local/share` on Linux, `~/Library/Application
 /// Support` on macOS, `%APPDATA%` on Windows) plus `machines`.
 /// `LAUNCHER_LIBRARY_DIR` overrides both for development and tests, like
 /// the player's `PLAYER_*` knobs.
@@ -24,22 +23,31 @@ pub fn default_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("LAUNCHER_LIBRARY_DIR") {
         return dir.into();
     }
-    if let Some(dir) = chosen_dir() {
-        return dir;
-    }
+    chosen_dir().unwrap_or_else(platform_dir)
+}
+
+/// The folder a launcher uses before one is chosen: `machines` in the
+/// platform data dir.
+fn platform_dir() -> PathBuf {
     crate::paths::data_dir().map(|d| d.join("machines")).unwrap_or_else(|| PathBuf::from("machines"))
 }
 
 /// The machines folder the user chose (`choose_dir`), if it is still there.
 ///
-/// Only the App Store build asks (`asks_for_dir`). Its data dir is inside
-/// the app's sandbox container, and macOS's open panel never shows a
-/// folder in there: a machine kept in the container could not have its
-/// disk browsed to, and "Browse…" opened somewhere else (2026-10-18). So
-/// that build keeps its machines in a folder the user picks, which the
-/// panel shows like any other, and keeps access to it with a
-/// security-scoped bookmark (`grants`). Nothing in the container is moved
-/// (user decision).
+/// Every launcher asks once, at start (`needs_dir`, user decision
+/// 2026-10-18), and Help's `CHOOSE_FOLDER` asks again, so machines can
+/// live on another disk or in a folder the user backs up. Outside the
+/// sandbox "Use Default Folder" (`keep_platform_dir`) answers it with the
+/// folder used so far, so an upgrade keeps its machines where they were.
+///
+/// The App Store build has no such default. Its data dir is inside the
+/// app's sandbox container, and macOS's open panel never shows a folder
+/// in there: a machine kept in the container could not have its disk
+/// browsed to, and "Browse…" opened somewhere else (2026-10-18). So it
+/// offers only "Later", keeps the container's folder for that run and
+/// asks again at the next start; a pick is kept with a security-scoped
+/// bookmark (`grants`). Nothing is moved into a chosen folder (user
+/// decision).
 pub fn chosen_dir() -> Option<PathBuf> {
     let text = std::fs::read_to_string(chosen_file()?).ok()?;
     let dir = PathBuf::from(text.trim_end_matches(['\r', '\n']));
@@ -51,21 +59,14 @@ fn chosen_file() -> Option<PathBuf> {
     crate::paths::data_dir().map(|d| d.join("library.txt"))
 }
 
-/// Whether this launcher asks where its machines go: the macOS App
-/// Sandbox, unless `LAUNCHER_LIBRARY_DIR` names the library.
-pub fn asks_for_dir() -> bool {
-    crate::grants::sandboxed() && std::env::var_os("LAUNCHER_LIBRARY_DIR").is_none()
-}
-
-/// Whether to ask now, at start: in the sandbox, until a folder is chosen
-/// (and again if it went away). "Later" leaves the container's library in
-/// use for this run.
+/// Whether to ask at start: until a folder is chosen (and again if it
+/// went away), unless `LAUNCHER_LIBRARY_DIR` names the library.
 pub fn needs_dir() -> bool {
-    asks_for_dir() && chosen_dir().is_none()
+    std::env::var_os("LAUNCHER_LIBRARY_DIR").is_none() && chosen_dir().is_none()
 }
 
 /// Keep `dir`, picked in a folder dialog, as the library from now on,
-/// with its access for later runs.
+/// with its access for later runs in the sandbox.
 pub fn choose_dir(dir: &Path) -> std::io::Result<()> {
     let file = chosen_file().ok_or_else(|| std::io::Error::other("no data directory"))?;
     if let Some(parent) = file.parent() {
@@ -76,9 +77,26 @@ pub fn choose_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Where the folder dialog opens: the user's real home folder. In the
-/// sandbox `$HOME` is the container, which the dialog does not show.
+/// The question's other answer: outside the sandbox, keep the folder
+/// used so far (made if new) and return it; in the sandbox ("Later")
+/// nothing is kept and `None` comes back.
+pub fn keep_platform_dir() -> std::io::Result<Option<PathBuf>> {
+    if crate::grants::sandboxed() {
+        return Ok(None);
+    }
+    let dir = platform_dir();
+    std::fs::create_dir_all(&dir)?;
+    choose_dir(&dir)?;
+    Ok(Some(dir))
+}
+
+/// Where the folder dialog opens: beside the chosen folder, so it shows
+/// in the list, else the user's real home folder. In the macOS sandbox
+/// `$HOME` is the container, which the dialog does not show.
 pub fn choose_start() -> Option<PathBuf> {
+    if let Some(parent) = chosen_dir().as_deref().and_then(Path::parent) {
+        return Some(parent.to_path_buf());
+    }
     #[cfg(unix)]
     {
         // SAFETY: getpwuid's record is read at once, on this thread, and
@@ -102,28 +120,37 @@ pub fn choose_start() -> Option<PathBuf> {
 /// The words are here, not in a front end, like `firstrun`'s.
 pub struct Question {
     pub headline: &'static str,
-    pub detail: &'static str,
-    /// The buttons: pick a folder now, or keep the app's own storage for
-    /// this run.
+    pub detail: String,
+    /// The buttons: pick a folder now, or the other answer
+    /// (`keep_platform_dir`).
     pub choose: &'static str,
-    pub later: &'static str,
+    pub other: &'static str,
     /// The folder dialog's message line.
     pub prompt: &'static str,
     /// The alert's headline when the pick cannot be kept.
     pub failed: &'static str,
 }
 
-pub const QUESTION: Question = Question {
-    headline: "Choose a folder for your machines",
-    detail: "2ksbox keeps each machine's settings and disk in a folder of yours, where you can find, \
-             back up and browse to them. Choose one, or make a new one, for example \"2ksbox\" in your \
-             home folder.\n\nUntil you do, new machines are kept inside the app's own storage, which \
-             file dialogs can't open.",
-    choose: "Choose Folder…",
-    later: "Later",
-    prompt: "Choose or make the folder for your 2ksbox machines",
-    failed: "Couldn't use that folder for your machines.",
-};
+pub const PROMPT: &str = "Choose or make the folder for your 2ksbox machines";
+pub const FAILED: &str = "Couldn't use that folder for your machines.";
+
+pub fn question() -> Question {
+    let lead = "2ksbox keeps each machine's settings and disk in a folder, one per machine, all inside \
+                the machines folder. Choose one, or make a new one, for example \"2ksbox\" in your \
+                home folder or on another disk.";
+    let (detail, other) = if crate::grants::sandboxed() {
+        (
+            format!("{lead}\n\nUntil you do, new machines are kept inside the app's own storage, which file dialogs can't open."),
+            "Later",
+        )
+    } else {
+        (
+            format!("{lead}\n\nThe default folder is {}.", platform_dir().display()),
+            "Use Default Folder",
+        )
+    };
+    Question { headline: "Choose a folder for your machines", detail, choose: "Choose Folder…", other, prompt: PROMPT, failed: FAILED }
+}
 
 pub struct LibraryEntry {
     pub dir: PathBuf,

@@ -56,7 +56,7 @@ No clicking and no unit tests. Three layers, all in `scripts/test.sh host`:
   `--wizard-new`, `--wizard-edit <bundle> [fields…]` with `-` keeping a
   field, `--print-args`, `--print-player-args`, `--discs`, `--boot-disc`,
   `--snapshots [--live]`, `--insert-disc`, `--clone`, `--first-run`,
-  `--default-profiles`, `--preview-shader`, `--browse-start`, `--library`, `--choose-library`,
+  `--default-profiles`, `--preview-shader`, `--browse-start`, `--library`, `--choose-library`, `--keep-default-library`,
   `--optimizations`, `--host-check`, `--paths`, `--diagnose`, …; usage in
   `cli.rs`). The launcher answers the same verbs from the same code.
   Checks: `optimizations`, `pointer`, `extra-args`, `display-adapter`,

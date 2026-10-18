@@ -55,23 +55,25 @@ impl About {
 }
 
 /// The app's menus: `commands` (the main window's, `machines::command_menus`)
-/// and Help, with the user manual, the machines folder and About. About
+/// and Help, with the user manual, the machines folder (opened, or
+/// chosen) and About. About
 /// belongs in macOS's application menu and at the end of GTK's primary menu
 /// and Kirigami's drawer, and the role puts it there; on Windows the menu
 /// bar is in the title bar (`main`).
 pub fn app_menu(about: About, machines: Library, commands: MenuBar) {
-    let mut help = Menu::new("Help")
-        .item(MenuItem::new(about::MANUAL).on_select(open_manual))
-        .item(MenuItem::new(library::OPEN_FOLDER).on_select(open_machines_folder));
-    // The App Store build's machines live in a folder the user picked
-    // (`library::chosen_dir`), which this picks again.
-    if library::asks_for_dir() {
-        let choose = move || {
-            spawn_local(machines.choose_dir());
-        };
-        help = help.item(MenuItem::new(library::CHOOSE_FOLDER).on_select(choose));
-    }
-    set_menu(commands.menu(help.item(MenuItem::new("About 2ksbox").role(MenuRole::About).on_select(move || about.show()))));
+    // Where the machines live (`library::chosen_dir`), picked again.
+    let choose = move || {
+        spawn_local(machines.choose_dir());
+    };
+    set_menu(
+        commands.menu(
+            Menu::new("Help")
+                .item(MenuItem::new(about::MANUAL).on_select(open_manual))
+                .item(MenuItem::new(library::OPEN_FOLDER).on_select(open_machines_folder))
+                .item(MenuItem::new(library::CHOOSE_FOLDER).on_select(choose))
+                .item(MenuItem::new("About 2ksbox").role(MenuRole::About).on_select(move || about.show())),
+        ),
+    );
 }
 
 /// Opens the user manual in the browser: Help's item.
