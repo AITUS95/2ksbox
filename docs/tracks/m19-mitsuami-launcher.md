@@ -27,7 +27,7 @@ cargo build --no-default-features --features kde # Kirigami
 ```
 
 mitsuami comes from crates.io, its release pinned exact
-(`version = "=1.3.1"` in `Cargo.toml`; ADR-023's 2026-10-16
+(`version = "=1.3.3"` in `Cargo.toml`; ADR-023's 2026-10-16
 amendment, before that a git `rev`). To work on both
 repositories at once, override it in an uncommitted
 `launcher-mitsuami/.cargo/config.toml`:
@@ -42,7 +42,7 @@ committing here (the launcher and the player together). A dependency
 change, a new mitsuami version included, means regenerating
 `packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami 1.3.1 from crates.io since 2026-10-16 (below): 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami 1.3.3 from crates.io since 2026-10-18 (below): 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -113,6 +113,10 @@ GPU surface sized by the fractional scale on Wayland, and the fractional
 monitor scale in the platform metrics (doc 03). Then, the same day, the
 crates.io release 1.3.1 (`67c22cc`, those two and a version bump), the
 first pin that is not a git `rev`. Both crates built with no change.
+Then 1.3.3 (2026-10-18, with 1.3.2): a WinUI GPU surface gives Tab its
+scan code, and an AppKit panel that opens folders has New Folder
+(`canCreateDirectories`), which "Choose Machines Folder…" needed to make
+the folder it asks for. Both crates built with no change.
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:
