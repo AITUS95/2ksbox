@@ -773,15 +773,18 @@ libfolder_check() { # the machines folder, asked for once at start and chosen fr
   "${bare[@]}" $LAUNCHERX --choose-library "$dir/elsewhere" >/dev/null || { echo "--choose-library failed"; return 1; }
   o="$("${bare[@]}" $LAUNCHERX --library)"
   echo "$o" | grep -qx "dir    $dir/elsewhere" || { echo "a pick did not stick:"; echo "$o"; return 1; }
-  # The sandbox (the variable macOS sets for it) has no default to keep:
-  # "Later" keeps nothing, and it asks until a folder is picked
+  # The sandbox (the variable macOS sets for it, which only macOS reads)
+  # has no default to keep: "Later" keeps nothing, and it asks until a
+  # folder is picked. Elsewhere the rest runs as a plain launcher.
   local sbx=(env -u LAUNCHER_LIBRARY_DIR APP_SANDBOX_CONTAINER_ID=test LAUNCHER_DATA_DIR="$dir/sdata"
     LAUNCHER_BROWSE_MEMORY="$dir/last-browse.txt" LAUNCHER_QEMU_IMG_BIN=$QIMG)
-  o="$("${sbx[@]}" $LAUNCHERX --library)"
-  echo "$o" | grep -qx 'asks   yes' && echo "$o" | grep -qx 'other  Later' || { echo "the sandbox's question is wrong:"; echo "$o"; return 1; }
-  [ "$("${sbx[@]}" $LAUNCHERX --keep-default-library)" = "(nothing kept)" ] || { echo "Later kept a folder in the sandbox"; return 1; }
-  o="$("${sbx[@]}" $LAUNCHERX --library)"
-  echo "$o" | grep -qx 'asks   yes' || { echo "the sandbox stopped asking after Later"; return 1; }
+  if [ "$OS" = Darwin ]; then
+    o="$("${sbx[@]}" $LAUNCHERX --library)"
+    echo "$o" | grep -qx 'asks   yes' && echo "$o" | grep -qx 'other  Later' || { echo "the sandbox's question is wrong:"; echo "$o"; return 1; }
+    [ "$("${sbx[@]}" $LAUNCHERX --keep-default-library)" = "(nothing kept)" ] || { echo "Later kept a folder in the sandbox"; return 1; }
+    o="$("${sbx[@]}" $LAUNCHERX --library)"
+    echo "$o" | grep -qx 'asks   yes' || { echo "the sandbox stopped asking after Later"; return 1; }
+  fi
   "${sbx[@]}" $LAUNCHERX --choose-library "$dir/mine" >/dev/null || { echo "--choose-library failed in the sandbox"; return 1; }
   o="$("${sbx[@]}" $LAUNCHERX --library)"
   echo "$o" | grep -qx "dir    $dir/mine" && echo "$o" | grep -qx 'asks   no' || { echo "the sandbox's pick did not stick:"; echo "$o"; return 1; }
