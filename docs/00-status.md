@@ -388,8 +388,9 @@ tracks, plus the items no track owns.
     a blt-model (DISCARD) window's present goes through Windows'
     system-memory redirection (a STAGING copy the CPU reads, DWM's
     upload, one present per composition: the driver claims no GDI
-    acceleration, so redirection surfaces in video memory would be the
-    fix; the track's "Where a DISCARD window's frame goes"; the x64 kernel
+    acceleration; CPU-visible texture bitmaps, `SupportSoftwareDeviceBitmaps`,
+    were tried and change nothing for the present, GDI acceleration proper
+    is untried; the track's "Where a DISCARD window's frame goes"; the x64 kernel
     driver's flips on the blank have been MMIO flips since 2026-10-18,
     `FlipOnVSyncMmIo`: a DMA flip held for the blank
     held every process's later fences, ~37 frames/s in runs of one and

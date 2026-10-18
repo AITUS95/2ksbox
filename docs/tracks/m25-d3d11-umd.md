@@ -524,11 +524,28 @@ surfaces in video memory, `SupportSoftwareDeviceBitmaps` (CPU-visible
 texture redirection bitmaps) or full GDI acceleration, both of which
 change every window and not only Direct3D ones.
 
+**`SupportSoftwareDeviceBitmaps`, tried the same day** (user: "do the
+experiment"). Claimed, Windows 11 asks `GetStandardAllocationDriverData`
+for `GDISURFACE` type 6 only (`TEXTURE_CPUVISIBLE`, A8R8G8B8: 1x1, the
+taskbar's 1920x60, 1920x1200 surfaces, each window with its frame);
+refused, it falls back to the system-memory bitmaps with the desktop
+whole. Taken (an allocation in VRAM with a host handle, a render-target
+texture), the desktop stayed whole and DWM never opened one through the
+Direct3D 11 driver, and **a DISCARD present still copied into a 640x480
+STAGING surface** while its window had a 646x515 bitmap of this kind:
+Windows moves the frame into the bitmap on the CPU either way. So
+CPU-visible bitmaps change where GDI draws (into VRAM, an uncached BAR
+under WHPX, with no way for the host to see the writes) and nothing
+about the blt-model present; reverted. What is left is GDI acceleration
+proper (`SupportKernelModeCommandBuffer`, `DxgkDdiRenderKm`, type 1
+`TEXTURE` bitmaps the CPU never touches), unknown whether Windows 11
+then presents straight into them.
+
 ## Open
 
 - **A blt-model window** waits for DWM's composition through Windows'
-  system-memory redirection (above): GDI redirection surfaces in video
-  memory would take the staging copy and the upload away.
+  system-memory redirection (above). CPU-visible texture bitmaps do not
+  change it (tried); GDI acceleration proper might, untried.
 - DISCARD with vsync still spreads (median ~19-20 ms, ~50 of 380 frames
   doubled; the flip model holds 17); the same path.
 - The vertical blank's ±2 ms between the player and the device: not the
