@@ -426,7 +426,11 @@ tracks, plus the items no track owns.
     **1.1.0** (2026-10-18): v1.0.0 is tagged on `775833c6`; 1.1.0
     carries the TestFlight fixes (QEMU patch 95, the machines folder,
     mitsuami 1.3.3's New Folder, the empty library's width). The App Store package no longer carries the downloaded profile's quarantine (`build-macos.md`), which App Store Connect rejected for 1.0.0 and 1.1.0. Its launcher's sandbox has `network.server` too: with only `network.client`, every reply to the guest's UDP (slirp's unconnected sockets, DNS first) fails `recvfrom` with EPERM while `poll` keeps saying readable, so QEMU's main loop spun holding the BQL and a TestFlight Windows 11 lagged through its updates (a million sandbox denials in four seconds); `package-macos.sh` checks both. Its gates
-    run from the version bump's commit.
+    run from the version bump's commit. The PC's ran from `40eb7822`
+    (2026-10-18): the build, `test.sh all` without the XP guest tests
+    (user; `WINXP_IMG` at no file skips them) 57 passed, 0 failed, the
+    packages, the Store MSIX 1.1.0.0, the sideload `-Check` and the
+    certification kit (`OVERALL_RESULT=PASS`, the two optional FAILs).
     THIRD-PARTY-NOTICES.md carries the written source offer (GPL-2
     §3(b); contato@roboport.com.br), About links this version's tag,
     and its Licences button shows every text the package carries
