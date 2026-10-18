@@ -1379,7 +1379,8 @@ bool gdi_side(Exec &x, D11 &d, const d3dpt_gdi_side &s, GdiSide &o)
     o.w = s.width;
     o.h = s.height;
     o.handle = s.handle;
-    if (x.vram && s.pitch >= s.width * 4 && (uint64_t)s.offset + (uint64_t)s.pitch * (s.height - 1) + s.width * 4 <= x.vram_size) {
+    const uint64_t rowb = (uint64_t)s.width * 4;    /* in 64 bits whatever the limit above */
+    if (x.vram && s.pitch >= rowb && (uint64_t)s.offset + (uint64_t)s.pitch * (s.height - 1) + rowb <= x.vram_size) {
         o.vram = x.vram + s.offset;
         o.pitch = s.pitch;
     }
