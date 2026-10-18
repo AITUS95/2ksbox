@@ -305,6 +305,24 @@ pub fn MachinesWindow() -> impl View {
     // window.
     let ui = inject::<Ui>().expect("a window's component");
     let window = inject::<CurrentWindow>().map(|CurrentWindow(w)| w);
+    // An empty library has no sidebar, and the window's size is the
+    // details' alone, which the sidebar adds to: so it opens the sidebar's
+    // width wider, and gives that width back to the sidebar when the first
+    // machine comes. The last machine gone, the window keeps its width.
+    #[cfg(sidebar)]
+    if let Some(window) = window {
+        let (ui, was_empty) = (ui.clone(), std::cell::Cell::new(None));
+        effect(move || {
+            let empty = library.read(Machines::is_empty);
+            let Some(size) = ui.window_size(window) else { return };
+            let width = match (was_empty.replace(Some(empty)), empty) {
+                (None, true) => size.width + SIDEBAR_W as f32,
+                (Some(true), false) => size.width - SIDEBAR_W as f32,
+                _ => return,
+            };
+            ui.set_window_size(window, Size::new(width, size.height));
+        });
+    }
     effect(move || {
         let Some((headline, detail)) = library.failure.get() else { return };
         library.failure.set(None);
@@ -380,12 +398,7 @@ pub fn MachinesWindow() -> impl View {
                 </Show>
                 {toolbar_buttons}
             </Toolbar>
-            // With a sidebar, it stays while the library is empty: the
-            // window's size counts it, so it opens as wide as it will be.
-            <Show
-                when=move || !cfg!(sidebar) && library.read(Machines::is_empty)
-                fallback=|| view! { <MachineLibrary/> }
-            >
+            <Show when=move || library.read(Machines::is_empty) fallback=|| view! { <MachineLibrary/> }>
                 <NoMachines/>
             </Show>
             <WizardWindow/>
@@ -407,7 +420,7 @@ fn MachineLibrary() -> impl View {
     view! {
         <Row grow=1.0 min_height=0>
             <MachineList/>
-            <Show when=move || library.current().is_some() fallback=|| view! { <NoMachines/> }>
+            <Show when=move || library.current().is_some()>
                 <Details/>
             </Show>
         </Row>

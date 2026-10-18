@@ -27,7 +27,7 @@ cargo build --no-default-features --features kde # Kirigami
 ```
 
 mitsuami comes from crates.io, its release pinned exact
-(`version = "=1.3.3"` in `Cargo.toml`; ADR-023's 2026-10-16
+(`version = "=1.3.4"` in `Cargo.toml`; ADR-023's 2026-10-16
 amendment, before that a git `rev`). To work on both
 repositories at once, override it in an uncommitted
 `launcher-mitsuami/.cargo/config.toml`:
@@ -42,7 +42,7 @@ committing here (the launcher and the player together). A dependency
 change, a new mitsuami version included, means regenerating
 `packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami 1.3.3 from crates.io since 2026-10-18 (below): 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami 1.3.4 from crates.io since 2026-10-18 (below): 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -117,6 +117,11 @@ Then 1.3.3 (2026-10-18, with 1.3.2): a WinUI GPU surface gives Tab its
 scan code, and an AppKit panel that opens folders has New Folder
 (`canCreateDirectories`), which "Choose Machines Folder…" needed to make
 the folder it asks for. Both crates built with no change.
+Then 1.3.4 (2026-10-18, `a01be2a`): GTK reports a window size the app
+sets before the window is shown (it opened at the size with the content
+laid out at the old one), and a sidebar added or removed keeps a size an
+app's resize is taking the content to. The launcher's empty library
+needed both (below).
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:
@@ -301,9 +306,14 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    over its error (checked on Broadway with `LAUNCHER_PLAYER_BIN` on a
    missing file; an alert's text can't be selected, mitsuami has no
    option for it); an empty library
-   is a title, its folder and New machine, beside an empty sidebar on
-   macOS and GTK (2026-10-18, user: without it the window opened only
-   as wide as the details, the sidebar's width missing). These buttons have no "…"
+   is a title, its folder and New machine, with no sidebar. On macOS and
+   GTK the window's size is the details' and the sidebar adds its own,
+   so an empty library opens the sidebar's width wider (it opened only
+   as wide as the details; user, 2026-10-18, who wants no empty
+   sidebar) and gives that width back to the sidebar when the first
+   machine comes; the last one gone, the window keeps its width.
+   Checked on Broadway: 870 wide empty, and still 870 with the first
+   machine (a create probe delayed by hand). These buttons have no "…"
    (user): toolbar and action buttons go without it on every platform
    today, as UTM's and VirtualBox's do. `Sidebar` was not used: its
    items are fixed when it is built and have no second line. Checked
