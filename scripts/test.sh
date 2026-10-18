@@ -755,6 +755,33 @@ win11snap_check() { # a Windows 11 machine's offline snapshot holds its firmware
   return $rc
 }
 
+libfolder_check() { # the App Store build's machines folder, picked by the user (doc 07)
+  local dir="$OUT/libfolder" o bundle
+  rm -rf "$dir"; mkdir -p "$dir/data" "$dir/mine"
+  # A bare launcher never asks, and keeps the platform's folder
+  o="$(env -u APP_SANDBOX_CONTAINER_ID -u LAUNCHER_LIBRARY_DIR LAUNCHER_DATA_DIR="$dir/data" $LAUNCHERX --library)"
+  echo "$o" | grep -qx 'asks   no' || { echo "an unsandboxed launcher asks for a machines folder:"; echo "$o"; return 1; }
+  # The sandbox (the variable macOS sets for it) asks until a folder is picked
+  local sbx=(env -u LAUNCHER_LIBRARY_DIR APP_SANDBOX_CONTAINER_ID=test LAUNCHER_DATA_DIR="$dir/data"
+    LAUNCHER_BROWSE_MEMORY="$dir/last-browse.txt" LAUNCHER_QEMU_IMG_BIN=$QIMG)
+  o="$("${sbx[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx 'asks   yes' || { echo "the sandbox does not ask:"; echo "$o"; return 1; }
+  "${sbx[@]}" $LAUNCHERX --choose-library "$dir/mine" >/dev/null || { echo "--choose-library failed"; return 1; }
+  o="$("${sbx[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx "dir    $dir/mine" && echo "$o" | grep -qx 'asks   no' || { echo "the pick did not stick:"; echo "$o"; return 1; }
+  [ "$OS" = Darwin ] && { ls "$dir/data/grants/"*.bookmark >/dev/null 2>&1 || { echo "no bookmark kept for the folder"; return 1; }; }
+  bundle="$("${sbx[@]}" $LAUNCHERX --wizard-new win98 "In Mine" 1 2>/dev/null | tail -1)"
+  case "$bundle" in "$dir/mine/"*) ;; *) echo "a new machine went to $bundle"; return 1 ;; esac
+  # Browse for its disk starts in its folder, which the open panel shows
+  o="$("${sbx[@]}" $LAUNCHERX --browse-start "$(dirname "$bundle")/disk.qcow2" file)"
+  [ "$o" = "$(dirname "$bundle")" ] || { echo "Browse starts at $o"; return 1; }
+  # A folder that went away is asked for again
+  rm -rf "$dir/mine"
+  o="$("${sbx[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx 'asks   yes' || { echo "a vanished folder is not asked for again:"; echo "$o"; return 1; }
+  echo "asked in the sandbox only, kept with its bookmark, new machines in it"
+}
+
 compressed_check() { # a file macOS keeps compressed reads as data (patch 95; the App Store's firmware)
   local dir="$OUT/compressed" map
   rm -rf "$dir"; mkdir -p "$dir"
@@ -953,6 +980,18 @@ mitsuami_check() ( # the launcher's window, driven through its probes (doc 07, t
     || { echo "the offer did not ask with the model's headline"; rc=1; }
   printf '%s' "$o" | grep -q "firstrun settled: open=false" || { echo "No did not settle the offer"; rc=1; }
   [ -f "$dir/profiles/first-run.txt" ] || { echo "declining wrote no marker"; rc=1; }
+  # The App Store build's start (the sandbox, as macOS's variable says)
+  # asks for a machines folder first, and the window lists what is in it.
+  if [ "$OS" = Darwin ]; then
+    mkdir -p "$dir/sbx" "$dir/mine/kept"
+    cp "$dir/library/probe-box/machine.toml" "$dir/mine/kept/"
+    o="$( (unset LAUNCHER_LIBRARY_DIR; export APP_SANDBOX_CONTAINER_ID=test LAUNCHER_DATA_DIR="$dir/sbx"
+           probe "firstrun:choose,$dir/mine" folder) )"
+    printf '%s\n' "$o" | grep '^\[launcher\] firstrun' | sed 's/^/  /'
+    printf '%s' "$o" | grep -q "firstrun Asking: Choose a folder for your machines" \
+      || { echo "the sandboxed start did not ask for a machines folder"; rc=1; }
+    [ "$(cat "$dir/sbx/library.txt" 2>/dev/null)" = "$dir/mine" ] || { echo "the pick was not kept"; rc=1; }
+  fi
   # About, with the credits.
   o="$(probe about about)"
   [ -s "$dir/about.png" ] || { echo "About drew nothing: $o"; rc=1; }
@@ -2446,6 +2485,9 @@ host_stage() {
     skip snapshot-tree "needs $LAUNCHERX and $QIMG"
     skip win11-snapshots "needs $LAUNCHERX and $QIMG"
   fi
+  if [ -x $LAUNCHERX ] && [ -x $QIMG ]; then
+    run_check library-folder library-folder.log libfolder_check || true
+  else skip library-folder "needs $LAUNCHERX and $QIMG"; fi
   if [ "$OS" = Darwin ] && [ -x $QIMG ]; then
     run_check compressed-file compressed-file.log compressed_check || true
   elif [ "$OS" = Darwin ]; then skip compressed-file "needs $QIMG"; fi

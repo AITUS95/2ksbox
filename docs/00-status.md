@@ -539,6 +539,12 @@ to one subsystem lives in its design doc; pointers are at the end.
   QMP; 2026-10-18). Patch 95; a check against an installed app needs
   its own copies, `ditto --hfsCompression` makes one (`compressed-file`).
 
+- **macOS's open panel never shows a folder inside the app's sandbox
+  container**: handed one, it opens at its last folder. So the App Store
+  build keeps its machines in a folder the user picks at start
+  (`library::chosen_dir`, doc 07; `library-folder`), not in the
+  container (2026-10-18).
+
 ### The player and the QEMU thread
 
 - **Never `exit()` while the QEMU thread is alive.** QEMU's atexit

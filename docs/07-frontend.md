@@ -97,6 +97,25 @@ player line runs a machine with nothing else.
   exists yet) in the platform's file manager: Help's second item on
   macOS, GTK and Windows (`launcher_core::library::OPEN_FOLDER`).
   Kirigami has no menus and no toolbar button for it.
+- **The App Store build keeps its machines in a folder the user picks**
+  (2026-10-18). Its data dir is inside the sandbox container, and
+  macOS's open panel never shows a folder in there (measured with a
+  sandboxed probe: given one, the panel opened at its last folder), so
+  "Browse…" on a container machine's disk opened elsewhere. At start, in
+  the sandbox and until a folder is chosen, the launcher asks
+  ("Choose a folder for your machines", `library::QUESTION`; "Choose
+  Folder…" or "Later"), before the shader offer and through the same
+  alerts (`firstrun.rs`, `Offer::ask_folder`); the folder dialog opens
+  at the user's real home (`library::choose_start`; `$HOME` is the
+  container). The pick is one line in `<data dir>/library.txt` and a
+  bookmark (`grants::keep`), and `library::default_dir()` answers it
+  from then on; Help's "Choose Machines Folder…"
+  (`library::CHOOSE_FOLDER`, sandbox only) picks again. "Later", or a
+  folder that went away, leaves the container's `machines` in use and
+  asks at the next start. Nothing in the container is moved (user
+  decision). `launcherx --library` prints the folder and whether it
+  would ask, `--choose-library <folder>` keeps one; the sandbox is
+  `APP_SANDBOX_CONTAINER_ID`, which a check sets to stand in for it.
 - **The main window's commands have keys** (2026-10-07,
   `machines::Command`): the platform's primary modifier (Cmd on macOS,
   Ctrl elsewhere) with N New Machine, R Start, I Settings, E Discs,

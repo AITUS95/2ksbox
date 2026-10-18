@@ -24,6 +24,7 @@ use crate::discs::{DiscShelfWindow, Discs};
 use crate::snaps::{Snaps, SnapshotsWindow};
 use crate::wizard::{Wizard, WizardWindow};
 use launcher_core::machines::{DetailGroup, Machines};
+use launcher_core::{browse, library};
 use mitsuami::core::{CurrentWindow, Ui};
 use mitsuami::prelude::*;
 use std::cell::RefCell;
@@ -84,6 +85,32 @@ impl Library {
     /// Rescan the library from disk, after a window wrote a bundle.
     pub fn refresh(&self) {
         self.write(|m| {
+            m.refresh();
+            true
+        });
+    }
+
+    /// The folder dialog for the machines folder, at the user's home
+    /// (Help's `library::CHOOSE_FOLDER`, and the start's question), then
+    /// the library on what was picked. Cancel changes nothing.
+    pub async fn choose_dir(self) {
+        let mut request = OpenFile::new().title(library::QUESTION.prompt).directories();
+        if let Some(home) = library::choose_start() {
+            request = request.start_folder(home);
+        }
+        if let Some(dir) = open_file(request).await.and_then(|p| p.into_iter().next()) {
+            self.use_dir(&browse::picked(&dir));
+        }
+    }
+
+    /// Keep `dir` as the machines folder and show what is in it.
+    pub fn use_dir(&self, dir: &Path) {
+        if let Err(e) = library::choose_dir(dir) {
+            self.failure.set(Some((library::QUESTION.failed.into(), format!("{}: {e}", dir.display()))));
+            return;
+        }
+        self.write(|m| {
+            m.library_dir = library::default_dir();
             m.refresh();
             true
         });
@@ -169,7 +196,7 @@ pub fn MachinesWindow() -> impl View {
     let offer = use_store::<Offer>();
     let about = use_store::<About>();
     let stores = Stores { library, wizard, cloner, snaps, discs, shaders };
-    crate::about::app_menu(about, command_menus(stores));
+    crate::about::app_menu(about, library, command_menus(stores));
     // The window's task, which ends with it.
     spawn_local(library.poll());
     crate::shot::arm(&["", "select", "create", "clonego", "firstrun"]);

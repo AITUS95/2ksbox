@@ -8,19 +8,122 @@ use std::path::{Path, PathBuf};
 
 pub const BUNDLE_FILE: &str = "machine.toml";
 
-/// The default library directory: the platform data dir (`~/.local/share`
-/// on Linux, `~/Library/Application Support` on macOS, `%APPDATA%` on
-/// Windows) plus `machines`. `LAUNCHER_LIBRARY_DIR` overrides it for
-/// development and tests, like the player's `PLAYER_*` knobs.
 /// Help's item that opens `default_dir()` in the file manager.
 pub const OPEN_FOLDER: &str = "Open Machines Folder";
 
+/// Help's item that picks the folder again, in the sandbox only
+/// (`asks_for_dir`).
+pub const CHOOSE_FOLDER: &str = "Choose Machines Folder…";
+
+/// The library directory: the folder the user chose (`chosen_dir`), else
+/// the platform data dir (`~/.local/share` on Linux, `~/Library/Application
+/// Support` on macOS, `%APPDATA%` on Windows) plus `machines`.
+/// `LAUNCHER_LIBRARY_DIR` overrides both for development and tests, like
+/// the player's `PLAYER_*` knobs.
 pub fn default_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("LAUNCHER_LIBRARY_DIR") {
         return dir.into();
     }
+    if let Some(dir) = chosen_dir() {
+        return dir;
+    }
     crate::paths::data_dir().map(|d| d.join("machines")).unwrap_or_else(|| PathBuf::from("machines"))
 }
+
+/// The machines folder the user chose (`choose_dir`), if it is still there.
+///
+/// Only the App Store build asks (`asks_for_dir`). Its data dir is inside
+/// the app's sandbox container, and macOS's open panel never shows a
+/// folder in there: a machine kept in the container could not have its
+/// disk browsed to, and "Browse…" opened somewhere else (2026-10-18). So
+/// that build keeps its machines in a folder the user picks, which the
+/// panel shows like any other, and keeps access to it with a
+/// security-scoped bookmark (`grants`). Nothing in the container is moved
+/// (user decision).
+pub fn chosen_dir() -> Option<PathBuf> {
+    let text = std::fs::read_to_string(chosen_file()?).ok()?;
+    let dir = PathBuf::from(text.trim_end_matches(['\r', '\n']));
+    (!dir.as_os_str().is_empty() && dir.is_dir()).then_some(dir)
+}
+
+/// `<data dir>/library.txt`: the one line `choose_dir` writes.
+fn chosen_file() -> Option<PathBuf> {
+    crate::paths::data_dir().map(|d| d.join("library.txt"))
+}
+
+/// Whether this launcher asks where its machines go: the macOS App
+/// Sandbox, unless `LAUNCHER_LIBRARY_DIR` names the library.
+pub fn asks_for_dir() -> bool {
+    crate::grants::sandboxed() && std::env::var_os("LAUNCHER_LIBRARY_DIR").is_none()
+}
+
+/// Whether to ask now, at start: in the sandbox, until a folder is chosen
+/// (and again if it went away). "Later" leaves the container's library in
+/// use for this run.
+pub fn needs_dir() -> bool {
+    asks_for_dir() && chosen_dir().is_none()
+}
+
+/// Keep `dir`, picked in a folder dialog, as the library from now on,
+/// with its access for later runs.
+pub fn choose_dir(dir: &Path) -> std::io::Result<()> {
+    let file = chosen_file().ok_or_else(|| std::io::Error::other("no data directory"))?;
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&file, format!("{}\n", dir.display()))?;
+    crate::grants::keep(dir);
+    Ok(())
+}
+
+/// Where the folder dialog opens: the user's real home folder. In the
+/// sandbox `$HOME` is the container, which the dialog does not show.
+pub fn choose_start() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        // SAFETY: getpwuid's record is read at once, on this thread, and
+        // pw_dir checked for null.
+        let home = unsafe {
+            let pw = libc::getpwuid(libc::getuid());
+            if pw.is_null() || (*pw).pw_dir.is_null() {
+                return None;
+            }
+            std::ffi::CStr::from_ptr((*pw).pw_dir).to_string_lossy().into_owned()
+        };
+        Some(PathBuf::from(home))
+    }
+    #[cfg(not(unix))]
+    {
+        directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+    }
+}
+
+/// The question at start (`needs_dir`), and the folder dialog's prompt.
+/// The words are here, not in a front end, like `firstrun`'s.
+pub struct Question {
+    pub headline: &'static str,
+    pub detail: &'static str,
+    /// The buttons: pick a folder now, or keep the app's own storage for
+    /// this run.
+    pub choose: &'static str,
+    pub later: &'static str,
+    /// The folder dialog's message line.
+    pub prompt: &'static str,
+    /// The alert's headline when the pick cannot be kept.
+    pub failed: &'static str,
+}
+
+pub const QUESTION: Question = Question {
+    headline: "Choose a folder for your machines",
+    detail: "2ksbox keeps each machine's settings and disk in a folder of yours, where you can find, \
+             back up and browse to them. Choose one, or make a new one, for example \"2ksbox\" in your \
+             home folder.\n\nUntil you do, new machines are kept inside the app's own storage, which \
+             file dialogs can't open.",
+    choose: "Choose Folder…",
+    later: "Later",
+    prompt: "Choose or make the folder for your 2ksbox machines",
+    failed: "Couldn't use that folder for your machines.",
+};
 
 pub struct LibraryEntry {
     pub dir: PathBuf,
