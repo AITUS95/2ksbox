@@ -459,7 +459,10 @@ Diagnostics:
   one 5 s rate line each, for an A/B inside one run (`tools/ddi-rate.py`).
 - `D3DPT_D11_PROF=1` times the Direct3D 11 executor per record token:
   every 5 s a `d11: prof` line of `token:count:us` and the total (track
-  M25; a readback, token 4, is a wait for the host GPU).
+  M25; a readback, token 4, is a wait for the host GPU). 64 + op are the
+  GDI records (65 COPY, 66 FILL, 67 REFRESH, 68 SYNC); 72 and 73, not in
+  the total, a readback's wait for its staging copy and its copy into
+  VRAM.
 - While a 3D device is active, the player shows the VGA surface again
   after 1 s without a presented frame if the guest drew on it (an error
   box, a movie, a crashed game): `[display] no 3D frame for …`.

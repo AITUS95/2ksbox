@@ -425,6 +425,7 @@ uint32_t d3dpt_exec_submit(d3dpt_exec_t *xp, void *shm, uint32_t shm_size)
     if (!x || shm_size < D3DPT_SHM_SIZE) return D3DPT_ERR_HOST;
     d3dpt_shm_hdr *hdr = (d3dpt_shm_hdr *)shm;
     check_lost(*x);
+    exec_d11_settle(*x, false);      /* flips' readbacks the GPU is done with */
     Batch b = { *x, (uint8_t *)shm, hdr, (uint8_t *)shm + D3DPT_RET_OFFSET };
     uint32_t bytes = hdr->cmd_bytes, count = hdr->cmd_count;
     hdr->batches++;
@@ -452,6 +453,14 @@ uint32_t d3dpt_exec_submit(d3dpt_exec_t *xp, void *shm, uint32_t shm_size)
     hdr->cmd_bytes = 0;
     hdr->cmd_count = 0;
     return b.err;
+}
+
+void d3dpt_exec_settle(d3dpt_exec_t *xp)
+{
+    Exec *x = (Exec *)xp;
+    if (!x) return;
+    x->settles = true;                /* the display asks: flips' readbacks may wait for it */
+    try { exec_d11_settle(*x, true); } catch (...) {}
 }
 
 uint32_t d3dpt_exec_features(d3dpt_exec_t *xp)

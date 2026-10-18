@@ -634,6 +634,14 @@ static bool d3dpt_vga_gfx_update(void *opaque)
         return true;
     }
 
+    if (s->exec && s->lib->settle && qemu_mutex_trylock(&s->exec_lock) == 0) {
+        /* a flip's readback the executor may still owe VRAM (protocol v28,
+         * RES_SCANOUT) is there before it is shown; with a batch running
+         * (a vCPU holds the lock) the batch's own check or the next
+         * refresh does it */
+        s->lib->settle(s->exec);
+        qemu_mutex_unlock(&s->exec_lock);
+    }
     if (s->gamma_dirty) {
         /* a new ramp recolours every pixel; a 32 bpp mode moves between
          * VRAM itself and the shadow the ramp is applied in */

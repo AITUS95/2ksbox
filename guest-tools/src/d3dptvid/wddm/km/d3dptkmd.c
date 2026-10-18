@@ -1512,6 +1512,8 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
             dbg_hex(" caps ", d->caps);
             dbg_hex(" bytes ", d->size);
             dbg_hex(" handle ", al->handle);
+        } else if (d->kind == D3DPT_ALLOC_GDI) {
+            dbg_hex(" GDI type ", d->source);
         }
         dbg_puts("\n");
     }
@@ -2377,6 +2379,30 @@ static void gdi_paged(D3DPT_ADAPTER *a, const PKT_TRANSFER_T *t, BOOLEAN before)
     }
 }
 
+/* A Direct3D 11 allocation the next packet reads from VRAM at `addr` (a
+ * present's copy that is not the host's, a transfer out): the host's
+ * pixels go there first, if it has it registered there. The user-mode
+ * driver reads a blt-model buffer back no more (the present into a
+ * redirection bitmap is a copy on the host), and a flip's readback may
+ * still be owed (protocol v28). */
+static void d3d11_sync(D3DPT_ADAPTER *a, const D3DPT_ALLOC *al, ULONG addr)
+{
+    d3dpt_gdi *out;
+
+    if (!a->d3d || !al || al->d.kind != D3DPT_ALLOC_D3D || !(al->d.caps & D3DPT_VS_D3D11) || !al->handle ||
+        al->host_addr != addr) {
+        return;
+    }
+    out = d3dpt_enc_cmd(&a->enc, D3DPT_OP_GDI, sizeof(*out), 0);
+    if (!out) {
+        return;
+    }
+    RtlZeroMemory(out, sizeof(*out));
+    out->op = D3DPT_GDI_SYNC;
+    out->dst.handle = al->handle;
+    d3dpt_enc_flush(&a->enc);       /* in VRAM before the copy reads it */
+}
+
 static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
 {
     ULONG off = 0;
@@ -2392,17 +2418,28 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
             return;
         }
         switch (hd->op) {
-        case PKT_TRANSFER:
+        case PKT_TRANSFER: {
+            const PKT_TRANSFER_T *t = (const PKT_TRANSFER_T *)hd;
+
+            if (t->src.seg == 1 && t->offset == 0) {
+                d3d11_sync(a, t->al, t->src.addr);
+            }
             gdi_paged(a, (const PKT_TRANSFER_T *)hd, TRUE);
             run_transfer(a, (const PKT_TRANSFER_T *)hd);
             gdi_paged(a, (const PKT_TRANSFER_T *)hd, FALSE);
             break;
+        }
         case PKT_FILL:
             run_fill(a, (const PKT_FILL_T *)hd);
             break;
         case PKT_BLT:
         case PKT_COLORFILL:
             if (!gdi_present(a, (const PKT_BLT_T *)hd)) {
+                if (hd->op == PKT_BLT) {
+                    const PKT_BLT_T *k = (const PKT_BLT_T *)hd;
+
+                    d3d11_sync(a, k->src.al, k->src.seg == 1 ? k->src.addr : ~0u);
+                }
                 run_blt(a, (const PKT_BLT_T *)hd);
             }
             break;

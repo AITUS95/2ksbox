@@ -43,6 +43,12 @@
  * RenderKm copy or fill, or a present into a window's redirection bitmap,
  * done by the host between its Direct3D 11 objects or VRAM.
  *
+ * v28 (M25): GDI SYNC, a Direct3D 11 allocation's pixels into its VRAM
+ * before the kernel driver copies from there; a blt-model present no
+ * longer reads its buffer back first. D11 RES_SCANOUT, a flip's readback
+ * the host may finish later (before the display or anything else reads
+ * that VRAM: d3dpt_exec_settle).
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT_PROTO_H
@@ -50,7 +56,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_PROTO_VERSION   27u
+#define D3DPT_PROTO_VERSION   28u
 
 #define D3DPT_SHM_SIZE        0x04000000u          /* 64 MiB */
 #define D3DPT_CMD_OFFSET      0x00001000u          /* records start after the header page */
@@ -164,8 +170,12 @@ typedef struct d3dpt_query_get { uint32_t handle, ret_off, flags, size; } d3dpt_
  * of a window there itself); the host uploads what changed since it last
  * looked (its shadow of that VRAM). The host's own fills and copies from
  * VRAM go to the bitmap's VRAM and shadow too; a copy between objects (a
- * present) stays in the object until the CPU draws over it. */
-enum { D3DPT_GDI_COPY = 1, D3DPT_GDI_FILL = 2, D3DPT_GDI_REFRESH = 3 };
+ * present) stays in the object until the CPU draws over it. SYNC (v28;
+ * dst's handle only, no rectangles): what the host drew into an
+ * allocation goes to its VRAM, which the kernel driver reads next (a
+ * present's copy that is not the host's, a blt-model buffer the user-mode
+ * driver no longer reads back). */
+enum { D3DPT_GDI_COPY = 1, D3DPT_GDI_FILL = 2, D3DPT_GDI_REFRESH = 3, D3DPT_GDI_SYNC = 4 };
 #define D3DPT_GDI_TEXTURE 0x1u
 #define D3DPT_GDI_VRAM    0x2u      /* this side is its VRAM even where the host has an object of it (a bitmap paged
                                      * in or out: the object written back first, re-read after) */
@@ -442,6 +452,9 @@ enum d3dpt_d11_op {
     D3DPT_D11_QUERY_GET = 57,           /* d3dpt_d11_ref {id, size}: GetData (no wait) into the record's return payload */
     D3DPT_D11_SET_CB1 = 58,             /* v26: d3dpt_d11_bind + n d3dpt_d11_cb1: *SetConstantBuffers1 */
     D3DPT_D11_CLEAR_VIEW = 59,          /* v26: d3dpt_d11_clear_view + n {left, top, right, bottom}: ClearView */
+    D3DPT_D11_RES_SCANOUT = 60,         /* v28: d3dpt_d11_ref as RES_READBACK's, for a buffer a flip shows: the
+                                         * host may finish it once its GPU is done, and does before anything
+                                         * reads that VRAM (the display: d3dpt_exec_settle) */
 };
 
 /* D3DPT_D11_DESTROY's kinds */

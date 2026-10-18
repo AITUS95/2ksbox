@@ -74,6 +74,11 @@ D3DPT_EXEC_API int d3dpt_exec_probe(void);
  * the Direct3D 11 device). The adapter turns it into its CAP bits. */
 #define D3DPT_EXEC_FEAT_D3D11 0x1u
 D3DPT_EXEC_API uint32_t d3dpt_exec_features(d3dpt_exec_t *x);
+/* Optional too (v28): finish what the executor still owes VRAM (a flip's
+ * readback, D3DPT_D11_RES_SCANOUT) before the display reads it. Called
+ * like the others, serialised with them; an executor that has never
+ * been asked defers nothing. */
+D3DPT_EXEC_API void d3dpt_exec_settle(d3dpt_exec_t *x);
 D3DPT_EXEC_API int d3dpt_exec_shared_alloc(const char *name, uint64_t size, uint64_t *offset);
 D3DPT_EXEC_API void d3dpt_exec_shared_map(uint64_t offset, void *ptr);
 

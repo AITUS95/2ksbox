@@ -84,6 +84,7 @@ struct Exec {
     uint32_t vram_size = 0;
     struct Ddi *ddi = nullptr;
     void *d11 = nullptr;            /* M25: the Direct3D 11 side (d3dpt_exec_d11.cpp), made at its first record */
+    bool settles = false;           /* v28: the device calls d3dpt_exec_settle before its display reads VRAM */
 
     /* A scene, opened by the executor rather than by whatever it is
      * executing. The display driver's DP2 stream carries no scene at all
@@ -167,6 +168,9 @@ bool exec_d11_op(Batch &b, const d3dpt_cmd *c);
 bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c);   /* v27's GDI record */
 bool exec_d11_available(Exec &x);
 void exec_d11_sync(Exec &x, uint32_t handle);
+/* the flips' readbacks still owed to VRAM (RES_SCANOUT): those the GPU is
+ * done with (wait false: at each batch), or all (the display) */
+void exec_d11_settle(Exec &x, bool wait);
 void exec_d11_vram_release(Exec &x, uint32_t handle);
 bool exec_d11_ctx_destroy(Exec &x, uint32_t ctx);
 /* ... and what it asks of the display driver's side (d3dpt_exec_ddi.cpp):

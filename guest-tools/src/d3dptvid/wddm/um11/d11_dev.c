@@ -125,9 +125,13 @@ static HRESULT APIENTRY d11_cl_recycle_create(D3D10DDI_HDEVICE h, const D3D11DDI
 #define DXGI_DEV(p) ((D11_DEV *)(p)->hDevice)
 #define DXGI_RES(x) ((D11_RES *)(x))
 
-/* Present: the host's pixels of the buffer into its VRAM, then the
- * kernel driver's Present copies them where they go (DWM's redirection
- * surface, or the primary full screen), as for Direct3D 9 */
+/* Present: the kernel driver's Present copies the buffer where it goes.
+ * A blt (DWM's redirection bitmap) is a copy on the host, or the kernel
+ * driver has the host put its pixels in VRAM first (d3d11_sync); a flip
+ * may be an MMIO flip, which scans VRAM with no packet run, so its
+ * buffer is read back here, as one the host may finish later, before the
+ * display shows it (RES_SCANOUT: a readback waited for the host's GPU,
+ * 2-4 ms at each of DWM's compositions; track M25) */
 static HRESULT APIENTRY dxgi_present(DXGI_DDI_ARG_PRESENT *p)
 { D11_TRACE("dxgi_present");
     D11_DEV *d = DXGI_DEV(p);
@@ -136,8 +140,8 @@ static HRESULT APIENTRY dxgi_present(DXGI_DDI_ARG_PRESENT *p)
     HRESULT hr;
     static ULONG logged;
 
-    if (src && src->vram) {
-        res_ref(d, D3DPT_D11_RES_READBACK, src, p->SrcSubResourceIndex);
+    if (src && src->vram && !p->Flags.Blt) {
+        res_ref(d, D3DPT_D11_RES_SCANOUT, src, p->SrcSubResourceIndex);
     }
     cmd_flush(d);
     ZeroMemory(&pc, sizeof(pc));

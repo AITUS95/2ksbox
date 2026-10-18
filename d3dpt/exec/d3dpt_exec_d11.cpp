@@ -106,10 +106,23 @@ struct D11 {
     std::unordered_map<uint32_t, D11Ctx> ctxs;
     std::unordered_map<uint32_t, int> warned;
     bool warn(uint32_t key) { return warned[key]++ == 0; }
-    /* D3DPT_D11_PROF set: each token kind's count and time, logged every 5 s */
+    /* D3DPT_D11_PROF set: each token kind's count and time, logged every 5 s;
+     * 64 + op the GDI records (v27: COPY, FILL, REFRESH, SYNC); 72 and up
+     * are parts of one (not in the total): 72 a readback's wait for its
+     * staging copy (the GPU), 73 its copy into VRAM */
     bool prof = false;
     std::chrono::steady_clock::time_point prof_t0;
-    uint64_t prof_ns[64] = {}, prof_n[64] = {};
+    uint64_t prof_ns[128] = {}, prof_n[128] = {};
+    /* v28: flips' readbacks copied to staging and not yet into VRAM
+     * (RES_SCANOUT): an allocation's subresources first..last-1 */
+    struct Owed { uint32_t h, first, last; };
+    std::vector<Owed> owed;
+    void prof_part(uint32_t i, std::chrono::steady_clock::time_point &t) {
+        auto now = std::chrono::steady_clock::now();
+        prof_ns[i] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(now - t).count();
+        prof_n[i]++;
+        t = now;
+    }
 };
 
 D11 *&d11_of(Exec &x)
@@ -581,12 +594,15 @@ uint8_t *vram_of(Exec &x, uint32_t h, uint32_t &off, uint32_t &bytes)
     return x.vram + off;
 }
 
+void owed_settle(Exec &x, D11 &d, uint32_t h, bool wait, bool drop = false);
+
 /* VRAM -> host: the subresources the guest's CPU wrote */
 void res_dirty(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
 {
     uint32_t off, bytes;
     uint8_t *mem = vram_of(x, h, off, bytes);
     if (!mem || r.layout.empty()) return;
+    owed_settle(x, d, h, false, true);         /* the guest's CPU wrote it since: what was owed is older */
     uint32_t n = sub_count(r), first = sub == ~0u ? 0 : sub, last = sub == ~0u ? n : sub + 1;
     for (uint32_t i = first; i < last && i < r.layout.size(); i++) {
         const d3dpt_d11_sub &l = r.layout[i];
@@ -598,11 +614,75 @@ void res_dirty(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
     if (sub == ~0u || sub_count(r) == 1) r.newer = false;    /* VRAM and the host agree */
 }
 
-/* host -> VRAM: a staging copy of the subresource (a resolve first for a
- * multisampled one), mapped and copied row by row into the layout */
-void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
+/* host -> VRAM, the second half: the staging copy's subresources mapped
+ * and copied row by row into the layout; false (nothing marked written) if
+ * the GPU is not done with them yet and `wait` is false */
+bool stage_to_vram(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t first, uint32_t last, bool wait)
 {
     uint32_t off, bytes;
+    uint8_t *mem = vram_of(x, h, off, bytes);
+    ID3D11Resource *from = r.staging ? r.res : r.stage;
+    if (!mem || !from) return true;
+    for (uint32_t i = first; i < last && i < r.layout.size(); i++) {
+        auto t = d.prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
+        D3D11_MAPPED_SUBRESOURCE m;
+        HRESULT hr = d.ctx->Map(from, i, D3D11_MAP_READ, wait ? 0 : D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
+        if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return false;
+        if (FAILED(hr)) continue;
+        if (d.prof) d.prof_part(72, t);
+        const d3dpt_d11_sub &l = r.layout[i];
+        uint32_t w, ht, depth, rows, row_bytes;
+        sub_dims(r, i, w, ht, depth, rows, row_bytes);
+        uint32_t row = std::min(row_bytes, l.row_pitch);
+        if ((uint64_t)l.offset + (uint64_t)l.depth_pitch * (depth - 1) + (uint64_t)l.row_pitch * (rows - 1) + row <= bytes) {
+            for (uint32_t z = 0; z < depth; z++)
+                for (uint32_t y = 0; y < rows; y++)
+                    memcpy(mem + l.offset + z * l.depth_pitch + y * l.row_pitch,
+                           (const uint8_t *)m.pData + z * m.DepthPitch + y * m.RowPitch, row);
+        }
+        d.ctx->Unmap(from, i);
+        if (d.prof) d.prof_part(73, t);
+    }
+    if (x.ops.vram_dirty) x.ops.vram_dirty(x.ops.ud, off, bytes);
+    exec_ddi_vram_written(x, h);
+    return true;
+}
+
+/* What is owed to an allocation's VRAM (h 0: every one's) goes there:
+ * once the GPU is done (wait false), or now. `drop`: forgotten instead
+ * (the guest wrote that VRAM since, or a newer copy covers it). */
+void owed_settle(Exec &x, D11 &d, uint32_t h, bool wait, bool drop)
+{
+    for (size_t i = 0; i < d.owed.size();) {
+        D11::Owed o = d.owed[i];
+        if (h && o.h != h) { i++; continue; }
+        /* off the list first: the VRAM lookup syncs the allocation again
+         * (exec_d11_sync), which must not find it (a stack overflow) */
+        d.owed.erase(d.owed.begin() + (ptrdiff_t)i);
+        auto it = d.res.find(o.h);
+        if (drop || it == d.res.end() || !it->second.res || stage_to_vram(x, d, o.h, it->second, o.first, o.last, wait))
+            continue;
+        i = std::min(i, d.owed.size());     /* not done yet: back in its place */
+        d.owed.insert(d.owed.begin() + (ptrdiff_t)i, o);
+        i++;
+    }
+}
+
+/* host -> VRAM: a staging copy of the subresource (a resolve first for a
+ * multisampled one), mapped and copied row by row into the layout. A
+ * flip's (`scanout`) is left owed when the display settles it
+ * (d3dpt_exec_settle): the Map waits for the GPU to finish the frame,
+ * 2-4 ms of the executor's at each of DWM's compositions with every guest
+ * submission queued behind it (track M25) */
+void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool scanout = false)
+{
+    uint32_t off, bytes;
+    /* one still owed: this copy is newer where it covers it */
+    for (const D11::Owed &o : d.owed)
+        if (o.h == h) {
+            owed_settle(x, d, h, true, sub == ~0u || (o.first == sub && o.last == sub + 1));
+            break;
+        }
     if (sub == ~0u || sub_count(r) == 1) r.newer = false;    /* first: the lookups below sync again otherwise */
     uint8_t *mem = vram_of(x, h, off, bytes);
     if (!mem || r.layout.empty()) return;
@@ -618,9 +698,8 @@ void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
         t.res = nullptr;
     }
     uint32_t n = sub_count(r), first = sub == ~0u ? 0 : sub, last = sub == ~0u ? n : sub + 1;
-    for (uint32_t i = first; i < last && i < r.layout.size(); i++) {
-        ID3D11Resource *from = r.res;
-        if (!r.staging) {
+    if (!r.staging) {
+        for (uint32_t i = first; i < last && i < r.layout.size(); i++) {
             if (r.d.samples > 1 && r.d.dim == 3) {
                 if (!r.resolve) {
                     D3D11_TEXTURE2D_DESC t = { r.d.width, r.d.height, 1, 1, (DXGI_FORMAT)r.d.format, { 1, 0 }, D3D11_USAGE_DEFAULT, 0, 0, 0 };
@@ -631,24 +710,13 @@ void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
             } else {
                 d.ctx->CopySubresourceRegion(r.stage, i, 0, 0, 0, r.res, i, nullptr);
             }
-            from = r.stage;
         }
-        D3D11_MAPPED_SUBRESOURCE m;
-        if (FAILED(d.ctx->Map(from, i, D3D11_MAP_READ, 0, &m))) continue;
-        const d3dpt_d11_sub &l = r.layout[i];
-        uint32_t w, ht, depth, rows, row_bytes;
-        sub_dims(r, i, w, ht, depth, rows, row_bytes);
-        uint32_t row = std::min(row_bytes, l.row_pitch);
-        if ((uint64_t)l.offset + (uint64_t)l.depth_pitch * (depth - 1) + (uint64_t)l.row_pitch * (rows - 1) + row <= bytes) {
-            for (uint32_t z = 0; z < depth; z++)
-                for (uint32_t y = 0; y < rows; y++)
-                    memcpy(mem + l.offset + z * l.depth_pitch + y * l.row_pitch,
-                           (const uint8_t *)m.pData + z * m.DepthPitch + y * m.RowPitch, row);
+        if (scanout && x.settles) {
+            d.owed.push_back({ h, first, last });
+            return;
         }
-        d.ctx->Unmap(from, i);
     }
-    if (x.ops.vram_dirty) x.ops.vram_dirty(x.ops.ud, off, bytes);
-    exec_ddi_vram_written(x, h);
+    stage_to_vram(x, d, h, r, first, last, true);
 }
 
 /* --------------------------------------------------------------- tokens */
@@ -947,6 +1015,7 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         x.d = *a;
         x.layout.assign((const d3dpt_d11_sub *)(a + 1), (const d3dpt_d11_sub *)(a + 1) + a->nsub);
         if (FAILED(res_create(r.x, d, x))) { r.fail(E_INVALIDARG); return; }
+        owed_settle(r.x, d, a->res, false, true);  /* the old one's */
         D11Res &nr = d.res[a->res];
         nr.release();
         nr = x;
@@ -966,12 +1035,12 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         write_sub(d, *x, a->sub, a->has_box ? &box : nullptr, (const uint8_t *)(a + 1), a->row_pitch, a->depth_pitch);
         return;
     }
-    case D3DPT_D11_RES_DIRTY: case D3DPT_D11_RES_READBACK: {
+    case D3DPT_D11_RES_DIRTY: case D3DPT_D11_RES_READBACK: case D3DPT_D11_RES_SCANOUT: {
         NEED(d3dpt_d11_ref);
         D11Res *x = res_of(d, a->a);
         if (!x) { r.fail(E_INVALIDARG); return; }
         if (t->op == D3DPT_D11_RES_DIRTY) res_dirty(r.x, d, a->a, *x, a->b);
-        else res_readback(r.x, d, a->a, *x, a->b);
+        else res_readback(r.x, d, a->a, *x, a->b, t->op == D3DPT_D11_RES_SCANOUT);
         return;
     }
     case D3DPT_D11_COPY: {
@@ -1322,15 +1391,15 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
 void prof_tok(Exec &x, D11 &d, uint32_t op, std::chrono::steady_clock::time_point t0)
 {
     auto now = std::chrono::steady_clock::now();
-    d.prof_ns[op & 63] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(now - t0).count();
-    d.prof_n[op & 63]++;
+    d.prof_ns[op & 127] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(now - t0).count();
+    d.prof_n[op & 127]++;
     auto span = std::chrono::duration_cast<std::chrono::milliseconds>(now - d.prof_t0).count();
     if (span < 5000) return;
     char line[1024];
     size_t n = (size_t)snprintf(line, sizeof line, "d11: prof %lld ms: token count us", (long long)span);
     uint64_t total = 0;
-    for (uint32_t i = 0; i < 64; i++) {
-        total += d.prof_ns[i];
+    for (uint32_t i = 0; i < 128; i++) {
+        if (i < 72) total += d.prof_ns[i];
         if (d.prof_ns[i] >= 1000000 && n < sizeof line - 40)
             n += (size_t)snprintf(line + n, sizeof line - n, " %u:%llu:%llu", i, (unsigned long long)d.prof_n[i],
                                   (unsigned long long)(d.prof_ns[i] / 1000));
@@ -1593,11 +1662,15 @@ bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c)
     if (!d) return true;
     const d3dpt_gdi_rect *rc = (const d3dpt_gdi_rect *)(g + 1);
     GdiSide src, dst;
-    /* D3DPT_D11_PROF: GDI records count as token 63 */
+    /* D3DPT_D11_PROF: GDI records count as 64 + the op */
     struct Prof {
-        Exec &x; D11 &d; std::chrono::steady_clock::time_point t0;
-        ~Prof() { if (d.prof) prof_tok(x, d, 63, t0); }
-    } prof{ x, *d, d->prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point() };
+        Exec &x; D11 &d; uint32_t op; std::chrono::steady_clock::time_point t0;
+        ~Prof() { if (d.prof) prof_tok(x, d, 64 + (op & 7), t0); }
+    } prof{ x, *d, g->op, d->prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point() };
+    if (g->op == D3DPT_GDI_SYNC) {
+        exec_d11_sync(x, g->dst.handle);       /* nothing if VRAM has it already */
+        return true;
+    }
     if (!gdi_side(x, *d, g->dst, dst)) {
         if (d->warn(0x63000000u)) x.log("d11: a GDI operation with a destination of format %u, %ux%u: not done", g->dst.format, g->dst.width, g->dst.height);
         return true;
@@ -1675,8 +1748,15 @@ void exec_d11_sync(Exec &x, uint32_t h)
     D11 *d = d11_of(x);
     if (!d) return;
     auto it = d->res.find(h);
+    owed_settle(x, *d, h, true);                /* a flip's readback still owed */
     if (it == d->res.end() || !it->second.newer || !it->second.res) return;
     res_readback(x, *d, h, it->second, ~0u);
+}
+
+void exec_d11_settle(Exec &x, bool wait)
+{
+    D11 *d = d11_of(x);
+    if (d && !d->owed.empty()) owed_settle(x, *d, 0, wait);
 }
 
 /* the allocation went (the kernel driver's VRAM_RELEASE) */
@@ -1684,6 +1764,7 @@ void exec_d11_vram_release(Exec &x, uint32_t h)
 {
     D11 *d = d11_of(x);
     if (!d) return;
+    owed_settle(x, *d, h, false, true);
     auto it = d->res.find(h);
     if (it == d->res.end()) return;
     it->second.release();

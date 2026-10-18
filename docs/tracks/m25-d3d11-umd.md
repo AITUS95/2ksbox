@@ -624,7 +624,7 @@ first touch by the host (a GDI operation, a present) uploads its VRAM
 and starts the shadow first; the host's fills and copies from VRAM go
 into the bitmap's VRAM and shadow too; a copy between objects (a
 present) stays in the object until the CPU draws over it. The refresh
-costs under 1 ms of the executor every 5 s (`D3DPT_D11_PROF`, token 63).
+costs under 1 ms of the executor every 5 s (`D3DPT_D11_PROF`, then token 63).
 The desktop, `winver` (logo, text, the OK button) and a DISCARD window's
 scene all draw.
 
@@ -639,11 +639,63 @@ DxgKrnl's ids read from the manifest): the present is a plain Blt
 the title is set once a second, so it is not GDI drawing the caption.
 What holds a GPU write into a CPU-visible bitmap is not found yet.
 
+**Where the present really goes, and readbacks that wait, the same day**
+(user: "continue with driver optimization"). ETW again (`G11\etw3.ps1`
+on the test machine: every process's queue and DMA packets, the game's
+Lock and DXGI's Present, merged over 120 ms of the steady state), and the
+kernel driver logging a present's destination: with the bitmaps
+CPU-visible **the present is not into the redirection bitmap at all**.
+The game's window has its 646x515 `TEXTURE` bitmap, but its frame goes
+into a 640x480 STAGING standard allocation, and the game thread waits
+for that packet and locks the staging surface (read-only) for Windows'
+CPU copy into the bitmap, as with `SupportSoftwareDeviceBitmaps`
+(above): a CPU-visible bitmap is filled by the CPU whatever its type.
+So the ~85 frames/s are the old system-memory path, and the fast host
+copies of "GDI acceleration, copies, fills and the present" need
+bitmaps that are not CPU-visible; how GDI's CPU drawing reaches those
+is what is open.
+
+The profile (`D3DPT_D11_PROF`, now with GDI records as 64 + their op and
+a readback's two halves as 72 and 73) found the other cost: **a
+readback waits for the host GPU**, 2-4 ms in `Map` (the GPU finishing the
+frame) against ~1 ms copying into VRAM, and the user-mode driver read
+the buffer back at every present: ~1 s of the executor's in each 5 s,
+mostly DWM's 1920x1200 flips, every guest submission queued behind each.
+Protocol v28:
+
+- A **blt-model present** reads nothing back in the user-mode driver.
+  The kernel driver's present into a redirection bitmap is a host copy
+  (`gdi_present`); one through VRAM (a STAGING destination, as now)
+  first sends v28's GDI `SYNC` for its source (the host's pixels into
+  VRAM, nothing if VRAM has them: the executor's `newer`), and so does a
+  paging transfer out of VRAM of a Direct3D 11 allocation.
+- A **flip's readback** is `RES_SCANOUT`: the host copies the buffer
+  into its staging twin and leaves the copy into VRAM owed. It is paid
+  at the next batch if the GPU is done (`DO_NOT_WAIT`), before anything
+  else reads that allocation's VRAM (`exec_d11_sync`, a later readback,
+  `SYNC`), and by the display: `d3dpt-vga`'s refresh calls the new
+  optional `d3dpt_exec_settle` under `exec_lock` (a try-lock: with a
+  batch running, the batch or the next refresh pays it). An executor
+  never asked to settle (the remote one under Wine) defers nothing. A
+  guest CPU write to that VRAM (`RES_DIRTY`) drops what is owed. The
+  first build recursed: the VRAM lookup syncs the allocation, which
+  settled the same entry again (a stack overflow in the vCPU thread);
+  an entry leaves the list before it is paid.
+
+d3dgame11 windowed, one run each, the profile on: **flip model unsynced
+560 frames/s** (323 before), with vsync 60.0 frames/s at 16.4 ms in each
+present; a readback's wait for the GPU 0.03-0.5 ms where it was 2-4;
+the desktop draws, the clock current. DISCARD unchanged, as above (~80
+unsynced, 47 with vsync): its present still goes through STAGING, now
+with a `SYNC` (~1.1 ms, the GPU's frame) where the readback was.
+
 ## Open
 
 - **A present into a CPU-visible redirection bitmap is held** (above):
-  what dxgkrnl waits for, and whether the bitmaps can be CPU-visible for
-  GDI without it. Then the other RenderKm operations (the ROPs,
+  it is not into the bitmap at all but into a STAGING copy the CPU then
+  moves ("Where the present really goes"); the fast path needs bitmaps
+  that are not CPU-visible and GDI's CPU drawing brought to them some
+  other way. Then the other RenderKm operations (the ROPs,
   AlphaBlend, StretchBlt, TransparentBlt, ClearType), and Notepad's text
   area (blank). Before the track merges GDI acceleration must draw every
   window or go back to off by default.

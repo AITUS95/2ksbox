@@ -186,7 +186,7 @@ void res_ref(D11_DEV *d, UINT op, D11_RES *r, UINT sub)
 
     if (t) {
         /* a readback writes the allocation's VRAM, RES_DIRTY reads it */
-        patch_rw(d, &t->a, r ? r->kmt : 0, op == D3DPT_D11_RES_READBACK || (r && !r->opened));
+        patch_rw(d, &t->a, r ? r->kmt : 0, op == D3DPT_D11_RES_READBACK || op == D3DPT_D11_RES_SCANOUT || (r && !r->opened));
         t->b = sub;
     }
 }

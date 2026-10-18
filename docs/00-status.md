@@ -396,10 +396,11 @@ tracks, plus the items no track owns.
     redirection bitmap and its paging done by the host, GDI's own CPU
     drawing brought over from the bitmaps' VRAM (they are CPU-visible;
     the host compares each with a shadow when DWM is about to sample it):
-    the desktop draws. Open: a present into a CPU-visible bitmap is held
-    in runs (a DISCARD window ~85 frames/s unsynced, the fast/slow
-    oscillation; ~430 with the bitmaps not CPU-visible, when GDI's
-    drawing is lost), and the other RenderKm operations (the track's
+    the desktop draws. Open: with the bitmaps CPU-visible a DISCARD
+    window's present goes into a STAGING copy the CPU moves into the
+    bitmap, not into the bitmap (~85 frames/s unsynced; ~430 with them
+    not CPU-visible, when GDI's drawing is lost; the track's "Where the
+    present really goes"), and the other RenderKm operations (the track's
     "GDI's own drawing"); the x64 kernel
     driver's flips on the blank have been MMIO flips since 2026-10-18,
     `FlipOnVSyncMmIo`: a DMA flip held for the blank
@@ -412,7 +413,10 @@ tracks, plus the items no track owns.
     the blank's real rate; "The host's vertical blank, again"), its ±2 ms
     open (not the batch: under a hardware accelerator the executor's
     batch runs without the BQL since 2026-10-18, flip model unsynced
-    253 → 323 frames/s, DWM's pace unchanged; "Batches without the BQL");
+    253 → 323 frames/s, DWM's pace unchanged; "Batches without the BQL";
+    since protocol v28 a flip's readback is finished when the host's GPU
+    is done or the display needs it, `d3dpt_exec_settle`, not waited for
+    in the batch: flip model unsynced 323 → 560 frames/s);
     which multisample claim the runtime refuses; DXVK's
     d3d11 and dxgi in the packages and the Linux / macOS executor builds;
     then 10_1 and 11_0 (compute, unordered access views, tessellation)
