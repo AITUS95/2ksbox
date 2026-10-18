@@ -27,7 +27,7 @@ cargo build --no-default-features --features kde # Kirigami
 ```
 
 mitsuami comes from crates.io, its release pinned exact
-(`version = "=1.3.4"` in `Cargo.toml`; ADR-023's 2026-10-16
+(`version = "=1.3.5"` in `Cargo.toml`; ADR-023's 2026-10-16
 amendment, before that a git `rev`). To work on both
 repositories at once, override it in an uncommitted
 `launcher-mitsuami/.cargo/config.toml`:
@@ -42,7 +42,7 @@ committing here (the launcher and the player together). A dependency
 change, a new mitsuami version included, means regenerating
 `packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami 1.3.4 from crates.io since 2026-10-18 (below): 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami 1.3.5 from crates.io since 2026-10-18 (below): 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -121,7 +121,11 @@ Then 1.3.4 (2026-10-18, `a01be2a`): GTK reports a window size the app
 sets before the window is shown (it opened at the size with the content
 laid out at the old one), and a sidebar added or removed keeps a size an
 app's resize is taking the content to. The launcher's empty library
-needed both (below).
+needed both (below). Then 1.3.5 (2026-10-18, `77a7784`): on AppKit an
+alert or file panel asked for on a window not yet shown waits for the
+window to be shown. The machines folder question, asked as the launcher
+starts, had ordered the window in at the screen's bottom-left corner,
+which it went back to once answered (user report from TestFlight).
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:
