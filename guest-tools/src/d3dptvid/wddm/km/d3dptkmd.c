@@ -187,6 +187,12 @@ typedef struct D3DPT_ALLOC {
  * default on this experimental track; the service key's GdiAcceleration
  * = 0 turns it off. */
 static ULONG g_gdi_accel = 1;
+/* The service key's GdiCpuVisible = 0: redirection bitmaps (TEXTURE) the
+ * CPU cannot see, which a blt-model present copies straight into, where a
+ * CPU-visible one gets a STAGING copy the CPU moves (track M25, "Where the
+ * present really goes"); then GDI's own drawing must come through RenderKm.
+ * 1, the default: CPU-visible. */
+static ULONG g_gdi_cpu_visible = 1;
 
 /* The DEBUG register of the adapter that started last: stubs called with
  * no adapter handle (Unload, ControlEtwLogging) log through it too. */
@@ -1501,6 +1507,9 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
          * CPU-visible bitmap is held in runs (~85 frames/s against ~430;
          * track M25) */
         info->Flags.CpuVisible = d->kind != D3DPT_ALLOC_D3D || !d->shared;
+        if (d->kind == D3DPT_ALLOC_GDI && d->source == D3DPT_GDISURF_TEXTURE && !g_gdi_cpu_visible) {
+            info->Flags.CpuVisible = 0;
+        }
         info->pAllocationUsageHint = NULL;
         info->AllocationPriority = d->kind == D3DPT_ALLOC_PRIMARY ? D3DDDI_ALLOCATIONPRIORITY_HIGH
                                                                   : D3DDDI_ALLOCATIONPRIORITY_NORMAL;
@@ -2317,11 +2326,25 @@ static BOOLEAN gdi_record(D3DPT_ADAPTER *a, ULONG op, ULONG color, D3DPT_ALLOC *
 }
 
 /* A present into a window's redirection bitmap (GDI acceleration): a
- * copy the host does, so the bitmap's object, which DWM samples, has it */
+ * copy the host does, so the bitmap's object, which DWM samples, has it.
+ * And a Direct3D 11 buffer's present into a STAGING surface (a blt-model
+ * window whose bitmap is CPU-visible: Windows moves the frame on into the
+ * bitmap with the CPU): the host reads the frame straight into the staging
+ * surface's VRAM, where the buffer's own VRAM and a copy by this CPU
+ * through the BAR went before (track M25) */
 static BOOLEAN gdi_present(D3DPT_ADAPTER *a, const PKT_BLT_T *p)
 {
-    if (!a->d3d || p->h.op != PKT_BLT || !p->dst.al || p->dst.al->d.kind != D3DPT_ALLOC_GDI ||
-        p->dst.al->d.source != D3DPT_GDISURF_TEXTURE) {
+    const D3DPT_ALLOC *s = p->src.al, *d = p->dst.al;
+
+    if (!a->d3d || p->h.op != PKT_BLT || !d) {
+        return FALSE;
+    }
+    if (d->d.kind == D3DPT_ALLOC_STAGING && s && s->d.kind == D3DPT_ALLOC_D3D && (s->d.caps & D3DPT_VS_D3D11) &&
+        s->handle && s->d.w && s->d.h && (s->d.format == D3DDDIFMT_A8R8G8B8 || s->d.format == D3DDDIFMT_X8R8G8B8)) {
+        /* (the host's GDI copies are 32 bits a pixel, BGRA) */
+        return gdi_record(a, D3DPT_GDI_COPY, 0, p->src.al, p->dst.al, p->r, p->n);
+    }
+    if (d->d.kind != D3DPT_ALLOC_GDI || d->d.source != D3DPT_GDISURF_TEXTURE) {
         return FALSE;
     }
     return gdi_record(a, D3DPT_GDI_COPY, 0, p->src.al, p->dst.al, p->r, p->n);
@@ -2423,6 +2446,20 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
 
             if (t->src.seg == 1 && t->offset == 0) {
                 d3d11_sync(a, t->al, t->src.addr);
+            }
+            if (t->al && t->al->d.kind == D3DPT_ALLOC_GDI && t->offset == 0) {
+                static ULONG logged;
+
+                if (logged < 64) {
+                    logged++;
+                    dbg_hex("d3dptkmd: a GDI surface paged, type ", t->al->d.source);
+                    dbg_hex(" ", t->al->d.w);
+                    dbg_hex(" x ", t->al->d.h);
+                    dbg_hex(" segment ", t->src.seg);
+                    dbg_hex(" -> ", t->dst.seg);
+                    dbg_hex(" bytes ", t->bytes);
+                    dbg_puts("\n");
+                }
             }
             gdi_paged(a, (const PKT_TRANSFER_T *)hd, TRUE);
             run_transfer(a, (const PKT_TRANSFER_T *)hd);
@@ -2946,6 +2983,89 @@ static void gdi_rects(const RECT *dr, ULONG nsub, const RECT *sub, const RECT *s
 static ULONG g_gdi_skip[24];          /* RenderKm's operations not done yet, by kind (d3dpt_render_km) */
 static LARGE_INTEGER g_gdi_skip_t0;
 
+/* Every RenderKm command, logged every 5 s with the others: its operation,
+ * ROP and the kinds of its surfaces (kind * 16 + GDI type, the allocation
+ * list's), so what GDI sends and where it lands can be read off the log */
+typedef struct GDI_CENSUS { ULONG key, n, px, sw, sh, sh_, dw, dh, dh_; } GDI_CENSUS;    /* the first one's sizes, handles */
+static GDI_CENSUS g_gdi_census[32];
+
+static const D3DPT_ALLOC *gdi_al(const DXGKARG_RENDER *r, UINT i)
+{
+    return i < r->AllocationListSize ? (const D3DPT_ALLOC *)r->pAllocationList[i].hDeviceSpecificAllocation : NULL;
+}
+
+static ULONG gdi_kind(const DXGKARG_RENDER *r, UINT i)
+{
+    const D3DPT_ALLOC *al = gdi_al(r, i);
+
+    return al ? (al->d.kind * 16 + (al->d.source & 15)) & 0xff : 0xff;
+}
+
+static void gdi_census(const DXGKARG_RENDER *r, const DXGK_RENDERKM_COMMAND *c)
+{
+    ULONG rop = 0, src = 0, dst = 0, i, key;
+    UINT si = ~0u, di = ~0u;
+    const RECT *d = NULL;
+
+    switch (c->OpCode) {
+    case DXGK_GDIOP_BITBLT:
+        rop = c->Command.BitBlt.Rop == DXGK_GDIROP_ROP3 ? c->Command.BitBlt.Rop3 : c->Command.BitBlt.Rop;
+        src = gdi_kind(r, si = c->Command.BitBlt.SrcAllocationIndex);
+        dst = gdi_kind(r, di = c->Command.BitBlt.DstAllocationIndex);
+        d = &c->Command.BitBlt.DstRect;
+        break;
+    case DXGK_GDIOP_COLORFILL:
+        rop = c->Command.ColorFill.Rop == DXGK_GDIROPCF_ROP3 ? c->Command.ColorFill.Rop3 : c->Command.ColorFill.Rop;
+        dst = gdi_kind(r, di = c->Command.ColorFill.DstAllocationIndex);
+        d = &c->Command.ColorFill.DstRect;
+        break;
+    case DXGK_GDIOP_ALPHABLEND:
+        rop = c->Command.AlphaBlend.SourceHasAlpha ? 0x100 | c->Command.AlphaBlend.SourceConstantAlpha
+                                                   : c->Command.AlphaBlend.SourceConstantAlpha;
+        src = gdi_kind(r, si = c->Command.AlphaBlend.SrcAllocationIndex);
+        dst = gdi_kind(r, di = c->Command.AlphaBlend.DstAllocationIndex);
+        d = &c->Command.AlphaBlend.DstRect;
+        break;
+    case DXGK_GDIOP_STRETCHBLT:
+        rop = c->Command.StretchBlt.Flags & 0x3ffff;
+        src = gdi_kind(r, si = c->Command.StretchBlt.SrcAllocationIndex);
+        dst = gdi_kind(r, di = c->Command.StretchBlt.DstAllocationIndex);
+        d = &c->Command.StretchBlt.DstRect;
+        break;
+    case DXGK_GDIOP_TRANSPARENTBLT:
+        rop = c->Command.TransparentBlt.Flags.Value;
+        src = gdi_kind(r, si = c->Command.TransparentBlt.SrcAllocationIndex);
+        dst = gdi_kind(r, di = c->Command.TransparentBlt.DstAllocationIndex);
+        d = &c->Command.TransparentBlt.DstRect;
+        break;
+    case DXGK_GDIOP_CLEARTYPEBLEND:
+        src = gdi_kind(r, si = c->Command.ClearTypeBlend.AlphaSurfAllocationIndex);
+        dst = gdi_kind(r, di = c->Command.ClearTypeBlend.DstAllocationIndex);
+        d = &c->Command.ClearTypeBlend.DstRect;
+        break;
+    default:
+        return;
+    }
+    key = ((ULONG)c->OpCode << 28) | ((rop & 0xfff) << 16) | (src << 8) | dst;
+    for (i = 0; i < RTL_NUMBER_OF(g_gdi_census) && g_gdi_census[i].n && g_gdi_census[i].key != key; i++) {
+    }
+    if (i < RTL_NUMBER_OF(g_gdi_census)) {
+        if (!g_gdi_census[i].n) {
+            const D3DPT_ALLOC *sa = gdi_al(r, si), *da = gdi_al(r, di);
+
+            g_gdi_census[i].sw = sa ? sa->d.w : 0;
+            g_gdi_census[i].sh = sa ? sa->d.h : 0;
+            g_gdi_census[i].sh_ = sa ? sa->handle : 0;
+            g_gdi_census[i].dw = da ? da->d.w : 0;
+            g_gdi_census[i].dh = da ? da->d.h : 0;
+            g_gdi_census[i].dh_ = da ? da->handle : 0;
+        }
+        g_gdi_census[i].key = key;
+        g_gdi_census[i].n++;
+        g_gdi_census[i].px += d ? (ULONG)((d->right - d->left) * (d->bottom - d->top)) : 0;
+    }
+}
+
 static DXGKDDI_RENDERKM d3dpt_render_km;
 static NTSTATUS APIENTRY d3dpt_render_km(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDER r)
 {
@@ -2989,6 +3109,7 @@ static NTSTATUS APIENTRY d3dpt_render_km(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDE
             dbg_puts("\n");
             break;
         }
+        gdi_census(r, c);
         if (c->OpCode == DXGK_GDIOP_BITBLT && c->Command.BitBlt.Rop == DXGK_GDIROP_SRCCOPY) {
             op = D3DPT_GDI_COPY;
             dr = &c->Command.BitBlt.DstRect;
@@ -3054,6 +3175,22 @@ static NTSTATUS APIENTRY d3dpt_render_km(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDE
             for (k = 0; k < RTL_NUMBER_OF(g_gdi_skip); k++) {
                 any |= g_gdi_skip[k];
             }
+            for (k = 0; k < RTL_NUMBER_OF(g_gdi_census) && g_gdi_census[k].n; k++) {
+                dbg_hex("d3dptkmd: RenderKm in 5 s: op ", g_gdi_census[k].key >> 28);
+                dbg_hex(" rop ", (g_gdi_census[k].key >> 16) & 0xfff);
+                dbg_hex(" src ", (g_gdi_census[k].key >> 8) & 0xff);
+                dbg_hex(" dst ", g_gdi_census[k].key & 0xff);
+                dbg_hex(" n ", g_gdi_census[k].n);
+                dbg_hex(" px ", g_gdi_census[k].px);
+                dbg_hex(" src ", g_gdi_census[k].sw);
+                dbg_hex("x", g_gdi_census[k].sh);
+                dbg_hex(" h ", g_gdi_census[k].sh_);
+                dbg_hex(" dst ", g_gdi_census[k].dw);
+                dbg_hex("x", g_gdi_census[k].dh);
+                dbg_hex(" h ", g_gdi_census[k].dh_);
+                dbg_puts("\n");
+            }
+            RtlZeroMemory(g_gdi_census, sizeof(g_gdi_census));
             if (any) {
                 skipped++;
                 dbg_puts("d3dptkmd: RenderKm in 5 s, not done yet:");
@@ -3974,12 +4111,13 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 
 /* ------------------------------------------------------------- entry */
 
-/* The service key's GdiAcceleration (REG_DWORD, 0: off), read once */
+/* The service key's GdiAcceleration and GdiCpuVisible (REG_DWORD, 0:
+ * off), read once */
 static void read_settings(PUNICODE_STRING reg)
 {
-    RTL_QUERY_REGISTRY_TABLE q[2];
+    RTL_QUERY_REGISTRY_TABLE q[3];
     WCHAR path[260];
-    ULONG v = 1, def = 1, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
+    ULONG v = 1, cv = 1, def = 1, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
 
     if (!n || n >= RTL_NUMBER_OF(path)) {
         return;
@@ -3993,8 +4131,12 @@ static void read_settings(PUNICODE_STRING reg)
     q[0].DefaultType = (REG_DWORD << RTL_QUERY_REGISTRY_TYPECHECK_SHIFT) | REG_DWORD;
     q[0].DefaultData = &def;
     q[0].DefaultLength = sizeof(def);
+    q[1] = q[0];
+    q[1].Name = L"GdiCpuVisible";
+    q[1].EntryContext = &cv;
     if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, path, q, NULL, NULL))) {
         g_gdi_accel = v != 0;
+        g_gdi_cpu_visible = cv != 0;
     }
 }
 

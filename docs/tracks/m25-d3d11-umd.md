@@ -695,13 +695,47 @@ the desktop draws, the clock current. DISCARD unchanged, as above (~80
 unsynced, 47 with vsync): its present still goes through STAGING, now
 with a `SYNC` (~1.1 ms, the GPU's frame) where the readback was.
 
+**Bitmaps the CPU cannot see, again, the same day** (user: "go on").
+The kernel driver gained the service key's `GdiCpuVisible` (REG_DWORD,
+default 1; 0 makes the `TEXTURE` bitmaps not CPU-visible, read at
+DriverEntry) and a census of RenderKm: every 5 s a `RenderKm in 5 s:`
+line per operation, ROP and surface kinds (kind * 16 + GDI type: 0x51 a
+redirection bitmap, 0x52 / 0x53 the staging ones, 0x54 the lookup
+table, 0x40 a Direct3D allocation), with the first one's sizes and host
+handles; and a line per GDI surface paged (the first 64).
+
+- **CPU-visible** (the default): RenderKm carries almost nothing (two
+  copies in 5 s, into ClearType's lookup table). GDI draws with the CPU,
+  in effect software GDI on bitmaps in VRAM.
+- **Not CPU-visible**: the wallpaper and `winver`'s inside black as
+  before, and now Notepad's text area too. `winver` gets its 591x529
+  `TEXTURE` bitmap and then **no RenderKm command and no paging at all**:
+  its drawing goes nowhere the driver sees. Notepad's is a BitBlt from
+  the bitmap into a 944x508 Direct3D allocation and back (GDI drawing on
+  a Direct3D surface with the CPU), which the host copied from its object
+  and not from the VRAM the CPU drew into. Windows 11 draws GDI with the
+  CPU into a CPU-visible redirection surface and has no other route for
+  it, so the bitmaps stay CPU-visible, and what is left is making the
+  STAGING path fast.
+
+So the blt-model present into a STAGING surface is now a host copy as
+well (`gdi_present`, a Direct3D 11 buffer of 32 bits a pixel): the host
+reads the frame straight into the staging surface's VRAM, where `SYNC`
+put it into the buffer's own VRAM and this CPU copied it on through the
+BAR. The scene is right (a screendump of the window); the rate is not
+moved, ~80 frames/s unsynced and ~45 with vsync (one run each), so the
+guest's copy was not what held the frame. Measuring where the frame's
+time goes is next (an ETW timeline with this build; the guest was shut
+down before it ran).
+
 ## Open
 
 - **A present into a CPU-visible redirection bitmap is held** (above):
   it is not into the bitmap at all but into a STAGING copy the CPU then
-  moves ("Where the present really goes"); the fast path needs bitmaps
-  that are not CPU-visible and GDI's CPU drawing brought to them some
-  other way. Then the other RenderKm operations (the ROPs,
+  moves ("Where the present really goes"). Bitmaps that are not
+  CPU-visible lose GDI's drawing with no RenderKm to bring it ("Bitmaps
+  the CPU cannot see, again"), so the STAGING path is the one to make
+  fast; where its ~12 ms a frame go is open. Then the other RenderKm operations (the ROPs,
   AlphaBlend, StretchBlt, TransparentBlt, ClearType), and Notepad's text
   area (blank). Before the track merges GDI acceleration must draw every
   window or go back to off by default.
