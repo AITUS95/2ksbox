@@ -1017,7 +1017,8 @@ mitsuami_check() ( # the launcher's window, driven through its probes (doc 07, t
   printf '%s\n' "$o" | grep '^\[launcher\] firstrun' | sed 's/^/  /'
   printf '%s' "$o" | grep -q "firstrun Asking: Choose a folder for your machines" \
     || { echo "a plain start did not ask for a machines folder"; rc=1; }
-  [ "$(cat "$dir/plain/library.txt" 2>/dev/null)" = "$dir/plain/machines" ] || { echo "Use Default Folder kept no folder"; rc=1; }
+  # (Windows joins the default with a backslash: the same folder)
+  [ "$(tr '\\' / < "$dir/plain/library.txt" 2>/dev/null)" = "$dir/plain/machines" ] || { echo "Use Default Folder kept no folder"; rc=1; }
   # About, with the credits.
   o="$(probe about about)"
   [ -s "$dir/about.png" ] || { echo "About drew nothing: $o"; rc=1; }
