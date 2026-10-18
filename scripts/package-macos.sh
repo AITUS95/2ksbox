@@ -835,7 +835,13 @@ if [ "$SIGN" = 1 ]; then
     done < <(machos)
     codesign -d --entitlements - --xml "$C/MacOS/2ksbox" 2>/dev/null | grep -q "$APP_ID" \
       || { echo "package-macos.sh: the signed launcher lacks the App ID $APP_ID" >&2; exit 1; }
-    echo "sandboxed      every executable; the launcher is $APP_ID"
+    # The guest's UDP needs network.server as well as network.client
+    # (app-store.entitlements says why); the players inherit both.
+    for e in network.client network.server; do
+      codesign -d --entitlements - --xml "$C/MacOS/2ksbox" 2>/dev/null | grep -q "com.apple.security.$e" \
+        || { echo "package-macos.sh: the signed launcher lacks com.apple.security.$e" >&2; exit 1; }
+    done
+    echo "sandboxed      every executable; the launcher is $APP_ID, network client and server"
     # The two upload rejections the bundle itself can cause: an icon with
     # no 512@2x (ITMS-90236), and the export compliance answer.
     ics=$(mktemp -d)/check.iconset

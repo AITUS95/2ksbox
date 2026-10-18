@@ -13,6 +13,11 @@
   <!-- The guest's network (QEMU's user-mode stack is the host's sockets)
        and the first-run preset download. -->
   <key>com.apple.security.network.client</key> <true/>
+  <!-- The guest's UDP too: slirp sends from an unconnected socket, and
+       the sandbox counts its replies (DNS first) as inbound. With only
+       network.client every recvfrom fails EPERM while poll keeps saying
+       readable, and QEMU's main loop spins on it holding the BQL. -->
+  <key>com.apple.security.network.server</key> <true/>
   <!-- Discs, disks and folders the user picks in an open or save panel,
        and keeping them across launches as security-scoped bookmarks
        (launcher-core/src/grants.rs). -->
