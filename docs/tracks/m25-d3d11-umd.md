@@ -611,14 +611,42 @@ some way not found yet; ColorFill's PATINVERT (the caret) and the other
 operations are not done. Off (`GdiAcceleration` = 0) nothing changes:
 Windows asks for no GDI surface.
 
+**GDI's own drawing, the same day.** GDI draws most of a window (text,
+the wallpaper, a dialog's logo and background) with the CPU straight into
+the redirection bitmap, and only into one that is CPU-visible: with the
+bitmaps not CPU-visible that drawing was simply lost (dxgkrnl does not
+page them for it), which was the black. Now the bitmaps are CPU-visible,
+and the host keeps a **shadow** of each bitmap's VRAM: a Direct3D
+submission naming a bitmap (DWM about to sample it) sends protocol v27's
+`GDI` REFRESH first, and the host uploads the spans of VRAM that differ
+from the shadow (row by row, rows of one span together). A bitmap's
+first touch by the host (a GDI operation, a present) uploads its VRAM
+and starts the shadow first; the host's fills and copies from VRAM go
+into the bitmap's VRAM and shadow too; a copy between objects (a
+present) stays in the object until the CPU draws over it. The refresh
+costs under 1 ms of the executor every 5 s (`D3DPT_D11_PROF`, token 63).
+The desktop, `winver` (logo, text, the OK button) and a DISCARD window's
+scene all draw.
+
+**The price: a present into a CPU-visible bitmap is held.** d3dgame11
+windowed, DISCARD, unsynced: ~85 frames/s in runs of ~3 ms and ~15-20 ms
+presents (the user saw the fast/slow oscillation again), against ~430
+frames/s with the bitmaps not CPU-visible (with or without the refresh:
+it is the flag). ETW in the guest (`G11\etw2.ps1` on the test machine,
+DxgKrnl's ids read from the manifest): the present is a plain Blt
+(`bRedirectedPresent` false), and the game thread's per-frame Lock
+(event 41) waits 13-17 ms (event 103) behind it, about one composition;
+the title is set once a second, so it is not GDI drawing the caption.
+What holds a GPU write into a CPU-visible bitmap is not found yet.
+
 ## Open
 
-- **GDI acceleration's content** (above): how a classic window's and
-  the wallpaper's drawing reach their bitmaps with it on, then the other
-  RenderKm operations (the ROPs, AlphaBlend, StretchBlt, TransparentBlt,
-  ClearType). Before the track merges it must draw every window or go
-  back to off by default; with it on a blt-model (DISCARD) window
-  presents at the flip model's pace.
+- **A present into a CPU-visible redirection bitmap is held** (above):
+  what dxgkrnl waits for, and whether the bitmaps can be CPU-visible for
+  GDI without it. Then the other RenderKm operations (the ROPs,
+  AlphaBlend, StretchBlt, TransparentBlt, ClearType), and Notepad's text
+  area (blank). Before the track merges GDI acceleration must draw every
+  window or go back to off by default.
 - **A blt-model window** without it waits for DWM's composition through
   Windows' system-memory redirection (above); CPU-visible texture
   bitmaps do not change that.

@@ -1469,9 +1469,10 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
                 al->d.nlv = 0;
                 al->handle = (ULONG)InterlockedIncrement(&a->next_handle);
             } else if (d->kind == D3DPT_ALLOC_GDI && d->source == D3DPT_GDISURF_TEXTURE) {
-                /* a redirection bitmap: GDI draws into it and DWM samples
-                 * it through the host's object (the GDI record), a render
-                 * target texture there; the CPU never sees it */
+                /* a redirection bitmap: GDI draws into it (RenderKm's
+                 * operations on the host's object, the rest with the CPU
+                 * in VRAM, which REFRESH brings over) and DWM samples the
+                 * object, a render target texture there */
                 al->d.caps = D3DPT_VS_RENDER_TARGET | D3DPT_VS_TEXTURE;
                 al->d.levels = 1;
                 al->d.nlv = 0;
@@ -1494,8 +1495,12 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
         info->MaximumRenamingListLength = 0;
         info->hAllocation = al;
         info->Flags.Value = 0;
-        info->Flags.CpuVisible = (d->kind != D3DPT_ALLOC_D3D || !d->shared) &&
-                                 !(d->kind == D3DPT_ALLOC_GDI && d->source == D3DPT_GDISURF_TEXTURE);
+        /* a GDI bitmap too: GDI draws most of a window into it with the
+         * CPU, and does not where it is not CPU-visible (black windows,
+         * the wallpaper gone). The price: a blt-model present into a
+         * CPU-visible bitmap is held in runs (~85 frames/s against ~430;
+         * track M25) */
+        info->Flags.CpuVisible = d->kind != D3DPT_ALLOC_D3D || !d->shared;
         info->pAllocationUsageHint = NULL;
         info->AllocationPriority = d->kind == D3DPT_ALLOC_PRIMARY ? D3DDDI_ALLOCATIONPRIORITY_HIGH
                                                                   : D3DDDI_ALLOCATIONPRIORITY_NORMAL;
@@ -2098,6 +2103,24 @@ static void run_reg(D3DPT_ADAPTER *a, const PKT_REG_T *p)
         }
         if (e->al->host_addr != e->al->cur_addr) {
             d3d_register(a, e->al, e->al->cur_addr);
+        }
+        /* a redirection bitmap a Direct3D submission names (DWM about
+         * to sample it): what the CPU drew into its VRAM since goes to
+         * the host's object first (GDI draws most of a window itself) */
+        if (g_gdi_accel && e->al->d.kind == D3DPT_ALLOC_GDI && e->al->d.source == D3DPT_GDISURF_TEXTURE) {
+            d3dpt_gdi *out = d3dpt_enc_cmd(&a->enc, D3DPT_OP_GDI, sizeof(*out), 0);
+
+            if (out) {
+                RtlZeroMemory(out, sizeof(*out));
+                out->op = D3DPT_GDI_REFRESH;
+                out->dst.handle = e->al->handle;
+                out->dst.flags = D3DPT_GDI_TEXTURE;
+                out->dst.offset = e->al->cur_addr;
+                out->dst.pitch = e->al->d.pitch;
+                out->dst.width = e->al->d.w;
+                out->dst.height = e->al->d.h;
+                out->dst.format = e->al->d.format;
+            }
         }
     }
 }

@@ -68,6 +68,10 @@ struct D11Res {
      * (exec_d11_sync) */
     bool newer = false;
     ID3D11RenderTargetView *gdi_rtv = nullptr;  /* GDI's fills (v27) */
+    /* a redirection bitmap's VRAM as the host last saw it (GDI's REFRESH):
+     * what differs from it the CPU drew since */
+    std::vector<uint8_t> gdi_shadow;
+    uint32_t gdi_w = 0, gdi_h = 0;
     void release() {
         if (res) res->Release();
         if (stage) stage->Release();
@@ -1339,10 +1343,11 @@ void prof_tok(Exec &x, D11 &d, uint32_t op, std::chrono::steady_clock::time_poin
 
 /* ------------------------------------------------------------------ GDI */
 
-/* One side of a GDI operation (v27): the host's object of it, or its VRAM */
+/* One side of a GDI operation (v27): the host's object of it, or its VRAM
+ * (mem); a bitmap's VRAM (vram) is known either way when it is valid */
 struct GdiSide {
     D11Res *obj = nullptr;
-    uint8_t *mem = nullptr;
+    uint8_t *mem = nullptr, *vram = nullptr;
     uint32_t pitch = 0, w = 0, h = 0, handle = 0;
 };
 
@@ -1365,6 +1370,8 @@ D11Res *gdi_object(Exec &x, D11 &d, const d3dpt_gdi_side &s)
     return &nr;
 }
 
+void gdi_refresh(D11 &d, const GdiSide &s);
+
 bool gdi_side(Exec &x, D11 &d, const d3dpt_gdi_side &s, GdiSide &o)
 {
     /* 32 bits a pixel: D3DDDIFMT_A8R8G8B8, X8R8G8B8 */
@@ -1372,6 +1379,10 @@ bool gdi_side(Exec &x, D11 &d, const d3dpt_gdi_side &s, GdiSide &o)
     o.w = s.width;
     o.h = s.height;
     o.handle = s.handle;
+    if (x.vram && s.pitch >= s.width * 4 && (uint64_t)s.offset + (uint64_t)s.pitch * (s.height - 1) + s.width * 4 <= x.vram_size) {
+        o.vram = x.vram + s.offset;
+        o.pitch = s.pitch;
+    }
     if (s.handle && !(s.flags & D3DPT_GDI_VRAM)) {
         D11Res *r = res_of(d, s.handle);
         if (!r && (s.flags & D3DPT_GDI_TEXTURE)) r = gdi_object(x, d, s);
@@ -1379,18 +1390,19 @@ bool gdi_side(Exec &x, D11 &d, const d3dpt_gdi_side &s, GdiSide &o)
             (r->d.format == DXGI_FORMAT_B8G8R8A8_UNORM || r->d.format == DXGI_FORMAT_B8G8R8X8_UNORM ||
              r->d.format == DXGI_FORMAT_B8G8R8A8_TYPELESS)) {
             o.obj = r;
+            /* a bitmap's first touch: what the CPU drew so far comes over
+             * and the shadow starts, before the host writes anything */
+            if (o.vram && (s.flags & D3DPT_GDI_TEXTURE) && r->gdi_shadow.empty()) gdi_refresh(d, o);
             return true;
         }
     }
-    if (!x.vram || s.pitch < s.width * 4 || (uint64_t)s.offset + (uint64_t)s.pitch * (s.height - 1) + s.width * 4 > x.vram_size)
-        return false;
+    if (!o.vram) return false;
     if (s.handle && !(s.flags & D3DPT_GDI_VRAM)) {
         /* what the host drew into it goes to VRAM first */
         exec_d11_sync(x, s.handle);
         exec_ddi_vram_sync(x, s.handle);
     }
-    o.mem = x.vram + s.offset;
-    o.pitch = s.pitch;
+    o.mem = o.vram;
     return true;
 }
 
@@ -1403,41 +1415,99 @@ bool gdi_rect_ok(const d3dpt_gdi_rect &r, const GdiSide &dst, const GdiSide *src
     return r.sx >= 0 && r.sy >= 0 && sr <= src->w && sb <= src->h;
 }
 
-void gdi_written(Exec &x, D11Res *obj, const GdiSide &s, uint32_t first_row, uint32_t rows)
+/* A bitmap's shadow: its VRAM as the host last saw it, rows of w pixels.
+ * Its rectangle's VRAM now holds what the host knows (it wrote it there,
+ * or uploaded it from there). */
+void shadow_take(D11Res *r, const GdiSide &s, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1)
 {
-    if (obj) {
-        if (!obj->layout.empty()) obj->newer = true;
-        return;
+    if (!r || !s.vram || r->gdi_shadow.empty() || r->gdi_w != s.w || r->gdi_h != s.h) return;
+    for (uint32_t y = y0; y < y1; y++)
+        memcpy(&r->gdi_shadow[((size_t)y * s.w + x0) * 4], s.vram + (uint64_t)y * s.pitch + (uint64_t)x0 * 4, (x1 - x0) * 4);
+}
+
+/* the host wrote a rectangle of a side's VRAM (mem): whoever keeps a copy
+ * of it hears so */
+void gdi_mem_written(Exec &x, D11 &d, const GdiSide &s, const d3dpt_gdi_rect &r)
+{
+    if (s.handle) {
+        exec_ddi_vram_written(x, s.handle);
+        shadow_take(res_of(d, s.handle), s, (uint32_t)r.l, (uint32_t)r.t, (uint32_t)r.r, (uint32_t)r.b);
     }
-    if (s.handle) exec_ddi_vram_written(x, s.handle);
     if (x.ops.vram_dirty)
-        x.ops.vram_dirty(x.ops.ud, (uint32_t)(s.mem - x.vram) + first_row * s.pitch, rows * s.pitch);
+        x.ops.vram_dirty(x.ops.ud, (uint32_t)(s.mem - x.vram) + (uint32_t)r.t * s.pitch, (uint32_t)(r.b - r.t) * s.pitch);
+}
+
+void gdi_obj_written(D11Res *obj)
+{
+    if (!obj->layout.empty()) obj->newer = true;
+}
+
+/* REFRESH: the spans of the bitmap's VRAM the CPU changed since the shadow
+ * was taken, uploaded row by row (rows with the same span together), so
+ * what the host drew elsewhere in the object stays */
+void gdi_refresh(D11 &d, const GdiSide &s)
+{
+    if (!s.obj || !s.vram) return;
+    D11Res &r = *s.obj;
+    const size_t row = (size_t)s.w * 4;
+    bool all = r.gdi_shadow.empty() || r.gdi_w != s.w || r.gdi_h != s.h;
+    if (all) {
+        r.gdi_shadow.assign((size_t)s.w * s.h * 4, 0);
+        r.gdi_w = s.w;
+        r.gdi_h = s.h;
+    }
+    auto span = [&](uint32_t y, uint32_t &x0, uint32_t &x1) {
+        const uint32_t *v = (const uint32_t *)(s.vram + (uint64_t)y * s.pitch), *sh = (const uint32_t *)&r.gdi_shadow[y * row];
+        if (all) { x0 = 0; x1 = s.w; return true; }
+        if (!memcmp(v, sh, row)) return false;
+        x0 = 0;
+        x1 = s.w;
+        while (x0 < x1 && v[x0] == sh[x0]) x0++;
+        while (x1 > x0 && v[x1 - 1] == sh[x1 - 1]) x1--;
+        return true;
+    };
+    bool any = false;
+    for (uint32_t y = 0, x0, x1; y < s.h;) {
+        if (!span(y, x0, x1)) { y++; continue; }
+        uint32_t y1 = y + 1, a, b;
+        while (y1 < s.h && span(y1, a, b) && a == x0 && b == x1) y1++;
+        D3D11_BOX box = { x0, y, 0, x1, y1, 1 };
+        d.ctx->UpdateSubresource(r.res, 0, &box, s.vram + (uint64_t)y * s.pitch + (uint64_t)x0 * 4, s.pitch, 0);
+        for (uint32_t k = y; k < y1; k++)
+            memcpy(&r.gdi_shadow[k * row + (size_t)x0 * 4], s.vram + (uint64_t)k * s.pitch + (uint64_t)x0 * 4, (x1 - x0) * 4);
+        any = true;
+        y = y1;
+    }
+    if (any) gdi_obj_written(&r);
 }
 
 void gdi_fill(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, const GdiSide &dst)
 {
-    uint32_t c = g.color;
+    /* opaque: GDI leaves a fill's alpha 0, and DWM composes a redirection
+     * bitmap with its alpha (a white fill came out black) */
+    uint32_t c = g.color | 0xff000000u;
     if (dst.obj) {
         if (!dst.obj->gdi_rtv && FAILED(d.dev->CreateRenderTargetView(dst.obj->res, nullptr, &dst.obj->gdi_rtv))) return;
-        /* opaque: GDI leaves a fill's alpha 0, and DWM composes a
-         * redirection bitmap with its alpha (a white fill came out black) */
         const float col[4] = { ((c >> 16) & 255) / 255.0f, ((c >> 8) & 255) / 255.0f, (c & 255) / 255.0f, 1.0f };
         std::vector<D3D11_RECT> rects;
         for (uint32_t i = 0; i < g.n; i++)
             if (gdi_rect_ok(rc[i], dst, nullptr)) rects.push_back({ rc[i].l, rc[i].t, rc[i].r, rc[i].b });
         if (rects.empty()) return;
         d.ctx->ClearView(dst.obj->gdi_rtv, col, rects.data(), (UINT)rects.size());
-        gdi_written(x, dst.obj, dst, 0, 0);
-        return;
+        gdi_obj_written(dst.obj);
     }
+    /* VRAM too: the bitmap's (and its shadow), so the CPU's view and the
+     * next REFRESH agree with the object */
+    if (!dst.vram) return;
     for (uint32_t i = 0; i < g.n; i++) {
         const d3dpt_gdi_rect &r = rc[i];
         if (!gdi_rect_ok(r, dst, nullptr)) continue;
         for (int32_t y = r.t; y < r.b; y++) {
-            uint32_t *p = (uint32_t *)(dst.mem + (uint64_t)y * dst.pitch) + r.l;
-            for (int32_t i2 = 0; i2 < r.r - r.l; i2++) p[i2] = c;
+            uint32_t *p = (uint32_t *)(dst.vram + (uint64_t)y * dst.pitch) + r.l;
+            for (int32_t k = 0; k < r.r - r.l; k++) p[k] = c;
         }
-        gdi_written(x, nullptr, dst, (uint32_t)r.t, (uint32_t)(r.b - r.t));
+        if (dst.obj) shadow_take(dst.obj, dst, (uint32_t)r.l, (uint32_t)r.t, (uint32_t)r.r, (uint32_t)r.b);
+        else gdi_mem_written(x, d, dst, r);
     }
 }
 
@@ -1449,6 +1519,9 @@ void gdi_copy(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, con
         uint32_t w = (uint32_t)(r.r - r.l), h = (uint32_t)(r.b - r.t);
         D3D11_BOX box = { (UINT)r.sx, (UINT)r.sy, 0, (UINT)r.sx + w, (UINT)r.sy + h, 1 };
         if (src.obj && dst.obj) {
+            /* object to object (a present, a bitmap to a bitmap): the
+             * destination's VRAM keeps what it had, and the object keeps
+             * this until the CPU draws over it */
             bool overlap = src.obj == dst.obj && r.sx < r.r && r.l < (int32_t)(r.sx + w) && r.sy < r.b && r.t < (int32_t)(r.sy + h);
             if (!overlap) {
                 d.ctx->CopySubresourceRegion(dst.obj->res, 0, (UINT)r.l, (UINT)r.t, 0, src.obj->res, 0, &box);
@@ -1461,11 +1534,22 @@ void gdi_copy(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, con
                 d.ctx->CopySubresourceRegion(dst.obj->res, 0, (UINT)r.l, (UINT)r.t, 0, tmp, 0, nullptr);
                 tmp->Release();
             }
-            gdi_written(x, dst.obj, dst, 0, 0);
+            gdi_obj_written(dst.obj);
         } else if (dst.obj) {
+            const uint8_t *from = src.mem + (uint64_t)r.sy * src.pitch + (uint64_t)r.sx * 4;
             D3D11_BOX db = { (UINT)r.l, (UINT)r.t, 0, (UINT)r.r, (UINT)r.b, 1 };
-            d.ctx->UpdateSubresource(dst.obj->res, 0, &db, src.mem + (uint64_t)r.sy * src.pitch + (uint64_t)r.sx * 4, src.pitch, 0);
-            gdi_written(x, dst.obj, dst, 0, 0);
+            d.ctx->UpdateSubresource(dst.obj->res, 0, &db, from, src.pitch, 0);
+            gdi_obj_written(dst.obj);
+            if (dst.vram) {
+                /* and into the bitmap's VRAM and shadow (rows bottom up
+                 * when they overlap downwards) */
+                bool up = src.mem == dst.vram && r.t > r.sy;
+                for (uint32_t k = 0; k < h; k++) {
+                    uint32_t y = up ? h - 1 - k : k;
+                    memmove(dst.vram + (uint64_t)(r.t + y) * dst.pitch + (uint64_t)r.l * 4, from + (uint64_t)y * src.pitch, w * 4);
+                }
+                shadow_take(dst.obj, dst, (uint32_t)r.l, (uint32_t)r.t, (uint32_t)r.r, (uint32_t)r.b);
+            }
         } else if (src.obj) {
             /* a readback: through a staging copy of the rectangle */
             D3D11_TEXTURE2D_DESC t = { w, h, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, { 1, 0 }, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0 };
@@ -1479,7 +1563,7 @@ void gdi_copy(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, con
                 d.ctx->Unmap(stg, 0);
             }
             stg->Release();
-            gdi_written(x, nullptr, dst, (uint32_t)r.t, h);
+            gdi_mem_written(x, d, dst, r);
         } else {
             /* VRAM to VRAM, bottom up when the rows overlap downwards */
             bool up = src.mem == dst.mem && r.t > r.sy;
@@ -1488,7 +1572,7 @@ void gdi_copy(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, con
                 memmove(dst.mem + (uint64_t)(r.t + y) * dst.pitch + (uint64_t)r.l * 4,
                         src.mem + (uint64_t)(r.sy + y) * src.pitch + (uint64_t)r.sx * 4, w * 4);
             }
-            gdi_written(x, nullptr, dst, (uint32_t)r.t, h);
+            gdi_mem_written(x, d, dst, r);
         }
     }
 }
@@ -1508,6 +1592,11 @@ bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c)
     if (!d) return true;
     const d3dpt_gdi_rect *rc = (const d3dpt_gdi_rect *)(g + 1);
     GdiSide src, dst;
+    /* D3DPT_D11_PROF: GDI records count as token 63 */
+    struct Prof {
+        Exec &x; D11 &d; std::chrono::steady_clock::time_point t0;
+        ~Prof() { if (d.prof) prof_tok(x, d, 63, t0); }
+    } prof{ x, *d, d->prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point() };
     if (!gdi_side(x, *d, g->dst, dst)) {
         if (d->warn(0x63000000u)) x.log("d11: a GDI operation with a destination of format %u, %ux%u: not done", g->dst.format, g->dst.width, g->dst.height);
         return true;
@@ -1522,6 +1611,9 @@ bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c)
             return true;
         }
         gdi_copy(x, *d, *g, rc, src, dst);
+        break;
+    case D3DPT_GDI_REFRESH:
+        gdi_refresh(*d, dst);
         break;
     default:
         if (d->warn(0x65000000u | (g->op & 0xffff))) x.log("d11: GDI operation %u unknown", g->op);

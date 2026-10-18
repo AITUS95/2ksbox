@@ -393,12 +393,14 @@ tracks, plus the items no track owns.
     in, on by default on the track's branch (the service key's
     `GdiAcceleration` = 0 turns it off; protocol v27's
     `GDI` record): RenderKm's copies and fills, a present into a window's
-    redirection bitmap and its paging done by the host, and a DISCARD
-    window at the flip model's pace with it (304 of 380 frames on time,
-    340 frames/s unsynced; 57 and 93 without); GDI's own content (the
-    wallpaper, a classic dialog's inside) does not appear yet, and the
-    other RenderKm operations are to do (the track's "GDI acceleration,
-    copies, fills and the present"); the x64 kernel
+    redirection bitmap and its paging done by the host, GDI's own CPU
+    drawing brought over from the bitmaps' VRAM (they are CPU-visible;
+    the host compares each with a shadow when DWM is about to sample it):
+    the desktop draws. Open: a present into a CPU-visible bitmap is held
+    in runs (a DISCARD window ~85 frames/s unsynced, the fast/slow
+    oscillation; ~430 with the bitmaps not CPU-visible, when GDI's
+    drawing is lost), and the other RenderKm operations (the track's
+    "GDI's own drawing"); the x64 kernel
     driver's flips on the blank have been MMIO flips since 2026-10-18,
     `FlipOnVSyncMmIo`: a DMA flip held for the blank
     held every process's later fences, ~37 frames/s in runs of one and

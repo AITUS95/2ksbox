@@ -159,8 +159,13 @@ typedef struct d3dpt_query_get { uint32_t handle, ret_off, flags, size; } d3dpt_
  * object (a redirection bitmap's, D3DPT_GDI_TEXTURE, made at its first
  * use); any other is its VRAM, the host's pixels put there first. COPY
  * copies each rectangle from its source corner (SRCCOPY); FILL fills it
- * with `color` (PATCOPY, A8R8G8B8). */
-enum { D3DPT_GDI_COPY = 1, D3DPT_GDI_FILL = 2 };
+ * with `color` (PATCOPY, A8R8G8B8). REFRESH (dst only, no rectangles):
+ * the CPU may have drawn into a redirection bitmap's VRAM (GDI draws most
+ * of a window there itself); the host uploads what changed since it last
+ * looked (its shadow of that VRAM). The host's own fills and copies from
+ * VRAM go to the bitmap's VRAM and shadow too; a copy between objects (a
+ * present) stays in the object until the CPU draws over it. */
+enum { D3DPT_GDI_COPY = 1, D3DPT_GDI_FILL = 2, D3DPT_GDI_REFRESH = 3 };
 #define D3DPT_GDI_TEXTURE 0x1u
 #define D3DPT_GDI_VRAM    0x2u      /* this side is its VRAM even where the host has an object of it (a bitmap paged
                                      * in or out: the object written back first, re-read after) */
