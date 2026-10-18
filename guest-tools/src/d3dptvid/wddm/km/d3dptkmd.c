@@ -24,19 +24,21 @@
  *
  * The x64 build (Windows 11) has Windows 8's interface and what WDDM 1.2
  * asks of a full driver (track M25 step 4): the per-engine TDR, handing
- * the screen to Basic Display, the bugcheck screen. It does not claim 1.2
- * yet (D3DPT_CLAIM_WDDM12): with WDDMVersion 1.2 alone, DWM's device is
- * removed whenever a program presents through a window's swap chain
- * (DXGI_ERROR_DEVICE_REMOVED in dwmcore's CopyTexture2D / CreateTexture,
- * no error from either driver); the track doc has the bisection. Without
- * the claim DWM composes on d3d10level9 (the Direct3D 9 user-mode
- * driver): the runtime gives DWM's composition device to the 11.1
- * interface only over a WDDM 1.2 kernel driver (checked 2026-10-17;
- * the other processes' devices land on it at 1.1). The Windows 7 build
- * stays WDDM 1.1. */
+ * the screen to Basic Display, the bugcheck screen, direct flip (whose
+ * user-mode check answers no), and claims 1.2 (D3DPT_CLAIM_WDDM12): the
+ * runtime gives DWM's composition device to the 11.1 interface only over
+ * a WDDM 1.2 kernel driver, so without the claim DWM composes on
+ * d3d10level9 (the Direct3D 9 user-mode driver) and every Direct3D 11
+ * window's frame crosses to it through VRAM. A 1.2 kernel refuses a
+ * submission that writes an allocation the device opened read-only
+ * (DWM's view of a flip-model swap chain's buffer: STATUS_ACCESS_DENIED,
+ * a removed device), so the user-mode drivers list another process's
+ * allocations as read; until they did, DWM's device was removed whenever
+ * a program presented through a flip-model swap chain (track M25). The
+ * Windows 7 build stays WDDM 1.1. */
 #ifdef _WIN64
 #define D3DPT_WDDM12 1
-#define D3DPT_CLAIM_WDDM12 0
+#define D3DPT_CLAIM_WDDM12 1
 #define DXGKDDI_INTERFACE_VERSION DXGKDDI_INTERFACE_VERSION_WIN8
 #else
 #define DXGKDDI_INTERFACE_VERSION DXGKDDI_INTERFACE_VERSION_WIN7
@@ -691,6 +693,7 @@ static NTSTATUS driver_caps(const D3DPT_ADAPTER *a, DXGK_DRIVERCAPS *c)
     c->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
     c->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
     c->SupportPerEngineTDR = 1;
+    c->SupportDirectFlip = 1;
 #else
     c->WDDMVersion = DXGKDDI_WDDMv1;
 #endif

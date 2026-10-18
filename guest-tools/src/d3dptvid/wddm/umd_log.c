@@ -18,6 +18,14 @@ static D3DKMT_HANDLE g_kmt_adapter;
 static ULONG g_log_lines;
 
 #define UMD_LOG_MAX 4000          /* lines per process; a frame loop must not drown the QEMU log */
+#define UMD_LOG_TRACED 400000     /* a traced one: DWM's idle composition spends 4000 in seconds */
+
+static ULONG g_log_max = UMD_LOG_MAX;
+
+void umd_log_traced(void)
+{
+    g_log_max = UMD_LOG_TRACED;
+}
 
 static NTSTATUS umd_escape_log(D3DKMT_HANDLE adapter, D3DPT_ESC *m)
 {
@@ -36,7 +44,7 @@ void umd_log(const char *fmt, ...)
     D3DPT_ESC m;
     va_list ap;
 
-    if (g_log_lines >= UMD_LOG_MAX) {
+    if (g_log_lines >= g_log_max) {
         return;
     }
     g_log_lines++;

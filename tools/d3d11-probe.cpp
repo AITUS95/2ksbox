@@ -390,6 +390,9 @@ int main(int argc, char **argv)
     IDXGIAdapter1 *a = NULL, *mine = NULL;
     bool pass = true;
 
+    /* the screen is read at the window's coordinates: a process that is
+     * not DPI-aware gets its window scaled (175% on a 1080p desktop) */
+    SetProcessDPIAware();
     InitializeCriticalSection(&out_lock);
     out = argc > 1 ? fopen(argv[1], "w") : stdout;
     if (!out) out = stdout;

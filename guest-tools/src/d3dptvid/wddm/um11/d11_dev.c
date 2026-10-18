@@ -241,7 +241,7 @@ static HRESULT APIENTRY dxgi_blt(DXGI_DDI_ARG_BLT *b)
     if (!t) {
         return E_OUTOFMEMORY;
     }
-    patch_res(d, &t->dst, DXGI_RES(b->hDstResource));
+    patch_dst(d, &t->dst, DXGI_RES(b->hDstResource));
     t->dst_sub = b->DstSubresource;
     t->left = b->DstLeft;
     t->top = b->DstTop;

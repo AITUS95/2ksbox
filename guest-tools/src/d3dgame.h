@@ -524,6 +524,11 @@ static HWND game_window(struct game *g, const char *name)
     HWND hwnd;
     DWORD style = g->o.fullscreen ? WS_POPUP : (WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX));
     RECT r = { 0, 0, g->o.w, g->o.h };
+    /* Vista and later scale a window that is not DPI-aware (175% on a
+     * 1080p Windows 11 desktop): the frame blurred and stretched, every
+     * pixel resampled; looked up, since 9x and XP have no such call */
+    BOOL (WINAPI *dpi_aware)(void) = (BOOL (WINAPI *)(void))GetProcAddress(GetModuleHandleA("user32.dll"), "SetProcessDPIAware");
+    if (dpi_aware) dpi_aware();
     memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = game_wndproc;
     wc.hInstance = GetModuleHandleA(NULL);

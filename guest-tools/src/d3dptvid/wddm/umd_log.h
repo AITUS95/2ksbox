@@ -8,5 +8,7 @@
 #define UMD_LOG_H
 
 void umd_log(const char *fmt, ...);
+/* a traced process (D3D11Trace) logs this many lines instead of the usual cap */
+void umd_log_traced(void);
 
 #endif

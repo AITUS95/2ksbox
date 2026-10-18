@@ -123,7 +123,9 @@ void *cmd_rec(D11_DEV *d, UINT op, UINT body, UINT nal);
 void *tok(D11_DEV *d, UINT op, UINT body, UINT nal);
 UINT tok_max(D11_DEV *d);
 void patch(D11_DEV *d, void *p, D3DKMT_HANDLE kmt);
+void patch_rw(D11_DEV *d, void *p, D3DKMT_HANDLE kmt, BOOL write);
 void patch_res(D11_DEV *d, void *p, const D11_RES *r);
+void patch_dst(D11_DEV *d, void *p, const D11_RES *r);
 void set_error(D11_DEV *d, HRESULT hr);
 
 /* d11_res.c */

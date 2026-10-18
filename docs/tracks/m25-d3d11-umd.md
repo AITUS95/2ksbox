@@ -96,7 +96,9 @@ build-wddm.cmd` alone) and installed by `wddm-install.ps1`.
   working directory (the checkout): what it refused, by name.
 - `New-Item -Force` on a registry key that exists empties it (it took
   the D3D11Exclude value with it once).
-- The user-mode log stops at 4000 lines a process: tracing DWM spends
+- The user-mode log stops at 4000 lines a process (400,000 for a
+  process `D3D11Trace` names, so a traced DWM still logs when the test
+  runs): tracing DWM spends
   them in seconds (the format and multisample answers are logged once
   even when traced, `D11_TRACE_FEW`).
 - `D3D11Win7` (the same kind of list) offers a process only the Windows
@@ -237,7 +239,8 @@ driver or on d3d10level9. In DWM's dumps the error is
 `CSecondarySysmemBitmap::Update`, DWM's copy of a swap chain's buffer
 through system memory, with a WARP lock) or `CreateTexture`; neither
 driver logs an error, the kernel driver refuses no present, and
-dxgkrnl logs no event. Left for later (user, 2026-10-17).
+dxgkrnl logs no event. Left for later (user, 2026-10-17); found and
+claimed the same day ("WDDM 1.2 claimed", below).
 
 `scripts/test.sh all` on the PC with step 4 (2026-10-17): 67 passed, 16
 skipped, none failed.
@@ -334,7 +337,64 @@ through either swap chain model (screendumps), 34-37 frames/s windowed at
 program's own (a scheduled task's `cmd`) reads as the window missing in
 a screendump: `G11\g11.ps1` runs it under `conhost --headless`.
 
+**WDDM 1.2 claimed, 2026-10-17** (user, after a session on the desktop:
+"everything is laggy and glitchy ... let's take care of the speed
+first"). With DWM on d3d10level9 every Direct3D 11 window's frame
+crossed to the Direct3D 9 driver through VRAM (the host's d3d11 object
+read back, the d3d9 one uploaded again), and DWM's primary went to VRAM
+for the display after that: two waits for the GPU a frame, on the one
+executor thread, which was 55-60% busy with d3dgame11 windowed. The x64
+kernel driver now claims WDDM 1.2 (and `SupportDirectFlip`, mandatory
+at 1.2, whose user-mode check already answers no), DWM's composition
+device is ours from logon, and the same run keeps the executor 19-24%
+busy.
+
+The window swap chain bug, narrowed down on the guest: the blt model
+(DISCARD) never broke DWM, the **flip model** always did (d3dgame11
+`-flip`, the probe's second window; the probe's "every program" was its
+flip half). DWM's own driver log was spent long before (4000 lines a
+process), so `D3D11Trace` now lifts a traced process's cap to 400,000;
+the trace showed DWM opening the program's two buffers, a flush, and its
+device gone. Windows' own ETW (DxgKrnl, DXGI, Direct3D 11 through
+`logman`, `G11\etw.ps1`) has no event for it. **cdb attached to DWM**
+(`DBG\dbg.ps1`: the EWDK's x64 debugger and the PC's downloaded symbols
+on the command CD, the guest having no network; breakpoints on
+`d3d11!CDevice::RemoveDevice` and its callers) caught it:
+`NDXGI::CDevice::RenderCB` removing the device with
+**`DXGI_ERROR_ACCESS_DENIED`**, under our `cmd_flush` in DWM's present.
+dxgkrnl refused the submission: all three user-mode drivers listed every
+allocation with `WriteOperation`, and a 1.2 kernel refuses a write to an
+allocation the device opened read-only, as DWM opens a flip-model swap
+chain's buffers (1.1 never checked). Now Direct3D 11's `patch_res` lists
+another process's allocation as read and `patch_dst` (a copy's, an
+update's, a blt's destination; a readback) as written; the Direct3D 9
+driver lists any opened allocation as read (the host runs a submission
+to its end before its fence, so the flag orders no wait of ours).
+
+Checked at 1920x1200 (the user's mode): d3dgame11 through either model
+with no DWM crash, `-compare 60` PASS (4 of 307,200 off, the occlusion
+counts WARP's), `d3d11-probe present` 0 pixels off in both models (it is
+DPI-aware now: Windows scaled its unaware window 175% and the screen was
+read where the window was not), File Explorer whole, d3dgame9 ~35
+frames/s, the maximized repaint 54-56 frames/s. d3dgame11 windowed: ~57
+frames/s with FLIP_SEQUENTIAL, still ~37 with DISCARD (both as before;
+below). The reference scenes are DPI-aware too (`d3dgame.h`): their
+640x480 was shown at 1120x840, every pixel resampled. The user, on the
+desktop by hand with this driver: "the desktop is actually feeling much
+snappier, no visual glitches anymore and the demo games are slow but
+don't have terrible frame pacing. the desktop is already feeling better
+than the viogpudo one". `scripts/test.sh all` on the PC with these
+changes: 67 passed, 16 skipped, none failed.
+
 ## Open
+
+- **A blt-model window through VRAM.** DISCARD's present still reads
+  the buffer back into VRAM, the kernel driver's Present copies it into
+  DWM's redirection surface there (the device's COPY registers, on the
+  vCPU), and DWM's d3d11 object uploads it again: ~37 frames/s against
+  flip's ~57. The copy belongs on the host GPU when both allocations
+  have host objects, which wants the device's copy to reach the
+  executor in order with the submissions.
 
 - ~~**A TDR under a full-screen repaint**~~ (fixed by QEMU patch 94) (`LOAD\anim.ps1` maximized at
   1600x1200, before the NOOVERWRITE change; not seen in one run after
@@ -353,12 +413,10 @@ a screendump: `G11\g11.ps1` runs it under `conhost --headless`.
   interrupts), which hit the TDR within ~30-40 s three runs of three,
   ran the same load on the patched QEMU three times 180 s with no TDR and
   no restart. Fixed.
-- **DWM on d3d10level9 at WDDM 1.1** (above): the runtime gives DWM's
-  composition device to the 11.1 interface only over a WDDM 1.2 kernel
-  driver, so DWM on this driver waits on claiming 1.2, below.
-
-- **Claiming WDDM 1.2** (above): what Windows does differently with a
-  window's swap chain on a 1.2 driver.
+- ~~**DWM on d3d10level9 at WDDM 1.1**~~, ~~**claiming WDDM 1.2**~~
+  (both done 2026-10-17, above).
+- Explorer's missing text, icons and clipped shadows the user sees by
+  hand (old, M20's); none in this session's screendumps.
 - Multisampling (above).
 - The packages (DXVK's d3d11 and dxgi beside
   `dxvk_d3d9.dll` in the Windows zip and MSIX, the Linux tarball, the Mac

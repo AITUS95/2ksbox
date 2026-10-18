@@ -338,7 +338,12 @@ static void *cmd_rec(UMD_DEV *d, UINT op, UINT body, UINT extra, UINT nal)
 }
 
 /* the field at p (inside the current buffer) gets the resource's host
- * handle or VRAM offset (+ add) when the kernel-mode driver patches */
+ * handle or VRAM offset (+ add) when the kernel-mode driver patches.
+ * Another process's allocation is listed as read: a WDDM 1.2 kernel
+ * refuses a submission that writes one opened read-only (DWM's view of a
+ * flip-model swap chain's buffer) and removes the device, and the host
+ * runs a submission to its end before the fence, so the kernel needs the
+ * write flag for no wait of ours (track M25; d3d11's patch_rw) */
 static void cmd_patch(UMD_DEV *d, void *p, UMD_RES *r, UINT kind, UINT add)
 {
     D3DDDI_PATCHLOCATIONLIST *pl;
@@ -349,7 +354,7 @@ static void cmd_patch(UMD_DEV *d, void *p, UMD_RES *r, UINT kind, UINT add)
     if (i == d->al_n) {
         ZeroMemory(&d->al[i], sizeof(d->al[i]));
         d->al[i].hAllocation = r->kmt;
-        d->al[i].WriteOperation = 1;
+        d->al[i].WriteOperation = !r->opened;
         d->al_res[i] = r;
         d->al_n++;
     }

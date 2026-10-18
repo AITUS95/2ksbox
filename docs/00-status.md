@@ -385,13 +385,16 @@ tracks, plus the items no track owns.
     and the script warns twice before it changes anything; next, run it
     from the disc on a fresh overlay.
 11a. **M25, Direct3D 10 and 11** (`tracks/m25-d3d11-umd.md`, "Open"):
-    which multisample claim the runtime refuses; claiming WDDM 1.2 (the
-    kernel driver has its DDIs; with `WDDMVersion` 1.2 DWM drops its
-    device whenever a program presents through a window's swap chain,
-    bisected, left for later); DXVK's d3d11 and dxgi in the packages
-    and the Linux / macOS executor builds; then 10_1 and 11_0 (compute,
-    unordered access views, tessellation) and Direct3D 10 programs. DWM composes on this driver only at WDDM 1.2, so fixing
-    the 1.2 claim's window swap chain bug is what puts DWM on Direct3D 11.
+    a blt-model (DISCARD) window's frame still crosses VRAM twice (~37
+    frames/s windowed against flip's ~57): the present's copy belongs on
+    the host GPU; which multisample claim the runtime refuses; DXVK's
+    d3d11 and dxgi in the packages and the Linux / macOS executor builds;
+    then 10_1 and 11_0 (compute, unordered access views, tessellation)
+    and Direct3D 10 programs. The kernel driver claims WDDM 1.2 since
+    2026-10-17, so DWM composes on Direct3D 11 (the user-mode drivers list
+    another process's allocations as read: a 1.2 kernel refused DWM's
+    writes to a flip-model buffer it opened read-only, found with cdb on
+    DWM; the track's "WDDM 1.2 claimed").
 12. **The finished tracks' leftovers.** M4: a decoder thread for the executor. M7: a shader title, a
     split-stream title, 3DMark2001's Nature for cubes, StarCraft on 8 bpp,
     a driver stage in `scripts/test.sh`.

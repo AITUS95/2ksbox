@@ -437,7 +437,10 @@ d3d11 where the Direct3D 9 side runs on the system's d3d9.
   side since then. A view made again under its id (a flip-model swap
   chain's buffers rotated their identities) replaces the old one and is
   bound again where the old one was. DWM composes here only while the
-  kernel driver claims WDDM 1.2 (track M25).
+  kernel driver claims WDDM 1.2, which the x64 one does since
+  2026-10-17 (track M25); a frame of a program's Direct3D 11 window then
+  meets DWM's on the host's d3d11 device, with no crossing through VRAM
+  to the Direct3D 9 side.
 - **Predication is the executor's.** DXVK's d3d11 keeps a predicate and
   does everything anyway (its `SetPredication` is a stub, which the API
   allows only for a `D3D11_QUERY_MISC_PREDICATEHINT` one), so

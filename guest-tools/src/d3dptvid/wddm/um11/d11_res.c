@@ -125,7 +125,7 @@ static void upload(D11_DEV *d, D11_RES *r, UINT sub, const BYTE *src, UINT row_p
             if (!u) {
                 return;
             }
-            patch_res(d, &u->res, r);
+            patch_dst(d, &u->res, r);
             u->sub = 0;
             u->has_box = 1;
             u->box[0] = x; u->box[1] = 0; u->box[2] = 0;
@@ -159,7 +159,7 @@ static void upload(D11_DEV *d, D11_RES *r, UINT sub, const BYTE *src, UINT row_p
                 if (!u) {
                     return;
                 }
-                patch_res(d, &u->res, r);
+                patch_dst(d, &u->res, r);
                 u->sub = sub;
                 u->has_box = 1;
                 u->box[0] = box[0];
@@ -185,7 +185,8 @@ void res_ref(D11_DEV *d, UINT op, D11_RES *r, UINT sub)
     d3dpt_d11_ref *t = (d3dpt_d11_ref *)tok(d, op, sizeof(*t), 1);
 
     if (t) {
-        patch_res(d, &t->a, r);
+        /* a readback writes the allocation's VRAM, RES_DIRTY reads it */
+        patch_rw(d, &t->a, r ? r->kmt : 0, op == D3DPT_D11_RES_READBACK || (r && !r->opened));
         t->b = sub;
     }
 }
@@ -599,7 +600,7 @@ static void APIENTRY d11_copy(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE dst, D3D10D
 
     RES(dst)->host_newer = RES(dst)->vram;
     if (t) {
-        patch_res(d, &t->a, RES(dst));
+        patch_dst(d, &t->a, RES(dst));
         patch_res(d, &t->b, RES(src));
     }
 }
@@ -614,7 +615,7 @@ static void APIENTRY d11_copy_region(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE dst,
     if (!t) {
         return;
     }
-    patch_res(d, &t->dst, RES(dst));
+    patch_dst(d, &t->dst, RES(dst));
     t->dst_sub = dst_sub;
     t->x = x; t->y = y; t->z = z;
     patch_res(d, &t->src, RES(src));
@@ -634,7 +635,7 @@ static void APIENTRY d11_resolve(D3D10DDI_HDEVICE h, D3D10DDI_HRESOURCE dst, UIN
 
     RES(dst)->host_newer = RES(dst)->vram;
     if (t) {
-        patch_res(d, &t->dst, RES(dst));
+        patch_dst(d, &t->dst, RES(dst));
         t->dst_sub = dst_sub;
         patch_res(d, &t->src, RES(src));
         t->src_sub = src_sub;

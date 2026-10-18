@@ -191,6 +191,9 @@ HRESULT APIENTRY OpenAdapter10_2(D3D10DDIARG_OPENADAPTER *o)
         return E_FAIL;
     }
     g_d11_verbose = listed("D3D11Trace");
+    if (g_d11_verbose) {
+        umd_log_traced();
+    }
     g_d11_win7 = listed("D3D11Win7");
     a = (D11_ADAPTER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*a));
     if (!a) {
@@ -430,8 +433,12 @@ UINT tok_max(D11_DEV *d)
 }
 
 /* the field at p (in the current buffer) becomes the allocation's host
- * handle when the kernel driver patches the submission */
-void patch(D11_DEV *d, void *p, D3DKMT_HANDLE kmt)
+ * handle when the kernel driver patches the submission; write says the
+ * buffer writes the allocation. A WDDM 1.2 kernel refuses a submission
+ * that writes an allocation the device opened read-only (DWM's view of a
+ * flip-model swap chain's buffer): STATUS_ACCESS_DENIED, which the runtime
+ * turns into a removed device (DXGI_ERROR_ACCESS_DENIED, track M25) */
+void patch_rw(D11_DEV *d, void *p, D3DKMT_HANDLE kmt, BOOL write)
 {
     D3DDDI_PATCHLOCATIONLIST *pl;
     UINT i;
@@ -445,8 +452,10 @@ void patch(D11_DEV *d, void *p, D3DKMT_HANDLE kmt)
     if (i == d->al_n) {
         ZeroMemory(&d->al[i], sizeof(d->al[i]));
         d->al[i].hAllocation = kmt;
-        d->al[i].WriteOperation = 1;
         d->al_n++;
+    }
+    if (write) {
+        d->al[i].WriteOperation = 1;
     }
     pl = &d->pl[d->pl_n++];
     ZeroMemory(pl, sizeof(*pl));
@@ -455,9 +464,24 @@ void patch(D11_DEV *d, void *p, D3DKMT_HANDLE kmt)
     pl->PatchOffset = (UINT)((BYTE *)p - d->buf);
 }
 
+void patch(D11_DEV *d, void *p, D3DKMT_HANDLE kmt)
+{
+    patch_rw(d, p, kmt, TRUE);
+}
+
+/* a resource named by a token: written, as far as the kernel knows, when
+ * this device made it (views and draws write through ids no buffer names
+ * again); read when another process's, which this device writes only by
+ * patch_dst */
 void patch_res(D11_DEV *d, void *p, const D11_RES *r)
 {
-    patch(d, p, r ? r->kmt : 0);
+    patch_rw(d, p, r ? r->kmt : 0, r && !r->opened);
+}
+
+/* a copy's, an update's or a readback's destination */
+void patch_dst(D11_DEV *d, void *p, const D11_RES *r)
+{
+    patch_rw(d, p, r ? r->kmt : 0, TRUE);
 }
 
 void set_error(D11_DEV *d, HRESULT hr)
