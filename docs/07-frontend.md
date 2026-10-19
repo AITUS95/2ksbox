@@ -163,7 +163,12 @@ player line runs a machine with nothing else.
   copy runs on a thread and writes `machine.toml` last, so a clone in
   progress or failed never shows in the list. It cannot be cancelled
   mid-file: `std::fs::copy` keeps the kernel's fast paths (reflinks,
-  `copy_file_range`). **"Use the same hard disk instead of copying it"**
+  `copy_file_range`). Its progress is the new files' sizes against the
+  old ones', except on Windows, where the copy gives the new file its
+  full length before it writes any of it (the bar sat at "24.6 GB of
+  24.6 GB" for the whole copy, user report 2026-10-19). There the copy is
+  `CopyFileExW` itself (what `std::fs::copy` calls, fast paths and all),
+  and its progress callback does the counting. **"Use the same hard disk instead of copying it"**
   (user request, 2026-09-26) makes the clone name the original's disk by
   its absolute path and copy only the rest of the bundle; the window
   warns that only one machine at a time may run on that disk. Nothing

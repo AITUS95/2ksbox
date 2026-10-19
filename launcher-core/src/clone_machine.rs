@@ -26,7 +26,10 @@
 //!   launcher.
 //! * **The copy runs on a thread**, since a Windows disk is gigabytes,
 //!   and the front end polls it like a snapshot job. Progress is what has
-//!   arrived in the new directory against what the old one holds.
+//!   arrived in the new directory against what the old one holds. On
+//!   Windows that is the copy's own count (`CopyFileExW`'s callback):
+//!   the copy sets the new file's full length before it writes any of
+//!   it, so the file's size reads "done" from the first second.
 //! * **The new `machine.toml` is written last**, so a clone that is
 //!   still copying, or that failed, is never in the grid (`library::scan`
 //!   skips a directory without one). A failure removes the directory,
@@ -44,7 +47,8 @@
 use crate::bundle::Machine;
 use crate::{library, player};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 
 pub struct CloneMachine {
     /// Whether the window is up.
@@ -88,6 +92,9 @@ struct Job {
     /// Where each file lands, for the progress count.
     dests: Vec<PathBuf>,
     total: u64,
+    /// Bytes copied so far, as the copy counts them (Windows only; see
+    /// the header).
+    copied: Arc<AtomicU64>,
     done: mpsc::Receiver<Result<PathBuf, String>>,
 }
 
@@ -235,7 +242,11 @@ impl CloneMachine {
     /// Copied so far and in all, while a copy runs.
     pub fn progress(&self) -> Option<(u64, u64)> {
         let job = self.job.as_ref()?;
-        let copied: u64 = job.dests.iter().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.len()).sum();
+        let copied = if cfg!(windows) {
+            job.copied.load(Ordering::Relaxed)
+        } else {
+            job.dests.iter().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.len()).sum()
+        };
         Some((copied.min(job.total), job.total))
     }
 
@@ -308,14 +319,16 @@ impl CloneMachine {
         let dests = files.iter().map(|(_, to)| to.clone()).collect();
         let (tx, rx) = mpsc::channel();
         let thread_dir = dest_dir.clone();
+        let copied = Arc::new(AtomicU64::new(0));
+        let counter = copied.clone();
         std::thread::spawn(move || {
-            let result = copy_all(&files, disk, &machine, &thread_dir);
+            let result = copy_all(&files, disk, &machine, &thread_dir, &counter);
             if result.is_err() {
                 let _ = std::fs::remove_dir_all(&thread_dir);
             }
             let _ = tx.send(result);
         });
-        self.job = Some(Job { dest_dir, dests, total, done: rx });
+        self.job = Some(Job { dest_dir, dests, total, copied, done: rx });
         Ok(())
     }
 
@@ -447,12 +460,22 @@ fn remap(machine: &mut Machine, from: &Path, to: &Path) {
 
 /// `disk` is which of `files` is the disk, `None` when the clone shares
 /// the original's.
-fn copy_all(files: &[(PathBuf, PathBuf)], disk: Option<usize>, machine: &Machine, dest_dir: &Path) -> Result<PathBuf, String> {
+/// `copied` counts the bytes as they land.
+fn copy_all(
+    files: &[(PathBuf, PathBuf)],
+    disk: Option<usize>,
+    machine: &Machine,
+    dest_dir: &Path,
+    copied: &AtomicU64,
+) -> Result<PathBuf, String> {
+    let mut before = 0;
     for (from, to) in files {
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        std::fs::copy(from, to).map_err(|e| format!("copying {}: {e}", from.display()))?;
+        let len = copy_file(from, to, before, copied).map_err(|e| format!("copying {}: {e}", from.display()))?;
+        before += len;
+        copied.store(before, Ordering::Relaxed);
     }
     if let Some(disk) = disk {
         absolute_backing(&files[disk].0, &files[disk].1)?;
@@ -460,6 +483,62 @@ fn copy_all(files: &[(PathBuf, PathBuf)], disk: Option<usize>, machine: &Machine
     let bundle_path = dest_dir.join(library::BUNDLE_FILE);
     machine.save(&bundle_path).map_err(|e| format!("{}: {e}", bundle_path.display()))?;
     Ok(bundle_path)
+}
+
+/// One file, returning its length. Elsewhere `std::fs::copy`, whose
+/// destination grows as it goes (and is a clone on APFS); `progress`
+/// reads that.
+#[cfg(not(windows))]
+fn copy_file(from: &Path, to: &Path, _before: u64, _copied: &AtomicU64) -> std::io::Result<u64> {
+    std::fs::copy(from, to)
+}
+
+/// One file, returning its length. `CopyFileExW` (what `std::fs::copy`
+/// calls) with its progress callback storing `before` plus this file's
+/// bytes into `copied`.
+#[cfg(windows)]
+fn copy_file(from: &Path, to: &Path, before: u64, copied: &AtomicU64) -> std::io::Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CopyFileExW, COPYPROGRESSROUTINE_PROGRESS, LPPROGRESS_ROUTINE_CALLBACK_REASON, PROGRESS_CONTINUE,
+    };
+    struct Count<'a> {
+        before: u64,
+        copied: &'a AtomicU64,
+    }
+    unsafe extern "system" fn progress(
+        _total: i64,
+        transferred: i64,
+        _stream: i64,
+        _stream_transferred: i64,
+        _stream_number: u32,
+        _reason: LPPROGRESS_ROUTINE_CALLBACK_REASON,
+        _source: HANDLE,
+        _dest: HANDLE,
+        data: *const std::ffi::c_void,
+    ) -> COPYPROGRESSROUTINE_PROGRESS {
+        let count = unsafe { &*(data as *const Count) };
+        count.copied.store(count.before + transferred as u64, Ordering::Relaxed);
+        PROGRESS_CONTINUE
+    }
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let (from_w, to_w) = (wide(from), wide(to));
+    let count = Count { before, copied };
+    let ok = unsafe {
+        CopyFileExW(
+            from_w.as_ptr(),
+            to_w.as_ptr(),
+            Some(progress),
+            &count as *const Count as *const std::ffi::c_void,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(std::fs::metadata(to)?.len())
 }
 
 /// The backing file named in a qcow2 header, if any. Read straight out

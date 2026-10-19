@@ -50,6 +50,7 @@ pollster = "1"
 
 # Live control's monitor socket on Windows (`control.rs`): std has no
 # `UnixStream` there, so the AF_UNIX client is three Winsock calls. This
-# version is already in the lock through wgpu's tree.
+# version is already in the lock through wgpu's tree. `CopyFileExW` is
+# the clone's copy, for its progress callback (`clone_machine.rs`).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_Storage_FileSystem"] }
