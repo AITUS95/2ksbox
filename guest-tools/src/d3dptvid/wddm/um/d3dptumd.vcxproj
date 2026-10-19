@@ -18,11 +18,24 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <!-- Windows 11 on Arm (track M25): ARM64X, one DLL with an ARM64 half
+         for Arm processes and an ARM64EC half for the x64 ones Windows
+         emulates, built with VS 2022 (17.8 or later; build-wddm.cmd) -->
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64EC">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64EC</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{6D3A2B1E-7C44-4E0B-9B57-3D00D3D7A002}</ProjectGuid>
     <RootNamespace>d3dptumd</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
+    <!-- Arm: VS 2022's newest Windows SDK, outside the EWDK -->
+    <WindowsTargetPlatformVersion Condition="'$(Platform)'=='ARM64' Or '$(Platform)'=='ARM64EC'">10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
@@ -31,11 +44,20 @@
     <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Platform)'=='ARM64' Or '$(Platform)'=='ARM64EC'">
+    <PlatformToolset>v143</PlatformToolset>
+    <BuildAsX Condition="'$(Platform)'=='ARM64'">true</BuildAsX>
+    <!-- VS 2022's vcpkg integration copies DLLs after the link with pwsh,
+         which nothing here needs -->
+    <VcpkgEnabled>false</VcpkgEnabled>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <TargetName>d3dptumd</TargetName>
     <OutDir>$(D3DPT_OUT)\</OutDir>
     <IntDir>$(D3DPT_OUT)\obj-um\</IntDir>
+    <!-- ARM64X's two halves, each compiled on its own -->
+    <IntDir Condition="'$(Platform)'=='ARM64' Or '$(Platform)'=='ARM64EC'">$(D3DPT_OUT)\obj-um-$(Platform)\</IntDir>
     <GenerateManifest>false</GenerateManifest>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -44,6 +66,13 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <Optimization>MaxSpeed</Optimization>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <!-- Arm: volatile accesses ordered as on x86 (the kernel driver's
+           reason; MSVC's Arm default orders nothing) -->
+      <AdditionalOptions Condition="'$(Platform)'=='ARM64' Or '$(Platform)'=='ARM64EC'">/volatile:ms %(AdditionalOptions)</AdditionalOptions>
+      <!-- ... and the WDK's display headers, which the Windows SDK lacks,
+           from the EWDK alone (build-wddm.cmd copies them): its whole
+           include path predates ARM64EC -->
+      <AdditionalIncludeDirectories Condition="'$(Platform)'=='ARM64' Or '$(Platform)'=='ARM64EC'">$(D3DPT_WDKINC);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- guest code's CPU floor is the Pentium III (no SSE2); v142 targets
            SSE2 by default on x86. The static C runtime's own SSE2 routines
            are chosen at run time by its CPU check, so they are safe -->
@@ -58,7 +87,8 @@
       <ModuleDefinitionFile>d3dptumd.def</ModuleDefinitionFile>
       <AdditionalDependencies>gdi32.lib;kernel32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <SubSystem>Windows</SubSystem>
-      <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
+      <!-- Windows 7's; Arm's floor is the linker's own default -->
+      <MinimumRequiredVersion Condition="'$(Platform)'!='ARM64' And '$(Platform)'!='ARM64EC'">6.01</MinimumRequiredVersion>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

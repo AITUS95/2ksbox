@@ -47,6 +47,9 @@
 #   dxvk_d3d9.dll               DXVK's d3d9, the executor's default,
 #                               renamed so it is never mistaken for
 #                               Windows' own d3d9.dll (D3DPT_D3D9=system)
+#   dxvk_d3d11.dll, dxvk_dxgi.dll  DXVK's d3d11 and dxgi, the executor's
+#                               Direct3D 10 / 11 (track M25), renamed
+#                               the same way
 #   pc-bios\                    QEMU firmware
 #   soundfonts\                 the General MIDI bank (doc 20)
 #   guest-tools\                the guest-tools ISO
@@ -125,6 +128,15 @@ cp -a qemu/pc-bios "$STAGE/pc-bios"
 if [ -f build/win/d3dpt/d3dpt_exec.dll ] && [ -f build/win/dxvk/src/d3d9/d3d9.dll ]; then
   install -m755 build/win/d3dpt/d3dpt_exec.dll "$STAGE/"
   install -m755 build/win/dxvk/src/d3d9/d3d9.dll "$STAGE/dxvk_d3d9.dll"
+  # Direct3D 10 / 11's pair (track M25), which a guest without the WDDM
+  # driver never asks for; staged with the rest, warned about alone
+  for n in d3d11 dxgi; do
+    if [ -f "build/win/dxvk/src/$n/$n.dll" ]; then
+      install -m755 "build/win/dxvk/src/$n/$n.dll" "$STAGE/dxvk_$n.dll"
+    else
+      echo "package-windows.sh: no build/win/dxvk/src/$n/$n.dll (scripts/build-windows.sh exec); packaging without Direct3D 10 / 11"
+    fi
+  done
 else
   echo "package-windows.sh: no build/win/d3dpt/d3dpt_exec.dll and build/win/dxvk/src/d3d9/d3d9.dll (scripts/build-windows.sh exec); packaging without Direct3D pass-through"
 fi
@@ -396,6 +408,8 @@ fail=0
     done <<EOF
 d3dpt-exec  d3dpt_exec.dll
 dxvk        dxvk_d3d9.dll
+dxvk-d3d11  dxvk_d3d11.dll
+dxvk-dxgi   dxvk_dxgi.dll
 EOF
   else
     echo "package-windows.sh: the staged player printed nothing for --companions" >&2
@@ -465,7 +479,7 @@ EOF
   # DXVK's own b_vscrt) and the WGL probe's; this keeps it so.
   for exe in 2ksbox.exe 2ksbox-player.exe 2ksbox-player-x86_64.exe \
              libqemu-embed-i386.dll libqemu-embed-x86_64.dll qemu-img.exe \
-             d3dpt_exec.dll dxvk_d3d9.dll tools/wgl-probe.exe; do
+             d3dpt_exec.dll dxvk_d3d9.dll dxvk_d3d11.dll dxvk_dxgi.dll tools/wgl-probe.exe; do
     [ -f "$STAGE/$exe" ] || continue        # the Direct3D pair: not built here; warned above
     if imports "$STAGE/$exe" | grep -qiE '^(vcruntime|msvcp)[0-9]+'; then
       echo "package-windows.sh: $exe imports $(imports "$STAGE/$exe" | grep -iE '^(vcruntime|msvcp)[0-9]+' | tr '\n' ' ')(link its C runtime statically: scripts/build-windows.sh mitsuami / qemu-msvc / exec)" >&2

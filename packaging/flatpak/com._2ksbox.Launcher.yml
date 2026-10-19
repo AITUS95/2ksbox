@@ -209,9 +209,9 @@ modules:
       # DXVK and the Direct3D executor (doc 14), for the same reason and
       # with the same constraint: the SDK has meson, ninja, glslang and
       # the Vulkan headers, DXVK's subprojects are vendored and it declares
-      # no meson wrap, so this builds offline. Only `d3d9`, and only
-      # against DXVK patch 04's headless WSI, because the executor never
-      # presents. No Vulkan driver is packaged; the runtime's GL/Vulkan
+      # no meson wrap, so this builds offline. Only `d3d9`, `d3d11` and
+      # `dxgi` (Direct3D 10 / 11, track M25), and only against DXVK patch
+      # 04's headless WSI, because the executor never presents. No Vulkan driver is packaged; the runtime's GL/Vulkan
       # extension supplies the host's. The SDK has no mingw, so this
       # builds the in-process executor and the remote library only; the
       # PE pair the remote library runs under Wine comes with the Wine

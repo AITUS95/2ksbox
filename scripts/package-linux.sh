@@ -35,7 +35,9 @@
 #   bin/2ksbox-player-x86_64          the same player for Windows 11, on
 #   lib/2ksbox/libqemu-embed-x86_64.so  its own QEMU (each links one)
 #   lib/2ksbox/libd3dpt_exec.so       the Direct3D executor and the DXVK
-#   lib/2ksbox/libdxvk_d3d9.so.0        it runs on (both or neither)
+#   lib/2ksbox/libdxvk_d3d9.so.0        it runs on (both or neither), and
+#   lib/2ksbox/libdxvk_d3d11.so.0       DXVK's d3d11 and dxgi, its Direct3D
+#   lib/2ksbox/libdxvk_dxgi.so.0          10 / 11 (track M25)
 #   lib/2ksbox/libd3dpt_exec_remote.so  the executor in another process, on
 #   lib/2ksbox/wine/d3dpt_exec.dll        Wine (ADR-018). QEMU opens the .so
 #   lib/2ksbox/wine/d3dpt-exec-host.exe   below the Vulkan floor, and it runs
@@ -124,6 +126,15 @@ install -m755 build/qemu/qemu-img "$STAGE/libexec/2ksbox/"
 if [ -f build/d3dpt/libd3dpt_exec.so ] && [ -f build/dxvk/src/d3d9/libdxvk_d3d9.so.0 ]; then
   install -m755 build/d3dpt/libd3dpt_exec.so "$STAGE/lib/2ksbox/"
   install -m755 build/dxvk/src/d3d9/libdxvk_d3d9.so.0 "$STAGE/lib/2ksbox/libdxvk_d3d9.so.0"
+  # Direct3D 10 / 11's pair (track M25), under the sonames
+  # `companions.rs` names, as the d3d9
+  for n in d3d11 dxgi; do
+    if [ -f "build/dxvk/src/$n/libdxvk_$n.so.0" ]; then
+      install -m755 "build/dxvk/src/$n/libdxvk_$n.so.0" "$STAGE/lib/2ksbox/libdxvk_$n.so.0"
+    else
+      echo "package-linux.sh: no build/dxvk/src/$n/libdxvk_$n.so.0 (scripts/build.sh dxvk); packaging without Direct3D 10 / 11"
+    fi
+  done
 else
   echo "package-linux.sh: no Direct3D executor (scripts/build.sh dxvk exec); packaging without it — guests get no Direct3D"
 fi
@@ -299,6 +310,8 @@ while read -r what file; do
 done <<EOF
 d3dpt-exec  libd3dpt_exec.so
 dxvk        libdxvk_d3d9.so.0
+dxvk-d3d11  libdxvk_d3d11.so.0
+dxvk-dxgi   libdxvk_dxgi.so.0
 d3dpt-remote libd3dpt_exec_remote.so
 wine-host   wine/d3dpt-exec-host.exe
 EOF

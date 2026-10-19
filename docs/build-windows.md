@@ -39,7 +39,7 @@ re-applies the patch queue) while another build reads `qemu/`
 | DXVK's `d3d9.dll`, `d3dpt_exec.dll` | Visual Studio's `cl`, static C runtime, in the environment `scripts/msvc-env.sh` sets up | DXVK throws C++ exceptions out of `Direct3DCreate9`, which only an executor built by the same compiler catches, so the two moved to MSVC together (ADR-026's amendments). QEMU loads the executor by name; only C crosses that edge. DXVK under MSVC needed patch 15 ("DXVK under MSVC" below) |
 | the guest-tools ISO | MSYS2's i686 GCC with Linux's i686 runtime, Open Watcom | Windows 9x and XP guests; modern MSVC targets neither |
 | `d3dpt-dp2-test.exe`, `launcher-capi`'s check in `test.sh` | MSYS2's GCC, Rust `x86_64-pc-windows-gnu` | test programs only, never shipped: the executor's host test loads the MSVC executor across two C runtimes, which only C crosses |
-| the WDDM driver | the Enterprise WDK 10.0.19041 | Windows 7 and 32-bit kernel drivers ("The WDDM driver") |
+| the WDDM driver | the Enterprise WDK 10.0.19041, and for Windows 11 on Arm's user-mode drivers VS 2022 17.8+ with its ARM64EC build tools | Windows 7 and 32-bit kernel drivers; ARM64X, which VS 2019 cannot build ("The WDDM driver") |
 | our viogpudo (track M24) | Visual Studio 2022 with the WDK 10.0.26100 from NuGet | ARM64 and x64 Windows 11 kernel drivers; the NuGet kit needs no EWDK ISO ("Our viogpudo") |
 
 QEMU's libraries are ours (`build-deps.sh`), not MSYS2's, which are
@@ -69,7 +69,7 @@ are unused and can be deleted.
 | `rust` | `target/x86_64-pc-windows-msvc/release/{launcherx,discx,synthx}.exe` | the tools are MSVC (`scripts/cargo-msvc.sh`, rustup's `stable-x86_64-pc-windows-msvc`), skipped without it |
 | `mitsuami` | `launcher-mitsuami/target/release/launcher-mitsuami.exe`, `player-mitsuami/target/release/player-mitsuami.exe`, `player-mitsuami/target/qemu-x86_64/release/player-mitsuami.exe` | the package's `2ksbox.exe`, `2ksbox-player.exe` and `2ksbox-player-x86_64.exe` (ADR-023, track M22; the last `--features qemu-x86_64`, Windows 11's, track M20); their own workspaces; MSVC ("The launcher") |
 | `exec` | `build/win/dxvk/src/{d3d9/d3d9,d3d11/d3d11,dxgi/dxgi}.dll` (copied beside the executor as `dxvk_d3d9.dll`, `dxvk_d3d11.dll`, `dxvk_dxgi.dll`; the last two are the executor's Direct3D 10 / 11 side, M25), `build/win/d3dpt/d3dpt_exec.dll`, `build/win/d3dpt-dp2-test.exe`, `build/win/wgl-probe.exe` | DXVK (patch 08's headless WSI), the executor and the offscreen-GL probe, MSVC; the executor's host test (mingw, so it proves the C-only boundary across two C runtimes). Skipped without Visual Studio's C++ tools |
-| `wddm` | `build/wddm/x86/{d3dptkmd.sys,d3dptumd.dll,d3dpt11.dll,d3dptkmd.inf}`, and `build/wddm/x64` for Windows 11 with the x86 user-mode drivers beside them as `d3dptumd32.dll` and `d3dpt11_32.dll` for 32-bit processes (WoW64; unsigned; `wddm-install.ps1` test signs it in the guest) | Windows 7's WDDM driver through a mounted EWDK, or the published build for these sources without one ("The WDDM driver") |
+| `wddm` | `build/wddm/x86/{d3dptkmd.sys,d3dptumd.dll,d3dpt11.dll,d3dptkmd.inf}`, and `build/wddm/x64` for Windows 11 with the x86 user-mode drivers beside them as `d3dptumd32.dll` and `d3dpt11_32.dll` for 32-bit processes (WoW64; unsigned; `wddm-install.ps1` test signs it in the guest), and `build/wddm/arm64` for Windows 11 on Arm (the kernel driver ARM64, the user-mode drivers ARM64X, the x86 ones beside them) | Windows 7's WDDM driver through a mounted EWDK, or the published build for these sources without one ("The WDDM driver") |
 | `edk2` | `qemu/pc-bios/2ksbox-x86_64-{code,vars}.fd` | Windows 11's firmware (`build-edk2.sh x86_64`, track M20): OvmfPkgX64 with Secure Boot and no SMM, which WHPX lacks, built with Visual Studio 2022 (EDK2's `VS2022` toolchain in a batch file of the script's), MINGW64's nasm, iasl built once from ACPICA's pinned source with msbuild (MSYS2's bison and flex), and the Python launcher's 3.12 (EDK2's BaseTools refuse MINGW64's). Fetches EDK2 and its submodules (~400 MB) once; its own stamp |
 | `virtio` | `build/virtio-win/2ksbox-drivers-x64.iso` | Windows 11's drivers disc (`build-virtio-win.sh x64`), as on Linux. Downloads virtio-win's ISO once; needs xorriso and the agent's `x86_64-pc-windows-gnu` target |
 | `guest` | `guest-tools/out/guest-tools-*.iso` | host-independent, rebuilt when its sources move (`build.sh`'s stamp) |
@@ -859,7 +859,21 @@ shared core's `core_caps.c` / `core_surf.c` compiled in), and on
 M25; the same toolset and settings, compiled as C++), into
 `build/wddm/x86/`: `d3dptkmd.sys`, `d3dptumd.dll`, `d3dpt11.dll` and
 `d3dptkmd.inf`. The drivers are unsigned; 32-bit Windows 7 loads them after
-a prompt (its INF section installs Direct3D 9's alone so far). Notes:
+a prompt (its INF section installs Direct3D 9's alone so far). The same
+three projects build `build/wddm/x64/` for Windows 11, and
+`build/wddm/arm64/` for Windows 11 on Arm (track M25): the kernel driver
+ARM64 from the EWDK, and the two user-mode drivers **ARM64X**, an ARM64
+half for Arm processes and an ARM64EC half for the x64 programs Windows
+emulates, in one DLL. VS 2019 has no ARM64EC, so the script builds those
+two first, in the environment of a VS 2022 17.8 or later that vswhere
+finds with the ARM64EC build tools (`v143`, `BuildAsX`, its newest
+Windows SDK), with the EWDK's display headers (`d3d10umddi.h`,
+`d3dumddi.h` and what they include, which the SDK lacks) copied to
+`build/wddm/arm64/wdkinc` rather than the EWDK's whole include path,
+which predates ARM64EC; without that Visual Studio it skips the Arm set
+with a note. The x86 user-mode drivers go beside them for the x86
+programs Windows on Arm emulates. `dumpbin -headers` says `AA64 machine
+(ARM64) (ARM64X)` for the two DLLs. Notes:
 
 - The kernel-mode include path has no `<stdint.h>`, which
   `d3dpt/d3dpt_fb.h` includes, and MSVC's own pulls in the user-mode CRT:
@@ -874,7 +888,12 @@ a prompt (its INF section installs Direct3D 9's alone so far). Notes:
   sources include `<windef.h>` first, which MSVC's SDK takes only after
   `<windows.h>` (forced in for those two files).
 - MSBuild's "'pwsh.exe' is not recognized" after the link is a WDK
-  post-build step looking for PowerShell 7; it changes nothing.
+  post-build step looking for PowerShell 7; it changes nothing. (VS
+  2022's vcpkg integration printed the same for the Arm user-mode
+  drivers, whose projects turn it off.)
+- `build-wddm.cmd` is committed with CRLF line ends: with LF alone,
+  `cmd` loses labels in a script that long ("The system cannot find the
+  batch label specified").
 - `d3dpt11.dll` is C compiled as C++ (`CompileAs`): `d3d10umddi.h` defines
   its constants at file scope (`const UINT D3D10_...`), which C links as
   one symbol per file, and the link then finds each one defined in every

@@ -16,6 +16,11 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <!-- ARM64: Windows 11 on Arm (track M25), test signed the same way -->
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{6D3A2B1E-7C44-4E0B-9B57-3D00D3D7A001}</ProjectGuid>
@@ -26,6 +31,7 @@
   <PropertyGroup Label="Configuration">
     <TargetVersion Condition="'$(Platform)'=='Win32'">Windows7</TargetVersion>
     <TargetVersion Condition="'$(Platform)'=='x64'">Windows10</TargetVersion>
+    <TargetVersion Condition="'$(Platform)'=='ARM64'">Windows10</TargetVersion>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
     <ConfigurationType>Driver</ConfigurationType>
@@ -46,6 +52,11 @@
       <!-- d3dpt_fb.h includes <stdint.h>, which the kernel-mode include
            path lacks (MSVC's own drags in the user-mode CRT): kinc/ -->
       <AdditionalIncludeDirectories>kinc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- Arm: a volatile access is ordered (acquire / release), as on x86,
+           so a register write that starts the device follows the writes to
+           memory before it; MSVC's Arm default (/volatile:iso) orders
+           nothing -->
+      <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/volatile:ms %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalDependencies>displib.lib;%(AdditionalDependencies)</AdditionalDependencies>

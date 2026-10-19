@@ -5,12 +5,19 @@ rem user-mode driver d3dptumd.dll, Direct3D 10 and 11's d3dpt11.dll (track
 rem M25, ADR-029) and the INF; and the same set for 64-bit Windows 11 into
 rem build\wddm\x64 (track M20), with the 32-bit user-mode drivers beside
 rem them as d3dptumd32.dll and d3dpt11_32.dll (WoW64: 32-bit Direct3D
-rem programs), unsigned: wddm-install.ps1 test signs it in the guest.
+rem programs), unsigned: wddm-install.ps1 test signs it in the guest. And
+rem for Windows 11 on Arm into build\wddm\arm64 (track M25): the kernel
+rem driver ARM64, the user-mode drivers ARM64X (an ARM64 half for Arm
+rem processes, an ARM64EC half for the x64 ones Windows emulates) and the
+rem 32-bit ones beside them, as on x64, for the x86 programs it emulates.
 rem
 rem It builds with the Enterprise WDK for Windows 10 2004 (10.0.19041, VS
 rem 2019 Build Tools 16.7): the last kit that targets Windows 7 and still
 rem builds 32-bit kernel drivers. The EWDK is one ISO, mounted, nothing
 rem installed. docs/build-windows.md "The WDDM driver" has where to get it.
+rem VS 2019 has no ARM64EC, so the Arm user-mode drivers are VS 2022's
+rem (17.8 or later, with the ARM64EC build tools) on its own Windows SDK,
+rem with the EWDK's display headers; without it there is no Arm set.
 rem
 rem   guest-tools\build-wddm.cmd               finds a mounted EWDK
 rem   set EWDK=E:                              ... or names its drive
@@ -33,6 +40,11 @@ if not defined EWDK (
 )
 echo ==^> EWDK at %EWDK%
 
+rem Arm's user-mode drivers first, in VS 2022's environment, before the
+rem EWDK's replaces this one
+set ARM=
+call :arm64x || exit /b 1
+
 rem SetupBuildEnv refuses a shell that already ran it
 set WindowsSystemKit=
 call "%EWDK%\BuildEnv\SetupBuildEnv.cmd" x86 >nul 2>nul
@@ -41,6 +53,50 @@ if not defined WDKContentRoot exit /b 1
 
 call :build Win32 x86 || exit /b 1
 call :build x64 x64 || exit /b 1
+if defined ARM call :arm64 || exit /b 1
+exit /b 0
+
+rem :arm64x: d3dptumd.dll and d3dpt11.dll ARM64X into build\wddm\arm64
+:arm64x
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+set VS22=
+if exist "%VSWHERE%" for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -version [17.8^,18.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64EC -property installationPath`) do set "VS22=%%i"
+if not defined VS22 (
+  echo note: no VS 2022 17.8+ with the ARM64EC build tools: no driver for Windows 11 on Arm ^(docs/build-windows.md "The WDDM driver"^) 1>&2
+  exit /b 0
+)
+set "OUT=%ROOT%\build\wddm\arm64"
+if not exist "%OUT%\wdkinc" mkdir "%OUT%\wdkinc"
+rem the WDK's display headers only: the rest of the EWDK's include path
+rem predates ARM64EC
+set "KIT=%EWDK%\Program Files\Windows Kits\10\Include\10.0.19041.0"
+for %%h in (um\d3d10umddi.h um\d3dumddi.h um\dxmini.h um\dxgiddi.h um\d3d10tokenizedprogramformat.hpp ^
+            um\d3d11tokenizedprogramformat.hpp um\d3d12tokenizedprogramformat.hpp ^
+            shared\d3dkmddi.h shared\d3dkmthk.h shared\d3dukmdt.h shared\d3dkmdt.h) do (
+  copy /y "%KIT%\%%h" "%OUT%\wdkinc\" >nul || exit /b 1
+)
+setlocal
+call "%VS22%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>nul
+for %%p in (um\d3dptumd um11\d3dpt11) do (
+  msbuild "%ROOT%\guest-tools\src\d3dptvid\wddm\%%p.vcxproj" -nologo -v:minimal ^
+    -p:Configuration=Release -p:Platform=ARM64 "-p:D3DPT_OUT=%OUT%" "-p:D3DPT_WDKINC=%OUT%\wdkinc"
+  if errorlevel 1 exit /b 1
+)
+endlocal
+set ARM=1
+exit /b 0
+
+rem :arm64: the rest of the Arm set, in the EWDK's environment
+:arm64
+set "OUT=%ROOT%\build\wddm\arm64"
+msbuild "%ROOT%\guest-tools\src\d3dptvid\wddm\km\d3dptkmd.vcxproj" -nologo -v:minimal ^
+  -p:Configuration=Release -p:Platform=ARM64 "-p:D3DPT_OUT=%OUT%"
+if errorlevel 1 exit /b 1
+copy /y "%ROOT%\guest-tools\src\d3dptvid\wddm\km\d3dptkmd.inf" "%OUT%\" >nul
+copy /y "%ROOT%\guest-tools\src\d3dptvid\wddm\wddm-install.ps1" "%OUT%\" >nul
+copy /y "%ROOT%\build\wddm\x86\d3dptumd.dll" "%OUT%\d3dptumd32.dll" >nul
+copy /y "%ROOT%\build\wddm\x86\d3dpt11.dll" "%OUT%\d3dpt11_32.dll" >nul
+echo ==^> %OUT%\d3dptkmd.sys, %OUT%\d3dptumd.dll, %OUT%\d3dpt11.dll ^(ARM64X^)
 exit /b 0
 
 rem :build <msbuild platform> <folder>

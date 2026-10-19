@@ -414,7 +414,11 @@ device for the whole guest: DXVK's, opened through
 `D3D11CoreCreateDevice` with DXVK's own DXGI adapter (on Windows
 `dxvk_d3d11.dll` and `dxvk_dxgi.dll` beside `dxvk_d3d9.dll`, by file
 name: the process holds Windows' `dxgi.dll` already), or the system's
-d3d11 where the Direct3D 9 side runs on the system's d3d9.
+d3d11 where the Direct3D 9 side runs on the system's d3d9. A package's
+player names the pair (`D3DPT_DXVK_D3D11_LIB`, `D3DPT_DXVK_DXGI_LIB`,
+`player-core/src/companions.rs`; every package carries it since
+2026-10-19), and with only `D3DPT_DXVK_LIB` set the executor looks
+beside that d3d9.
 
 - Each guest device is an `ID3DDeviceContextState`, swapped in when its
   record runs; its views, states, shaders, input layouts and queries are

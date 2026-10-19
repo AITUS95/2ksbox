@@ -9,7 +9,9 @@
 //!
 //! * `D3DPT_EXEC_LIB`, the Direct3D executor (doc 14).
 //! * `D3DPT_DXVK_LIB`, the DXVK `d3d9` the executor runs on, which it
-//!   `dlopen`s in turn and which is not named like the others.
+//!   `dlopen`s in turn and which is not named like the others, and
+//!   `D3DPT_DXVK_D3D11_LIB` / `D3DPT_DXVK_DXGI_LIB`, the DXVK `d3d11` and
+//!   `dxgi` its Direct3D 10 / 11 side runs on (track M25).
 //! * `D3DPT_EXEC_REMOTE_LIB`, the executor in another process, on Wine
 //!   (ADR-018, M15): what QEMU's loader opens when DXVK finds no Vulkan
 //!   device, and `D3DPT_EXEC_HOST` the Windows program that process runs
@@ -93,9 +95,11 @@ fn set_if_unset_and_present(var: &str, path: PathBuf) {
 }
 
 /// The names `--companions` prints, in the order this module sets them.
-const VARS: [(&str, &str); 7] = [
+const VARS: [(&str, &str); 9] = [
     ("d3dpt-exec", "D3DPT_EXEC_LIB"),
     ("dxvk", "D3DPT_DXVK_LIB"),
+    ("dxvk-d3d11", "D3DPT_DXVK_D3D11_LIB"),
+    ("dxvk-dxgi", "D3DPT_DXVK_DXGI_LIB"),
     ("d3dpt-remote", "D3DPT_EXEC_REMOTE_LIB"),
     ("wine-host", "D3DPT_EXEC_HOST"),
     ("wine", "D3DPT_WINE"),
@@ -209,17 +213,26 @@ pub fn announce() {
         set_if_unset_and_present("D3DPT_EXEC_HOST", in_prefix(&prefix, "lib/2ksbox/wine/d3dpt-exec-host.exe"));
         set_if_unset_and_present("D3DPT_WINE", in_prefix(&prefix, "lib/2ksbox/wine/bin/wine"));
     }
-    // DXVK's own soname, which carries its major version rather than the
-    // plain name the other three have. On Windows it is renamed in the
-    // package, so that nothing can mistake it for the system's d3d9.dll.
-    let dxvk = if cfg!(target_os = "macos") {
-        "lib/2ksbox/libdxvk_d3d9.0.dylib"
-    } else if cfg!(windows) {
-        "bin/dxvk_d3d9.dll"
-    } else {
-        "lib/2ksbox/libdxvk_d3d9.so.0"
+    // DXVK's own sonames, which carry its major version rather than the
+    // plain name the other three have. On Windows they are renamed in the
+    // package, so that nothing can mistake them for the system's d3d9.dll,
+    // d3d11.dll and dxgi.dll. d3d9 for Direct3D 8 / 9, d3d11 and dxgi for
+    // Direct3D 10 / 11 (track M25).
+    let dxvk = |stem: &str| {
+        in_prefix(
+            &prefix,
+            &if cfg!(target_os = "macos") {
+                format!("lib/2ksbox/libdxvk_{stem}.0.dylib")
+            } else if cfg!(windows) {
+                format!("bin/dxvk_{stem}.dll")
+            } else {
+                format!("lib/2ksbox/libdxvk_{stem}.so.0")
+            },
+        )
     };
-    set_if_unset_and_present("D3DPT_DXVK_LIB", in_prefix(&prefix, dxvk));
+    set_if_unset_and_present("D3DPT_DXVK_LIB", dxvk("d3d9"));
+    set_if_unset_and_present("D3DPT_DXVK_D3D11_LIB", dxvk("d3d11"));
+    set_if_unset_and_present("D3DPT_DXVK_DXGI_LIB", dxvk("dxgi"));
     if cfg!(target_os = "macos") && std::env::var_os("VK_ICD_FILENAMES").is_none() {
         set_if_unset_and_present(
             "VK_DRIVER_FILES",

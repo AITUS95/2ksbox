@@ -1,6 +1,8 @@
 ; d3dptkmd.inf - 2ksbox paravirtual display adapter (d3dpt-vga), WDDM,
 ; Windows 7 32-bit (M18 step 2, ADR-022) and Windows 11 x64 (M20; test
-; signed in the guest by wddm-install.ps1, which writes the catalog). Kernel-mode driver d3dptkmd.sys,
+; signed in the guest by wddm-install.ps1, which writes the catalog), and
+; Windows 11 on Arm (track M25; its user-mode drivers ARM64X, which serve
+; Arm processes and the x64 ones Windows emulates). Kernel-mode driver d3dptkmd.sys,
 ; Direct3D 9's user-mode driver d3dptumd.dll (plan step 6); on x64 also Direct3D 10
 ; and 11's, d3dpt11.dll (track M25, ADR-029). The XP-model driver
 ; (../../nt/d3dptvid.inf) matches the same device and stays the fallback:
@@ -13,6 +15,7 @@ ClassGUID={4d36e968-e325-11ce-bfc1-08002be10318}
 Provider=%Provider%
 DriverVer=10/16/2026,0.4.0.0
 CatalogFile.NTamd64=d3dptkmd.cat
+CatalogFile.NTarm64=d3dptkmd.cat
 
 [DestinationDirs]
 DefaultDestDir=12
@@ -31,12 +34,16 @@ d3dpt11.dll=1
 d3dpt11_32.dll=1
 
 [Manufacturer]
-%Mfg%=d3dpt.Mfg,NTx86,NTamd64
+%Mfg%=d3dpt.Mfg,NTx86,NTamd64,NTarm64
 
 [d3dpt.Mfg.NTx86]
 %d3dpt.DeviceDesc%=d3dpt_Install, PCI\VEN_1234&DEV_3D00
 
 [d3dpt.Mfg.NTamd64]
+%d3dpt.DeviceDesc%=d3dpt_Install64, PCI\VEN_1234&DEV_3D00
+
+; Arm installs what x64 does: SysWOW64 holds the x86 DLLs there too
+[d3dpt.Mfg.NTarm64]
 %d3dpt.DeviceDesc%=d3dpt_Install64, PCI\VEN_1234&DEV_3D00
 
 ; The install section's own AddReg: its HKR is the adapter's software key,

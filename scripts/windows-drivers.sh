@@ -53,11 +53,15 @@ setup() {
       OUT=build/wddm
       # Windows 7's pair, and 64-bit Windows 11's (track M20) with the
       # 32-bit user-mode driver for WoW64 and Direct3D 10 and 11's (track
-      # M25, both widths); the ISO's WDDM64\ takes its .inf and installer
-      # from the source tree
+      # M25, both widths), and Windows 11 on Arm's (track M25: ARM64, the
+      # user-mode drivers ARM64X, the 32-bit ones beside them); the ISO's
+      # WDDM64\ and WDDMARM\ take their .inf and installer from the
+      # source tree
       FILES=(x86/d3dptkmd.sys x86/d3dptumd.dll x86/d3dptkmd.inf
              x64/d3dptkmd.sys x64/d3dptumd.dll x64/d3dptumd32.dll
-             x64/d3dpt11.dll x64/d3dpt11_32.dll)
+             x64/d3dpt11.dll x64/d3dpt11_32.dll
+             arm64/d3dptkmd.sys arm64/d3dptumd.dll arm64/d3dptumd32.dll
+             arm64/d3dpt11.dll arm64/d3dpt11_32.dll)
       SOURCES=(guest-tools/src/d3dptvid/wddm guest-tools/src/d3dptvid/core
                d3dpt/d3dpt_fb.h d3dpt/d3dpt_enc.h d3dpt/d3dpt_proto.h
                guest-tools/build-wddm.cmd)

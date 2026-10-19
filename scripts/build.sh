@@ -537,6 +537,11 @@ if want dxvk; then
        && ! grep -q -- "-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET" build/dxvk/build.ninja; then
       dxvk_retarget=1
     fi
+    # Configured before d3d11 and dxgi joined d3d9 (track M25), which a
+    # build directory keeps until it is configured again
+    if [ -f build/dxvk/build.ninja ] && ! grep -q 'libdxvk_d3d11' build/dxvk/build.ninja; then
+      dxvk_retarget=1
+    fi
     if [ -n "$FORCE" ] || [ ! -f build/dxvk/build.ninja ] || [ -n "$dxvk_retarget" ]; then
       say "dxvk: configure"
       scripts/configure-dxvk.sh
@@ -586,7 +591,8 @@ if want guest; then
        guest-tools/build-wrappers.sh guest-tools/build-driver.sh \
        guest-tools/build-driver9x.sh \
        build/wddm/x86/d3dptkmd.sys build/wddm/x86/d3dptumd.dll build/wddm/x86/d3dptkmd.inf \
-       build/wddm/x64/d3dptkmd.sys build/wddm/x64/d3dptumd.dll build/wddm/x64/d3dptumd32.dll; then
+       build/wddm/x64/d3dptkmd.sys build/wddm/x64/d3dptumd.dll build/wddm/x64/d3dptumd32.dll \
+       build/wddm/x64/d3dpt11.dll build/wddm/x64/d3dpt11_32.dll build/wddm/arm64/d3dptkmd.sys build/wddm/arm64/d3dptumd.dll build/wddm/arm64/d3dpt11.dll; then
     # (the WDDM driver is built only on Windows, build-windows.sh's wddm
     # stage, and fetched here; absent it adds nothing, so both scripts agree)
     GUEST_STALE=1

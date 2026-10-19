@@ -828,6 +828,57 @@ kernel driver's default is **off** (`GdiAcceleration` absent or 0; 1 turns
 it on, a restart applies it), as "Open" asked before the track merges;
 the host's GDI operations and `d3dpt-gdi` stay.
 
+## The packages, and the driver for Windows 11 on Arm
+
+**Every package carries DXVK's d3d11 and dxgi** beside its d3d9
+(2026-10-19): the Windows zip and MSIX as `dxvk_d3d11.dll` and
+`dxvk_dxgi.dll`, the Linux tarball and the Flatpak (which is the tarball's
+tree) as `lib/2ksbox/libdxvk_d3d11.so.0` and `libdxvk_dxgi.so.0`, the Mac
+app as `lib/2ksbox/libdxvk_d3d11.0.dylib` and `libdxvk_dxgi.0.dylib`
+(App Store and community builds; not the Intel one, which has no DXVK).
+The packaged player names them to the executor as it names the d3d9
+(`player-core/src/companions.rs`: `D3DPT_DXVK_D3D11_LIB`,
+`D3DPT_DXVK_DXGI_LIB`, printed by `--companions` as `dxvk-d3d11` and
+`dxvk-dxgi`), and each packager checks that the staged player found the
+staged copies, as it does for the d3d9. Where the environment names only
+the d3d9 (a harness), the executor looks beside it, or in DXVK's build
+tree's `src/d3d11/` and `src/dxgi/` when the d3d9 is in its `src/d3d9/`.
+`build.sh` configures a Linux or Mac `build/dxvk` from before d3d11 was
+enabled afresh. The executor (`d3dpt_exec_d11.cpp` with the rest) compiles
+for Linux with g++ against DXVK's native headers, warning-free and with no
+unresolved symbol (checked in WSL's Ubuntu on the PC), and its Wine build
+with mingw; **the macOS build and every run off Windows are untested**.
+
+**The driver builds for Windows 11 on Arm** into `build/wddm/arm64`
+(`build-wddm.cmd`, the `wddm` stage), and the guest-tools ISO carries it
+as `WDDMARM\` with the same INF (now with an `NTarm64` decoration) and
+installer:
+
+- `d3dptkmd.sys` ARM64, from the EWDK as the others. The only x86-only
+  line in it was the debug console's port write before the register BAR
+  is mapped; on Arm those lines are dropped.
+- `d3dptumd.dll` and `d3dpt11.dll` **ARM64X**: one DLL with an ARM64 half
+  for Arm processes (DWM) and an ARM64EC half for the x64 programs Windows
+  emulates, under the one `UserModeDriverName`. VS 2019, the EWDK's, has
+  no ARM64EC, so they are VS 2022's (17.8 or later, its ARM64EC build
+  tools, `BuildAsX`) on its own Windows SDK, with the EWDK's display
+  headers copied beside them (`build/wddm/arm64/wdkinc`: the SDK has no
+  `d3d10umddi.h`, and the EWDK's include path predates ARM64EC). Without
+  VS 2022 the Arm set is skipped with a note.
+- `d3dptumd32.dll` and `d3dpt11_32.dll`, the x86 builds, for the x86
+  programs Windows on Arm emulates under WoW64 (`UserModeDriverNameWow`,
+  SysWOW64), as on x64.
+- All three Arm builds compile with `/volatile:ms`: MSVC's Arm default
+  orders no volatile access, and the drivers start the device with a
+  register write after their writes to memory.
+
+`windows-drivers.sh` publishes and fetches the Arm set with the rest.
+**Nothing has run it**: the aarch64 QEMU has no `d3dpt-vga` yet (the
+device and its executor loader are built into the i386 and x86_64 targets
+only, `d3dpt/hw/meson.build`), Windows 11 on Arm's machine has its own
+screens (`bundle::arm_args`), and the aarch64 QEMU is built only on an Arm
+host.
+
 ## Open
 
 - **A present into a CPU-visible redirection bitmap is a STAGING copy**
@@ -871,13 +922,17 @@ the host's GDI operations and `d3dpt-gdi` stay.
   no restart. Fixed.
 - ~~**DWM on d3d10level9 at WDDM 1.1**~~, ~~**claiming WDDM 1.2**~~
   (both done 2026-10-17, above).
-- Explorer's missing text, icons and clipped shadows the user sees by
-  hand (old, M20's); none in this session's screendumps.
+- ~~Explorer's missing text, icons and clipped shadows~~ the user saw by
+  hand (M20's): gone on the user's own look at the desktop on the 10_0
+  device (2026-10-19), most likely Direct3D 9 on WDDM 1.0 / 1.1, which
+  DWM composed on before.
 - Multisampling (above).
-- The packages (DXVK's d3d11 and dxgi beside
-  `dxvk_d3d9.dll` in the Windows zip and MSIX, the Linux tarball, the Mac
-  app); Linux and macOS builds of `d3dpt_exec_d11.cpp` (written against
-  DXVK's native headers, built on Windows only so far).
+- ~~The packages~~ (done 2026-10-19, "The packages, and the driver for
+  Windows 11 on Arm"); the Mac build of the executor and a run of the
+  Direct3D 11 side on a Linux or Mac host remain.
+- **Windows 11 on Arm**: the driver builds (same section); the aarch64
+  QEMU's `d3dpt-vga` and its executor loader, the Arm machine's arguments
+  (`bundle::arm_args`) and a run on the Mac remain.
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a

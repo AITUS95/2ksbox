@@ -399,6 +399,7 @@ if want guest; then
                         guest-tools/build-driver.sh guest-tools/build-driver9x.sh \
                         build/wddm/x86/d3dptkmd.sys build/wddm/x86/d3dptumd.dll build/wddm/x86/d3dptkmd.inf \
                         build/wddm/x64/d3dptkmd.sys build/wddm/x64/d3dptumd.dll build/wddm/x64/d3dptumd32.dll \
+                        build/wddm/x64/d3dpt11.dll build/wddm/x64/d3dpt11_32.dll build/wddm/arm64/d3dptkmd.sys build/wddm/arm64/d3dptumd.dll build/wddm/arm64/d3dpt11.dll \
                         -type f 2>/dev/null | LC_ALL=C sort | tr '\n' '\0' | xargs -0 cat 2>/dev/null
                  } | sha256sum | cut -d' ' -f1)
   guest_current=""

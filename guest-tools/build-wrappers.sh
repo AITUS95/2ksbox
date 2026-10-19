@@ -391,6 +391,21 @@ if [ -f "$WDDM64_OUT/d3dptkmd.sys" ] && [ -f "$WDDM64_OUT/d3dptumd.dll" ]; then
     if [ -f "$WDDM64_OUT/$f" ]; then cp "$WDDM64_OUT/$f" "$OUT/iso/WDDM64/"; fi
   done
 fi
+# And for Windows 11 on Arm (track M25), from build/wddm/arm64, as
+# WDDMARM\ with the same installer: the kernel driver ARM64, the
+# user-mode drivers ARM64X (Arm processes and the x64 ones Windows
+# emulates) and the 32-bit ones for the x86 programs it emulates. Built
+# only where VS 2022 builds ARM64EC (guest-tools/build-wddm.cmd).
+WDDMARM_OUT="$ROOT/build/wddm/arm64"
+if [ -f "$WDDMARM_OUT/d3dptkmd.sys" ] && [ -f "$WDDMARM_OUT/d3dptumd.dll" ] && [ -f "$WDDMARM_OUT/d3dpt11.dll" ]; then
+  mkdir -p "$OUT/iso/WDDMARM"
+  cp "$WDDMARM_OUT/d3dptkmd.sys" "$WDDMARM_OUT/d3dptumd.dll" "$WDDMARM_OUT/d3dptumd32.dll" \
+     "$WDDMARM_OUT/d3dpt11.dll" "$WDDMARM_OUT/d3dpt11_32.dll" \
+     "$ROOT/guest-tools/src/d3dptvid/wddm/km/d3dptkmd.inf" \
+     "$ROOT/guest-tools/src/d3dptvid/wddm/wddm-install.ps1" "$OUT/iso/WDDMARM/"
+else
+  echo "note: the Windows 11 on Arm WDDM driver is not on this ISO (build-windows.sh wddm with VS 2022's ARM64EC tools; elsewhere scripts/windows-drivers.sh fetch wddm)" >&2
+fi
 sed -e "s/@REV@/$REV/" "$ROOT/guest-tools/README-ISO.txt" \
   | crlf > "$OUT/iso/README.TXT"
 # 8.3-safe upper-case names for Win9x

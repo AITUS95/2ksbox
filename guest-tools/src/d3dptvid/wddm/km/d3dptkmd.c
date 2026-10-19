@@ -215,7 +215,8 @@ static volatile ULONG *g_regs;
 /* Before StartDevice has mapped the register BAR (DriverEntry, AddDevice,
  * a start that fails finding it) lines go to QEMU's debug console port,
  * 0xE9, which `-debugcon file:<log>` captures (its default port); with no
- * debugcon on the board the writes go nowhere. */
+ * debugcon on the board the writes go nowhere. Arm has no I/O ports, nor
+ * the debug console: those lines are lost there. */
 #define DEBUGCON_PORT ((PUCHAR)0xe9)
 
 static void dbg_puts(const char *s)
@@ -226,7 +227,11 @@ static void dbg_puts(const char *s)
         if (r) {
             r[D3DPT_FB_REG_DEBUG / 4] = (ULONG)(unsigned char)*s++;
         } else {
+#if defined(_M_IX86) || defined(_M_AMD64)
             WRITE_PORT_UCHAR(DEBUGCON_PORT, (UCHAR)*s++);
+#else
+            s++;
+#endif
         }
     }
 }

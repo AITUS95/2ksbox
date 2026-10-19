@@ -249,6 +249,15 @@ if [ "$ARCH" = x86_64 ]; then
 elif [ -f "$D3DPT/libd3dpt_exec.dylib" ] && [ -f "$DXVK/src/d3d9/libdxvk_d3d9.0.dylib" ]; then
   install -m755 "$D3DPT/libd3dpt_exec.dylib" "$C/lib/2ksbox/"
   install -m755 "$DXVK/src/d3d9/libdxvk_d3d9.0.dylib" "$C/lib/2ksbox/"
+  # Direct3D 10 / 11's pair (track M25), under the names
+  # `companions.rs` gives QEMU, as the d3d9
+  for n in d3d11 dxgi; do
+    if [ -f "$DXVK/src/$n/libdxvk_$n.0.dylib" ]; then
+      install -m755 "$DXVK/src/$n/libdxvk_$n.0.dylib" "$C/lib/2ksbox/"
+    else
+      warn "no $DXVK/src/$n/libdxvk_$n.0.dylib (scripts/build.sh dxvk); no Direct3D 10 / 11"
+    fi
+  done
 else
   warn "no Direct3D executor (scripts/build-d3dpt-exec.sh); XP Direct3D will fall back"
   D3D=0
@@ -359,7 +368,7 @@ for f in "$LIBDIR"/*.dylib "$C/libexec/2ksbox/qemu-img" "$C/MacOS/2ksbox" "$C/Ma
 done
 # Our own libraries kept an absolute or build-tree id; @rpath is what the
 # things loading them ask for.
-for leaf in libqemu-embed-i386.dylib libqemu-embed-aarch64.dylib libd3dpt_exec.dylib libd3dpt_exec_remote.dylib libdxvk_d3d9.0.dylib libvulkan.1.dylib libvulkan_kosmickrisp.dylib; do
+for leaf in libqemu-embed-i386.dylib libqemu-embed-aarch64.dylib libd3dpt_exec.dylib libd3dpt_exec_remote.dylib libdxvk_d3d9.0.dylib libdxvk_d3d11.0.dylib libdxvk_dxgi.0.dylib libvulkan.1.dylib libvulkan_kosmickrisp.dylib; do
   [ -f "$LIBDIR/$leaf" ] || continue
   install_name_tool -id "@rpath/$leaf" "$LIBDIR/$leaf" 2>/dev/null || true
   install_name_tool -add_rpath "@loader_path" "$LIBDIR/$leaf" 2>/dev/null || true

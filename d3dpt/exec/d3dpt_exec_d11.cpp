@@ -353,27 +353,33 @@ bool d11_open(Exec &x, D11 &d)
         auto create = h ? (CreateDevice)D11_DLSYM(h, "D3D11CreateDevice") : nullptr;
         if (create) hr = create(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, &fl, 1, D3D11_SDK_VERSION, &dev, &got, nullptr);
     } else {
-        /* DXVK's pair: by the environment, else beside DXVK's d3d9 */
+        /* DXVK's pair: by the environment (a package's player names both,
+         * player-core's companions.rs), else beside DXVK's d3d9 when a
+         * harness named only that, else the checkout's build */
         std::string d3d11, dxgi;
         const char *e11 = env("D3DPT_DXVK_D3D11_LIB"), *eg = env("D3DPT_DXVK_DXGI_LIB"), *e9 = env("D3DPT_DXVK_LIB");
-#ifdef _WIN32
         std::string dir;
         if (e9) {
             dir = e9;
             size_t s = dir.find_last_of("\\/");
             dir = s == std::string::npos ? std::string() : dir.substr(0, s + 1);
         }
+#ifdef _WIN32
         d3d11 = e11 ? e11 : dir + "dxvk_d3d11.dll";
         dxgi = eg ? eg : dir + "dxvk_dxgi.dll";
 #else
-        (void)e9;
 #ifdef __APPLE__
-        d3d11 = e11 ? e11 : "build/dxvk/src/d3d11/libdxvk_d3d11.0.dylib";
-        dxgi = eg ? eg : "build/dxvk/src/dxgi/libdxvk_dxgi.0.dylib";
+        const std::string l11 = "libdxvk_d3d11.0.dylib", lg = "libdxvk_dxgi.0.dylib";
 #else
-        d3d11 = e11 ? e11 : "build/dxvk/src/d3d11/libdxvk_d3d11.so.0";
-        dxgi = eg ? eg : "build/dxvk/src/dxgi/libdxvk_dxgi.so.0";
+        const std::string l11 = "libdxvk_d3d11.so.0", lg = "libdxvk_dxgi.so.0";
 #endif
+        /* DXVK's build tree keeps each library in a directory of its own
+         * (<build>/src/d3d9/, <build>/src/d3d11/, <build>/src/dxgi/) */
+        const std::string sub = "/src/d3d9/";
+        bool tree = dir.size() >= sub.size() && dir.compare(dir.size() - sub.size(), sub.size(), sub) == 0;
+        std::string src = tree ? dir.substr(0, dir.size() - 5) : std::string("build/dxvk/src/");
+        d3d11 = e11 ? e11 : e9 && !tree ? dir + l11 : src + "d3d11/" + l11;
+        dxgi = eg ? eg : e9 && !tree ? dir + lg : src + "dxgi/" + lg;
 #endif
         where = d3d11;
         void *hg = D11_DLOPEN(dxgi.c_str());

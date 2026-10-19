@@ -132,7 +132,7 @@ smoke() {
   comp=$(flatpak run --user --command=2ksbox-player "$APPID//$BRANCH" --companions) || return 1
   echo "$comp"
   while read -r what path; do
-    case "$what" in d3dpt-exec|dxvk|d3dpt-remote) ;; *) continue ;; esac
+    case "$what" in d3dpt-exec|dxvk|dxvk-d3d11|dxvk-dxgi|d3dpt-remote) ;; *) continue ;; esac
     case "$path" in
       /app/*) ;;
       "(not"*) echo "package-flatpak.sh: the app ships no $what (its build step failed, or staged nothing)" >&2; fail=1 ;;
