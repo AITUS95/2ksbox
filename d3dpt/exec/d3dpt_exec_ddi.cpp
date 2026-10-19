@@ -667,7 +667,22 @@ static bool ensure_object(Exec &x, VramSurf &s) {
         return SUCCEEDED(hr);
     }
     s.ms = target_samples(x, s);
-    if (s.d.caps & D3DPT_VS_ZBUFFER) {
+    if ((s.d.caps & D3DPT_VS_ZBUFFER) && (s.d.caps & D3DPT_VS_TEXTURE)) {
+        /* a depth texture (a shadow map): D16 / D24X8 / D24S8 sampled with
+         * the depth compare, as the GeForce 3 on did and DXVK does; level 0
+         * is the depth buffer. A host without one gets the plain surface
+         * (drawn, never sampled) */
+        hr = x.dev->CreateTexture(s.d.width, s.d.height, s.d.levels, D3DUSAGE_DEPTHSTENCIL, (D3DFORMAT)s.d.format, D3DPOOL_DEFAULT,
+                                  &s.tex, nullptr);
+        if (SUCCEEDED(hr)) hr = s.tex->GetSurfaceLevel(0, &s.rt);
+        if (FAILED(hr)) {
+            x.log("ddi: depth texture %ux%u fmt %u levels %u: 0x%08x: a plain depth surface instead", s.d.width, s.d.height,
+                  s.d.format, s.d.levels, (unsigned)hr);
+            if (s.tex) { s.tex->Release(); s.tex = nullptr; }
+            hr = x.dev->CreateDepthStencilSurface(s.d.width, s.d.height, (D3DFORMAT)s.d.format, D3DMULTISAMPLE_NONE, 0, FALSE, &s.rt, nullptr);
+        }
+        s.dirty = false;                /* the host's alone: never uploaded from VRAM */
+    } else if (s.d.caps & D3DPT_VS_ZBUFFER) {
         static const uint32_t fallback[] = { D3DFMT_D24S8, D3DFMT_D24X8, D3DFMT_D16 };
         hr = x.dev->CreateDepthStencilSurface(s.d.width, s.d.height, (D3DFORMAT)s.d.format, (D3DMULTISAMPLE_TYPE)s.ms, 0, FALSE, &s.rt, nullptr);
         for (uint32_t i = 0; FAILED(hr) && i < 3; i++)
@@ -2113,7 +2128,9 @@ struct Dp2 {
         if (s && ensure_object(x, *s) && (s->tex || s->cube || s->vol)) {
             if (s->dirty || s->faces_dirty) {
                 if (d.pal_lines < 48 && needs_expand(*s)) { d.pal_lines++; x.log("ddi: dp2: expanding texture %u (fmt %u, palette %u%s, key %s 0x%x..0x%x) for stage %u", handle, s->d.format, s->palette, d.palettes.count(s->palette) ? "" : " unknown", s->ckey ? "on" : "off", s->ckey_lo, s->ckey_hi, stage); }
-                if (s->rt) {
+                if (s->d.caps & D3DPT_VS_ZBUFFER) {
+                    s->dirty = false;           /* a depth texture: only ever drawn into on the host */
+                } else if (s->rt) {
                     /* a render target (a render-target cube: face 0 here, the
                      * other faces through their own entries) */
                     if (s->dirty) upload_target(x, d, *s);

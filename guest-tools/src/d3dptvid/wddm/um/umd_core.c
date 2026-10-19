@@ -200,6 +200,14 @@ BOOL umd_format(UINT i, ULONG *fmt, ULONG *ops, ULONG *ms)
     } else if (*fmt == FOURCC_('D', 'X', 'T', '2') || *fmt == FOURCC_('D', 'X', 'T', '4')) {
         *ops |= (ddflags(&g_core) & DDF_NO_CUBE) ? 0 : D3DFORMAT_OP_CUBETEXTURE_;
         *ops |= (ddflags(&g_core) & DDF_NO_VOLUME) ? 0 : D3DFORMAT_OP_VOLUMETEXTURE_;
+    } else if (*fmt == D3DFMT_D16_ || *fmt == D3DFMT_D24X8_ || *fmt == D3DFMT_D24S8_) {
+        /* depth textures, the shadow maps of every NVIDIA card since the
+         * GeForce 3: CheckDeviceFormat(DEPTHSTENCIL, TEXTURE) succeeds and a
+         * sample compares against the depth (the host's D3DUSAGE_DEPTHSTENCIL
+         * texture, DXVK's depth compare). Without it a game said "hardware
+         * shadows are not supported" (2026-10-19). WDDM only: the XP and
+         * 9x drivers' DirectDraw surfaces are untried with it */
+        *ops |= D3DFORMAT_OP_TEXTURE_;
     }
     return TRUE;
 }

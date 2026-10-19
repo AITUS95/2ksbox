@@ -954,3 +954,15 @@ whose Direct3D 11 side has not run either.
   logged and not done.
 - Direct3D 10 programs (`d3d10.dll` wants the Direct3D 10 / 10.1 DDI
   versions, which `GetSupportedVersions` does not list yet).
+- **Depth textures on the Direct3D 9 driver** (2026-10-19, the user: a
+  Direct3D 9 game on Windows 11 said "hardware shadows are not
+  supported"). The WDDM Direct3D 9 driver claimed D16 / D24X8 / D24S8 as
+  depth buffers only, so `CheckDeviceFormat(D3DUSAGE_DEPTHSTENCIL,
+  D3DRTYPE_TEXTURE)` failed. It now claims them as textures too
+  (`umd_core.c`, WDDM only), and the executor makes a resource that is
+  both texture and depth buffer a `D3DUSAGE_DEPTHSTENCIL` texture, level 0
+  the depth buffer, sampled with DXVK's depth compare (NVIDIA's shadow
+  maps), never uploaded from VRAM; a host that refuses one gets the plain
+  depth surface. No new wire: the host reads the caps it already had.
+  Built, not yet run in a guest; open: ATI's raw-depth FOURCCs (INTZ,
+  DF24, DF16), the XP and 9x drivers, a probe of our own.
