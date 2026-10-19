@@ -6,6 +6,7 @@
 //! texts the package carries (`launcher_core::licenses`).
 
 use launcher_core::about::{self, Credit};
+use crate::machines::Library;
 use launcher_core::library;
 use launcher_core::licenses::{self, Entry};
 use std::path::PathBuf;
@@ -54,16 +55,22 @@ impl About {
 }
 
 /// The app's menus: `commands` (the main window's, `machines::command_menus`)
-/// and Help, with the user manual, the machines folder and About. About
+/// and Help, with the user manual, the machines folder (opened, or
+/// chosen) and About. About
 /// belongs in macOS's application menu and at the end of GTK's primary menu
 /// and Kirigami's drawer, and the role puts it there; on Windows the menu
 /// bar is in the title bar (`main`).
-pub fn app_menu(about: About, commands: MenuBar) {
+pub fn app_menu(about: About, machines: Library, commands: MenuBar) {
+    // Where the machines live (`library::chosen_dir`), picked again.
+    let choose = move || {
+        spawn_local(machines.choose_dir());
+    };
     set_menu(
         commands.menu(
             Menu::new("Help")
                 .item(MenuItem::new(about::MANUAL).on_select(open_manual))
                 .item(MenuItem::new(library::OPEN_FOLDER).on_select(open_machines_folder))
+                .item(MenuItem::new(library::CHOOSE_FOLDER).on_select(choose))
                 .item(MenuItem::new("About 2ksbox").role(MenuRole::About).on_select(move || about.show())),
         ),
     );

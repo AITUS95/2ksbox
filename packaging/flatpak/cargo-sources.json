@@ -6053,131 +6053,131 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami/mitsuami-1.3.1.crate",
-        "sha256": "be69875c277225597fa9e2f4dbd9406afad800387ea78a4a9b717a638beba4ff",
-        "dest": "cargo/vendor/mitsuami-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami/mitsuami-1.3.5.crate",
+        "sha256": "8a544e75113d149f027879b0f252bac2bb79e058aa333fac394951d090862535",
+        "dest": "cargo/vendor/mitsuami-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"be69875c277225597fa9e2f4dbd9406afad800387ea78a4a9b717a638beba4ff\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-1.3.1",
+        "contents": "{\"package\": \"8a544e75113d149f027879b0f252bac2bb79e058aa333fac394951d090862535\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-appkit/mitsuami-appkit-1.3.1.crate",
-        "sha256": "bd0926c9a744b82be86e4bb365b042f7fe40813fadf2744ad5a42a3be8cb00d0",
-        "dest": "cargo/vendor/mitsuami-appkit-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-appkit/mitsuami-appkit-1.3.5.crate",
+        "sha256": "6642b481ff8d76bcb6896a2db7b10c03c7db81a6abf61c3c349cd104db4a4b24",
+        "dest": "cargo/vendor/mitsuami-appkit-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"bd0926c9a744b82be86e4bb365b042f7fe40813fadf2744ad5a42a3be8cb00d0\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-appkit-1.3.1",
+        "contents": "{\"package\": \"6642b481ff8d76bcb6896a2db7b10c03c7db81a6abf61c3c349cd104db4a4b24\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-appkit-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-core/mitsuami-core-1.3.1.crate",
-        "sha256": "0f1ce090d9d88426bf9436250d2e96b6a9cdeaa310e6754f808f5d2288f2bb6b",
-        "dest": "cargo/vendor/mitsuami-core-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-core/mitsuami-core-1.3.5.crate",
+        "sha256": "382796c34623525fec64b9cc7bda13bda04bf1a212f0e9f82ba8dcbbcbbdd5b3",
+        "dest": "cargo/vendor/mitsuami-core-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"0f1ce090d9d88426bf9436250d2e96b6a9cdeaa310e6754f808f5d2288f2bb6b\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-core-1.3.1",
+        "contents": "{\"package\": \"382796c34623525fec64b9cc7bda13bda04bf1a212f0e9f82ba8dcbbcbbdd5b3\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-core-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-gtk/mitsuami-gtk-1.3.1.crate",
-        "sha256": "794f62cc4d2f2950312eca9fdc7fe6c2ab2dbe5022b1ad73533ba3a91cc45ac1",
-        "dest": "cargo/vendor/mitsuami-gtk-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-gtk/mitsuami-gtk-1.3.5.crate",
+        "sha256": "eb9c73aea1a20417845fa1b5f80edc428c9c72869e019f394771576ca11557d7",
+        "dest": "cargo/vendor/mitsuami-gtk-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"794f62cc4d2f2950312eca9fdc7fe6c2ab2dbe5022b1ad73533ba3a91cc45ac1\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-gtk-1.3.1",
+        "contents": "{\"package\": \"eb9c73aea1a20417845fa1b5f80edc428c9c72869e019f394771576ca11557d7\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-gtk-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-kirigami/mitsuami-kirigami-1.3.1.crate",
-        "sha256": "ab35b8559c44f0fbff84f2e076062b0e7a7095a33333a57ae578907a9cd8a232",
-        "dest": "cargo/vendor/mitsuami-kirigami-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-kirigami/mitsuami-kirigami-1.3.5.crate",
+        "sha256": "5fd3155ff100fb1d66567c4193626ffbc721de531de42e4087ed565b391eec22",
+        "dest": "cargo/vendor/mitsuami-kirigami-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"ab35b8559c44f0fbff84f2e076062b0e7a7095a33333a57ae578907a9cd8a232\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-kirigami-1.3.1",
+        "contents": "{\"package\": \"5fd3155ff100fb1d66567c4193626ffbc721de531de42e4087ed565b391eec22\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-kirigami-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-linux/mitsuami-linux-1.3.1.crate",
-        "sha256": "987aa8ec9d15830217baf8e8b03cd839163cd19a94816dc4921645c4259b2854",
-        "dest": "cargo/vendor/mitsuami-linux-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-linux/mitsuami-linux-1.3.5.crate",
+        "sha256": "ffb6343020e2f6b94b57aad18e19a419d011a806622c0ab39157cfbfa2b9120f",
+        "dest": "cargo/vendor/mitsuami-linux-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"987aa8ec9d15830217baf8e8b03cd839163cd19a94816dc4921645c4259b2854\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-linux-1.3.1",
+        "contents": "{\"package\": \"ffb6343020e2f6b94b57aad18e19a419d011a806622c0ab39157cfbfa2b9120f\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-linux-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-macros/mitsuami-macros-1.3.1.crate",
-        "sha256": "83478f386c3b51ccc42f75442f3bd36404beb7e702ccde18697f6135d401f039",
-        "dest": "cargo/vendor/mitsuami-macros-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-macros/mitsuami-macros-1.3.5.crate",
+        "sha256": "c30d48aeca2af5620323e5d34d2a75a7e3fc4dd8007ddc00b4cdb2fbfe676804",
+        "dest": "cargo/vendor/mitsuami-macros-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"83478f386c3b51ccc42f75442f3bd36404beb7e702ccde18697f6135d401f039\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-macros-1.3.1",
+        "contents": "{\"package\": \"c30d48aeca2af5620323e5d34d2a75a7e3fc4dd8007ddc00b4cdb2fbfe676804\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-macros-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-reactive/mitsuami-reactive-1.3.1.crate",
-        "sha256": "d0eedd4410a2c6998f42e31d079a842f535c3f28892c8da1861f87b0868ad11a",
-        "dest": "cargo/vendor/mitsuami-reactive-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-reactive/mitsuami-reactive-1.3.5.crate",
+        "sha256": "8ff5ec51f2d559684920664fa57926bebfc590a235aabc216c520c0893552341",
+        "dest": "cargo/vendor/mitsuami-reactive-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"d0eedd4410a2c6998f42e31d079a842f535c3f28892c8da1861f87b0868ad11a\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-reactive-1.3.1",
+        "contents": "{\"package\": \"8ff5ec51f2d559684920664fa57926bebfc590a235aabc216c520c0893552341\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-reactive-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-widgets/mitsuami-widgets-1.3.1.crate",
-        "sha256": "2b56a597614518b48672ef2a861217282daf183fbfb5b38e006dc4a3051da178",
-        "dest": "cargo/vendor/mitsuami-widgets-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-widgets/mitsuami-widgets-1.3.5.crate",
+        "sha256": "58be66f265a332b9aa55fd7f01149a42c7c0a6c47fa5f597df93ccc152cbe709",
+        "dest": "cargo/vendor/mitsuami-widgets-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"2b56a597614518b48672ef2a861217282daf183fbfb5b38e006dc4a3051da178\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-widgets-1.3.1",
+        "contents": "{\"package\": \"58be66f265a332b9aa55fd7f01149a42c7c0a6c47fa5f597df93ccc152cbe709\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-widgets-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/mitsuami-winui/mitsuami-winui-1.3.1.crate",
-        "sha256": "53cd9276b6479e2ff0f891ae6ba90181db1372639876157ab168abf5e6d3d27a",
-        "dest": "cargo/vendor/mitsuami-winui-1.3.1"
+        "url": "https://static.crates.io/crates/mitsuami-winui/mitsuami-winui-1.3.5.crate",
+        "sha256": "56185b6d2a81f60862fd928d9580d0995deffe5e9428a3183278ac829d76588a",
+        "dest": "cargo/vendor/mitsuami-winui-1.3.5"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"53cd9276b6479e2ff0f891ae6ba90181db1372639876157ab168abf5e6d3d27a\", \"files\": {}}",
-        "dest": "cargo/vendor/mitsuami-winui-1.3.1",
+        "contents": "{\"package\": \"56185b6d2a81f60862fd928d9580d0995deffe5e9428a3183278ac829d76588a\", \"files\": {}}",
+        "dest": "cargo/vendor/mitsuami-winui-1.3.5",
         "dest-filename": ".cargo-checksum.json"
     },
     {

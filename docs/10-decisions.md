@@ -848,7 +848,7 @@ and the app's `2ksbox` starts it only in a Plasma session (user: the GTK
 launcher everywhere else). `docs/development.md` "Flatpak".
 
 **Amendment (2026-10-16, user).** mitsuami comes from crates.io, its
-official release pinned exact (`mitsuami = "=1.3.1"`), not a git
+official release pinned exact (`mitsuami = "=1.3.5"` since 2026-10-18), not a git
 revision; the launcher and the player name the same version. A
 release is a reviewed version bump, and the Flatpak's offline sources
 are plain crate archives with checksums, with no git checkout copied

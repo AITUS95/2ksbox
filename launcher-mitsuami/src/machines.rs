@@ -24,6 +24,7 @@ use crate::discs::{DiscShelfWindow, Discs};
 use crate::snaps::{Snaps, SnapshotsWindow};
 use crate::wizard::{Wizard, WizardWindow};
 use launcher_core::machines::{DetailGroup, Machines};
+use launcher_core::{browse, library};
 use mitsuami::core::{CurrentWindow, Ui};
 use mitsuami::prelude::*;
 use std::cell::RefCell;
@@ -84,6 +85,47 @@ impl Library {
     /// Rescan the library from disk, after a window wrote a bundle.
     pub fn refresh(&self) {
         self.write(|m| {
+            m.refresh();
+            true
+        });
+    }
+
+    /// The folder dialog for the machines folder, at the user's home
+    /// (Help's `library::CHOOSE_FOLDER`, and the start's question), then
+    /// the library on what was picked. Cancel changes nothing.
+    pub async fn choose_dir(self) {
+        let mut request = OpenFile::new().title(library::PROMPT).directories();
+        if let Some(home) = library::choose_start() {
+            request = request.start_folder(home);
+        }
+        if let Some(dir) = open_file(request).await.and_then(|p| p.into_iter().next()) {
+            self.use_dir(&browse::picked(&dir));
+        }
+    }
+
+    /// Keep `dir` as the machines folder and show what is in it.
+    pub fn use_dir(&self, dir: &Path) {
+        if let Err(e) = library::choose_dir(dir) {
+            self.failure.set(Some((library::FAILED.into(), format!("{}: {e}", dir.display()))));
+            return;
+        }
+        self.reload_dir();
+    }
+
+    /// The start question's other answer (`library::keep_platform_dir`):
+    /// the folder used so far, kept; in the sandbox, nothing.
+    pub fn keep_platform_dir(&self) {
+        match library::keep_platform_dir() {
+            Ok(Some(_)) => self.reload_dir(),
+            Ok(None) => {}
+            Err(e) => self.failure.set(Some((library::FAILED.into(), e.to_string()))),
+        }
+    }
+
+    /// The library on `library::default_dir()` again, rescanned.
+    fn reload_dir(&self) {
+        self.write(|m| {
+            m.library_dir = library::default_dir();
             m.refresh();
             true
         });
@@ -169,14 +211,15 @@ pub fn MachinesWindow() -> impl View {
     let offer = use_store::<Offer>();
     let about = use_store::<About>();
     let stores = Stores { library, wizard, cloner, snaps, discs, shaders };
-    crate::about::app_menu(about, command_menus(stores));
+    crate::about::app_menu(about, library, command_menus(stores));
     // The window's task, which ends with it.
     spawn_local(library.poll());
     crate::shot::arm(&["", "select", "create", "clonego", "firstrun"]);
-    // The first-run offer asks on a real start, and on
-    // `firstrun[:<answers>]` with scripted answers; every other headless
-    // screen runs without it.
-    if std::env::var_os("LAUNCHER_SCREEN").is_none() {
+    // The first-run offer (and the machines folder's question) asks on a
+    // real start, and on `firstrun[:<answers>]` with scripted answers;
+    // every other headless screen, and a packager's bare `LAUNCHER_SHOT`,
+    // runs without it.
+    if std::env::var_os("LAUNCHER_SCREEN").is_none() && std::env::var_os("LAUNCHER_SHOT").is_none() {
         offer.start(library, shaders, None);
     }
     if let Some(answers) = crate::shot::screen("firstrun") {
@@ -262,6 +305,24 @@ pub fn MachinesWindow() -> impl View {
     // window.
     let ui = inject::<Ui>().expect("a window's component");
     let window = inject::<CurrentWindow>().map(|CurrentWindow(w)| w);
+    // An empty library has no sidebar, and the window's size is the
+    // details' alone, which the sidebar adds to: so it opens the sidebar's
+    // width wider, and gives that width back to the sidebar when the first
+    // machine comes. The last machine gone, the window keeps its width.
+    #[cfg(sidebar)]
+    if let Some(window) = window {
+        let (ui, was_empty) = (ui.clone(), std::cell::Cell::new(None));
+        effect(move || {
+            let empty = library.read(Machines::is_empty);
+            let Some(size) = ui.window_size(window) else { return };
+            let width = match (was_empty.replace(Some(empty)), empty) {
+                (None, true) => size.width + SIDEBAR_W as f32,
+                (Some(true), false) => size.width - SIDEBAR_W as f32,
+                _ => return,
+            };
+            ui.set_window_size(window, Size::new(width, size.height));
+        });
+    }
     effect(move || {
         let Some((headline, detail)) = library.failure.get() else { return };
         library.failure.set(None);
@@ -338,11 +399,7 @@ pub fn MachinesWindow() -> impl View {
                 {toolbar_buttons}
             </Toolbar>
             <Show when=move || library.read(Machines::is_empty) fallback=|| view! { <MachineLibrary/> }>
-                <Column grow=1.0 gap=Spacing::Md align=Align::Center justify=Justify::Center padding=Spacing::Xl>
-                    <Text text_style=TextStyle::Title>"No machines yet"</Text>
-                    <Text color=Color::SecondaryLabel>{move || library.read(|m| m.library_dir.display().to_string())}</Text>
-                    <Button role=ButtonRole::Default @click=move || wizard.open_fresh()>"New machine"</Button>
-                </Column>
+                <NoMachines/>
             </Show>
             <WizardWindow/>
             <CloneWindow/>
@@ -367,6 +424,20 @@ fn MachineLibrary() -> impl View {
                 <Details/>
             </Show>
         </Row>
+    }
+}
+
+/// An empty library: where its machines go, and the way to make one.
+#[component]
+fn NoMachines() -> impl View {
+    let library = use_store::<Library>();
+    let wizard = use_store::<Wizard>();
+    view! {
+        <Column grow=1.0 gap=Spacing::Md align=Align::Center justify=Justify::Center padding=Spacing::Xl>
+            <Text text_style=TextStyle::Title>"No machines yet"</Text>
+            <Text color=Color::SecondaryLabel>{move || library.read(|m| m.library_dir.display().to_string())}</Text>
+            <Button role=ButtonRole::Default @click=move || wizard.open_fresh()>"New machine"</Button>
+        </Column>
     }
 }
 

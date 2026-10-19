@@ -97,6 +97,30 @@ player line runs a machine with nothing else.
   exists yet) in the platform's file manager: Help's second item on
   macOS, GTK and Windows (`launcher_core::library::OPEN_FOLDER`).
   Kirigami has no menus and no toolbar button for it.
+- **The machines folder is the user's to choose** (2026-10-18, user
+  decision: every platform). A new launcher asks before the shader offer,
+  through the same alerts (`firstrun.rs`, `Offer::ask_folder`): "Choose
+  a folder for your machines" (`library::question`), "Choose Folder…"
+  or the other answer. The folder dialog opens beside the chosen folder,
+  else at the user's real home (`library::choose_start`). The answer is
+  one line in `<data dir>/library.txt` (with a bookmark in the sandbox,
+  `grants::keep`), `library::default_dir()` answers it from then on, and
+  Help's "Choose Machines Folder…" (`library::CHOOSE_FOLDER`; Kirigami
+  has no menus) picks again. Nothing is moved into a chosen folder.
+  The other answer differs: **"Use Default Folder"** keeps the platform
+  data dir's `machines` (`library::keep_platform_dir`), so an upgrade
+  keeps its machines where they were and is asked once; **the App Store
+  build offers "Later"**, which keeps nothing and asks at the next start.
+  Its data dir is inside the sandbox container, and macOS's open panel
+  never shows a folder in there (measured with a sandboxed probe: handed
+  one, the panel opened at its last folder), so "Browse…" on a container
+  machine's disk opened elsewhere. A folder that went away is asked for
+  again; `LAUNCHER_LIBRARY_DIR` skips the question, and a bare
+  `LAUNCHER_SHOT` (a packager's) starts without it. `launcherx
+  --library` prints the folder, whether it would ask and the other
+  answer, `--choose-library <folder>` and `--keep-default-library`
+  answer it; the sandbox is `APP_SANDBOX_CONTAINER_ID`, which a check
+  sets to stand in for it.
 - **The main window's commands have keys** (2026-10-07,
   `machines::Command`): the platform's primary modifier (Cmd on macOS,
   Ctrl elsewhere) with N New Machine, R Start, I Settings, E Discs,

@@ -758,6 +758,66 @@ win11snap_check() { # a Windows 11 machine's offline snapshot holds its firmware
   return $rc
 }
 
+libfolder_check() { # the machines folder, asked for once at start and chosen from Help (doc 07)
+  local dir="$OUT/libfolder" o bundle
+  rm -rf "$dir"; mkdir -p "$dir/data" "$dir/sdata" "$dir/mine" "$dir/elsewhere"
+  # A plain launcher asks until it has an answer; "Use Default Folder"
+  # keeps the one it used before
+  local bare=(env -u APP_SANDBOX_CONTAINER_ID -u LAUNCHER_LIBRARY_DIR LAUNCHER_DATA_DIR="$dir/data")
+  o="$("${bare[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx 'asks   yes' && echo "$o" | grep -qx 'other  Use Default Folder' \
+    || { echo "a new launcher does not ask, or offers no default:"; echo "$o"; return 1; }
+  o="$("${bare[@]}" $LAUNCHERX --keep-default-library)"
+  [ "$o" = "$dir/data/machines" ] || { echo "the default answer kept $o"; return 1; }
+  o="$("${bare[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx "dir    $dir/data/machines" && echo "$o" | grep -qx 'asks   no' \
+    || { echo "the default answer did not stick:"; echo "$o"; return 1; }
+  # Help's item picks another all the same
+  "${bare[@]}" $LAUNCHERX --choose-library "$dir/elsewhere" >/dev/null || { echo "--choose-library failed"; return 1; }
+  o="$("${bare[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx "dir    $dir/elsewhere" || { echo "a pick did not stick:"; echo "$o"; return 1; }
+  # The sandbox (the variable macOS sets for it, which only macOS reads)
+  # has no default to keep: "Later" keeps nothing, and it asks until a
+  # folder is picked. Elsewhere the rest runs as a plain launcher.
+  local sbx=(env -u LAUNCHER_LIBRARY_DIR APP_SANDBOX_CONTAINER_ID=test LAUNCHER_DATA_DIR="$dir/sdata"
+    LAUNCHER_BROWSE_MEMORY="$dir/last-browse.txt" LAUNCHER_QEMU_IMG_BIN=$QIMG)
+  if [ "$OS" = Darwin ]; then
+    o="$("${sbx[@]}" $LAUNCHERX --library)"
+    echo "$o" | grep -qx 'asks   yes' && echo "$o" | grep -qx 'other  Later' || { echo "the sandbox's question is wrong:"; echo "$o"; return 1; }
+    [ "$("${sbx[@]}" $LAUNCHERX --keep-default-library)" = "(nothing kept)" ] || { echo "Later kept a folder in the sandbox"; return 1; }
+    o="$("${sbx[@]}" $LAUNCHERX --library)"
+    echo "$o" | grep -qx 'asks   yes' || { echo "the sandbox stopped asking after Later"; return 1; }
+  fi
+  "${sbx[@]}" $LAUNCHERX --choose-library "$dir/mine" >/dev/null || { echo "--choose-library failed in the sandbox"; return 1; }
+  o="$("${sbx[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx "dir    $dir/mine" && echo "$o" | grep -qx 'asks   no' || { echo "the sandbox's pick did not stick:"; echo "$o"; return 1; }
+  [ "$OS" = Darwin ] && { ls "$dir/sdata/grants/"*.bookmark >/dev/null 2>&1 || { echo "no bookmark kept for the folder"; return 1; }; }
+  bundle="$("${sbx[@]}" $LAUNCHERX --wizard-new win98 "In Mine" 1 2>/dev/null | tail -1)"
+  case "$bundle" in "$dir/mine/"*) ;; *) echo "a new machine went to $bundle"; return 1 ;; esac
+  # Browse for its disk starts in its folder, which the open panel shows
+  o="$("${sbx[@]}" $LAUNCHERX --browse-start "$(dirname "$bundle")/disk.qcow2" file)"
+  [ "$o" = "$(dirname "$bundle")" ] || { echo "Browse starts at $o"; return 1; }
+  # A folder that went away is asked for again
+  rm -rf "$dir/mine"
+  o="$("${sbx[@]}" $LAUNCHERX --library)"
+  echo "$o" | grep -qx 'asks   yes' || { echo "a vanished folder is not asked for again"; return 1; }
+  echo "asked until answered, the default kept, a pick kept (with its bookmark in the sandbox), new machines in it"
+}
+
+compressed_check() { # a file macOS keeps compressed reads as data (patch 95; the App Store's firmware)
+  local dir="$OUT/compressed" map
+  rm -rf "$dir"; mkdir -p "$dir"
+  yes 2ksbox | head -c 4194304 > "$dir/plain.img"
+  ditto --hfsCompression "$dir/plain.img" "$dir/packed.img" || { echo "ditto failed"; return 1; }
+  ls -lO "$dir/packed.img" | grep -q compressed || { echo "ditto left the copy uncompressed"; return 1; }
+  # pflash's blk_pread_nonzeroes() reads only what block status calls data
+  map="$($QIMG map --output=json -f raw "$dir/packed.img")" || { echo "qemu-img map failed"; return 1; }
+  case "$map" in
+    *'"zero": true'*|*'"data": false'*) echo "a compressed file reads as a hole: $map"; return 1 ;;
+  esac
+  echo "a compressed file is all data to block status"
+}
+
 snaptree_check() { # the snapshot window's tree (doc 07): the launcher's own record over a qcow2, which keeps none
   local rc=0 dir="$OUT/snaptree" img=$QIMG bundle disk copy o want
   rm -rf "$dir"; mkdir -p "$dir/library"
@@ -942,6 +1002,26 @@ mitsuami_check() ( # the launcher's window, driven through its probes (doc 07, t
     || { echo "the offer did not ask with the model's headline"; rc=1; }
   printf '%s' "$o" | grep -q "firstrun settled: open=false" || { echo "No did not settle the offer"; rc=1; }
   [ -f "$dir/profiles/first-run.txt" ] || { echo "declining wrote no marker"; rc=1; }
+  # A new launcher asks for a machines folder before the shader offer;
+  # in the App Store build (the sandbox, as macOS's variable says) a pick.
+  if [ "$OS" = Darwin ]; then
+    mkdir -p "$dir/sbx" "$dir/mine/kept"
+    cp "$dir/library/probe-box/machine.toml" "$dir/mine/kept/"
+    o="$( (unset LAUNCHER_LIBRARY_DIR; export APP_SANDBOX_CONTAINER_ID=test LAUNCHER_DATA_DIR="$dir/sbx"
+           probe "firstrun:choose,$dir/mine" folder) )"
+    printf '%s\n' "$o" | grep '^\[launcher\] firstrun' | sed 's/^/  /'
+    printf '%s' "$o" | grep -q "firstrun Asking: Choose a folder for your machines" \
+      || { echo "the sandboxed start did not ask for a machines folder"; rc=1; }
+    [ "$(cat "$dir/sbx/library.txt" 2>/dev/null)" = "$dir/mine" ] || { echo "the pick was not kept"; rc=1; }
+  fi
+  # Everywhere else the same question, answered with the default folder
+  o="$( (unset LAUNCHER_LIBRARY_DIR APP_SANDBOX_CONTAINER_ID; export LAUNCHER_DATA_DIR="$dir/plain"
+         probe "firstrun:use" plainfolder) )"
+  printf '%s\n' "$o" | grep '^\[launcher\] firstrun' | sed 's/^/  /'
+  printf '%s' "$o" | grep -q "firstrun Asking: Choose a folder for your machines" \
+    || { echo "a plain start did not ask for a machines folder"; rc=1; }
+  # (Windows joins the default with a backslash: the same folder)
+  [ "$(tr '\\' / < "$dir/plain/library.txt" 2>/dev/null)" = "$dir/plain/machines" ] || { echo "Use Default Folder kept no folder"; rc=1; }
   # About, with the credits.
   o="$(probe about about)"
   [ -s "$dir/about.png" ] || { echo "About drew nothing: $o"; rc=1; }
@@ -2435,6 +2515,12 @@ host_stage() {
     skip snapshot-tree "needs $LAUNCHERX and $QIMG"
     skip win11-snapshots "needs $LAUNCHERX and $QIMG"
   fi
+  if [ -x $LAUNCHERX ] && [ -x $QIMG ]; then
+    run_check library-folder library-folder.log libfolder_check || true
+  else skip library-folder "needs $LAUNCHERX and $QIMG"; fi
+  if [ "$OS" = Darwin ] && [ -x $QIMG ]; then
+    run_check compressed-file compressed-file.log compressed_check || true
+  elif [ "$OS" = Darwin ]; then skip compressed-file "needs $QIMG"; fi
   # The first-run shader offer and the starter profiles behind it. Needs
   # the preset collection to check what a "yes" writes, so it is skipped
   # on a checkout without the submodule rather than downloading 50 MB

@@ -1,0 +1,34 @@
+On macOS, file-posix's block status read a file kept compressed by the
+file system (decmpfs) as one trailing hole: lseek(SEEK_DATA) answers
+ENXIO at every offset of such a file, because its data fork is empty.
+The App Store's installer leaves an app's files that way, so pflash's
+blk_pread_nonzeroes() skipped the whole firmware image and the
+Windows 11 on Arm machine's flash was all zeros (its CPU spun at the
+exception vector, "Guest has not initialized the display (yet)").
+A compressed file now reports no information, which reads it as data.
+Drop when upstream handles UF_COMPRESSED in find_allocation().
+
+diff --git a/block/file-posix.c b/block/file-posix.c
+index 3c985da..9a37832 100644
+--- a/block/file-posix.c
++++ b/block/file-posix.c
+@@ -3185,6 +3185,19 @@ static int find_allocation(BlockDriverState *bs, off_t start,
+      */
+     offs = lseek(s->fd, start, SEEK_DATA);
+     if (offs < 0) {
++#if defined(__APPLE__) && defined(UF_COMPRESSED)
++        /*
++         * macOS answers ENXIO for every offset of a file kept compressed
++         * (decmpfs, as the App Store's installer leaves a bundle's
++         * files): its data fork is empty. That is not a trailing hole;
++         * we learned nothing (D4).
++         */
++        struct stat st;
++        if (errno == ENXIO && fstat(s->fd, &st) == 0 &&
++            (st.st_flags & UF_COMPRESSED)) {
++            return -ENOTSUP;
++        }
++#endif
+         return -errno;          /* D3 or D4 */
+     }
+ 

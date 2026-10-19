@@ -455,7 +455,7 @@ vblank syncing with host"; M24's design, `screen::HostVBlank`, QEMU patch
   refused (occluded): DWM's composition stands in for it`, `... is back`,
   `... failed (0x...)`. The refusal comes and goes with the host's display
   (the next boot waited on the real blank again).
-- **The modes said 60 Hz whatever the blank's rate.** QEMU patch 95 keeps
+- **The modes said 60 Hz whatever the blank's rate.** QEMU patch 96 keeps
   the rate the player gives the guest's blank (`qemu_embed_set_refresh_rate`,
   72 Hz on a 144 Hz screen), `d3dpt-vga` reads it out of `HOST_MHZ`
   (register set v11), and the WDDM driver advertises every mode at it, a

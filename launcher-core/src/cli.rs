@@ -762,6 +762,29 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
                 None => println!("(OS default)"),
             }
         }
+        "--library" => {
+            // The machines folder and whether the start would ask for one
+            // (`library::needs_dir`), with the question's other answer
+            // (the App Sandbox's differs; a check stands in for it with
+            // `APP_SANDBOX_CONTAINER_ID`).
+            println!("dir    {}", library::default_dir().display());
+            println!("chosen {}", library::chosen_dir().map_or("(none)".into(), |d| d.display().to_string()));
+            println!("asks   {}", if library::needs_dir() { "yes" } else { "no" });
+            println!("other  {}", library::question().other);
+        }
+        "--keep-default-library" => {
+            // The question's other answer.
+            match library::keep_platform_dir().expect("keep the default machines folder") {
+                Some(dir) => println!("{}", dir.display()),
+                None => println!("(nothing kept)"),
+            }
+        }
+        "--choose-library" => {
+            // The folder dialog's answer at start or from Help's item.
+            let dir: PathBuf = args.next().expect("usage: --choose-library <folder>").into();
+            library::choose_dir(&dir).expect("keep the machines folder");
+            println!("{}", library::default_dir().display());
+        }
         "--picked" => {
             // What a path a dialog handed back is kept as: a document
             // portal path becomes the file's own (`browse::picked`), any

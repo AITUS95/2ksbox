@@ -4,15 +4,21 @@
 //! what came of it. The steps and every sentence are the core's. The
 //! question and the outcome are the platform's own alert.
 //!
+//! Before it, until one is chosen, the question of where the machines
+//! go (`launcher_core::library::needs_dir`): an alert, then a folder
+//! dialog, so the two never stand on each other.
+//!
 //! `LAUNCHER_SCREEN=firstrun[:<answers>]` scripts the alerts instead:
 //! each one prints what it would have shown and takes the next answer
-//! (`yes`, `no`, `retry`, `cancel`, `ok`), since a native alert can't be
-//! pressed headless. With no answer left it leaves the question up.
+//! (`yes`, `no`, `retry`, `cancel`, `ok`; for the machines folder
+//! `choose` followed by the folder, or `use` / `later`), since a native alert
+//! can't be pressed headless. With no answer left it leaves the question
+//! up.
 
 use crate::machines::Library;
 use crate::shaders::Shaders;
 use launcher_core::firstrun::{FirstRun, Message, Step};
-use launcher_core::shader_library;
+use launcher_core::{library as machines_folder, shader_library};
 use mitsuami::core::{CurrentWindow, NodeId, Ui};
 use mitsuami::prelude::*;
 use std::cell::RefCell;
@@ -57,7 +63,9 @@ impl Answers {
                 let detail = message.detail.replace('\n', " ");
                 eprintln!("[launcher] firstrun {:?}: {} | {detail} [{}]", message.step, message.headline, buttons.join("/"));
                 let answer = script.borrow_mut().pop_front()?;
-                let index = buttons.iter().position(|b| b.eq_ignore_ascii_case(&answer));
+                // A button by its name or its first word ("choose").
+                let first = |b: &str| b.split(' ').next().unwrap_or(b).eq_ignore_ascii_case(&answer);
+                let index = buttons.iter().position(|b| b.eq_ignore_ascii_case(&answer) || first(b));
                 eprintln!("[launcher] firstrun answered {answer}");
                 Some(index.unwrap_or(buttons.len() - 1))
             }
@@ -87,7 +95,7 @@ impl Offer {
                 _ => return,
             },
         };
-        if !self.model.with_untracked(FirstRun::open) {
+        if !self.model.with_untracked(FirstRun::open) && !machines_folder::needs_dir() {
             return;
         }
         let offer = *self;
@@ -105,6 +113,9 @@ impl Offer {
     }
 
     async fn run(self, answers: Answers, library: Library, shaders: Shaders) {
+        if machines_folder::needs_dir() {
+            Self::ask_folder(&answers, library).await;
+        }
         loop {
             let message = self.state();
             match message.step {
@@ -142,6 +153,28 @@ impl Offer {
         }
         if let Answers::Script(_) = answers {
             eprintln!("[launcher] firstrun settled: open={}", self.model.with_untracked(FirstRun::open));
+        }
+    }
+
+    /// Where the machines go: "Choose Folder…" opens the folder dialog;
+    /// the other answer keeps the default folder, or in the sandbox
+    /// ("Later") the app's own storage for this run.
+    async fn ask_folder(answers: &Answers, library: Library) {
+        let q = machines_folder::question();
+        let message = Message { step: Step::Asking, headline: q.headline.into(), detail: q.detail };
+        match answers.ask(&message, &[q.choose, q.other], AlertStyle::Info).await {
+            Some(0) => {}
+            Some(_) => return library.keep_platform_dir(),
+            None => return,
+        }
+        match answers {
+            Answers::Alert(..) => library.choose_dir().await,
+            // The folder a dialog would have handed back: the next word.
+            Answers::Script(script) => {
+                let Some(dir) = script.borrow_mut().pop_front() else { return };
+                eprintln!("[launcher] firstrun machines folder {dir}");
+                library.use_dir(std::path::Path::new(&dir));
+            }
         }
     }
 }
