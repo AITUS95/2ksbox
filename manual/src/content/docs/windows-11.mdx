@@ -106,6 +106,33 @@ To install it, read the folder's `README.txt`, then run its
 run only turns test mode on. Restart Windows, run it again, and restart
 again. The README also says how to undo it.
 
+### The experimental 2ksbox display adapter
+
+**Display adapter** on the **Display** page can also be **2ksbox adapter
+(experimental)**: 2ksbox's own display card, whose driver gives Windows
+Direct3D 9, 10 and 11 on your computer's graphics card, and screen sizes
+up to 3840x2160. 2ksbox asks before it takes it. It's an early build,
+for x64 Windows 11 and for Windows 11 on Arm.
+
+Like the smoother display driver, Microsoft hasn't signed it, so it only
+loads with Windows in test mode, with the same costs:
+
+<Aside type="caution">
+- A **Test Mode** watermark stays on the desktop, and Windows then loads
+  any test-signed driver. Some games' anti-cheat won't start.
+- Test mode needs **Secure Boot** off, which it is on a machine 2ksbox
+  made.
+- It's experimental. Parts of the screen can draw wrong, and the driver
+  can stop and restart. **Take a [snapshot](../snapshots/) first.**
+</Aside>
+
+To install it, open the guest tools disc in File Explorer: the
+`WDDM64` folder on x64 Windows, `WDDMARM` on Windows on Arm. Run
+`wddm-install.ps1` in it from an administrator PowerShell
+(`powershell -ExecutionPolicy Bypass -File wddm-install.ps1`), then
+restart Windows. Until the driver is in, Windows draws on the basic
+screen. To go back, pick the standard adapter again.
+
 <Aside>
 A Windows 11 machine has no shader by default, no floppy, no Voodoo 2
 and no MIDI port. It's for modern Windows. Old games belong on a Windows

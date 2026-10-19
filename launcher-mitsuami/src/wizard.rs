@@ -17,6 +17,7 @@ use launcher_core::wizard::{
     VOODOO2_LABEL, VOODOO2_UNDITHER_LABEL,
 };
 use launcher_core::library;
+use mitsuami::core::{CurrentWindow, Ui};
 use mitsuami::prelude::*;
 use std::path::PathBuf;
 
@@ -499,15 +500,38 @@ fn SystemPage() -> impl View {
 #[component]
 fn DisplayPage() -> impl View {
     let wiz = use_store::<Wizard>();
+    let ui = inject::<Ui>().expect("a window's component");
+    let window = inject::<CurrentWindow>().map(|CurrentWindow(w)| w);
+    // The experimental adapter is taken only after the core's question,
+    // in the platform's alert: Cancel first, the default, so Return does
+    // not take it. Cancelled, the picker goes back to the pick it had.
+    let choose_video = move |i: usize| {
+        let video = wiz.read(|f| f.video_choices()[i]);
+        match wiz.read(|f| f.video_question(video)) {
+            None => wiz.edit(|f| f.choose_video(video)),
+            Some((headline, detail)) => {
+                let alert = Alert::new(headline.to_owned())
+                    .message(detail.to_owned())
+                    .style(AlertStyle::Warning)
+                    .button("Cancel")
+                    .button(Form::VIDEO_QUESTION_YES);
+                let asker = ui.clone();
+                ui.spawn_local(async move {
+                    let yes = asker.alert(window, alert).await == 1;
+                    wiz.edit(|f| if yes { f.choose_video(video) });
+                });
+            }
+        }
+    };
     view! {
         <Column gap=Spacing::Md>
             <Show when=get(wiz, Form::video_applies)>
                 <Column gap=Spacing::Md>
                     <Picker
                         label="Display adapter"
-                        options=get(wiz, |f| labels(f.video_choices(), |v| v.label()))
+                        options=get(wiz, |f| labels(f.video_choices(), |v| f.video_label(v)))
                         selected=get(wiz, |f| index_of(f.video_choices(), f.video()))
-                        @choose=move |i| wiz.edit(|f| f.choose_video(f.video_choices()[i]))
+                        @choose=choose_video.clone()
                         is_default=get(wiz, Form::video_is_default)
                         @reset=move |()| wiz.edit(Form::reset_video)
                     />

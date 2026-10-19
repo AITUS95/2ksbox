@@ -873,11 +873,25 @@ installer:
   register write after their writes to memory.
 
 `windows-drivers.sh` publishes and fetches the Arm set with the rest.
-**Nothing has run it**: the aarch64 QEMU has no `d3dpt-vga` yet (the
-device and its executor loader are built into the i386 and x86_64 targets
-only, `d3dpt/hw/meson.build`), Windows 11 on Arm's machine has its own
-screens (`bundle::arm_args`), and the aarch64 QEMU is built only on an Arm
-host.
+
+**The launcher offers it, experimental** (2026-10-19, user: "a
+warning-gated experimental driver option that needs test mode", as the
+drivers disc's experimental viogpudo is). The aarch64 QEMU builds
+`d3dpt-vga` and its executor loader too (`d3dpt/hw/meson.build`,
+`arm_system_ss`; the device has nothing x86 in it, and the virt board's
+PCI selects VGA_PCI, so the VGA core). A Windows 11 machine on Arm with
+`video = "d3dpt"` gets `ramfb` (the firmware's screen) then
+`d3dpt-vga,irq=on,vgamem_mb=512` in place of virtio-gpu (`arm_args`,
+checked with `launcherx --print-args` on a scratch bundle). In the form
+our adapter on Windows 11, either architecture, is "2ksbox adapter
+(experimental)"; picking it asks first in a warning alert
+(`Form::video_question`: early build, test mode, Secure Boot off, the
+watermark, anti-cheat; Cancel the default), and while it is the pick a
+warning under the picker says test mode (`video_warning`); the note names
+`WDDMARM\` or `WDDM64\`. **Not run**: the aarch64 QEMU is built only on an
+Arm host, so neither its compile with the device nor a guest on it has
+been tried; the Mac is next. The executor there is DXVK on KosmicKrisp,
+whose Direct3D 11 side has not run either.
 
 ## Open
 
@@ -930,9 +944,9 @@ host.
 - ~~The packages~~ (done 2026-10-19, "The packages, and the driver for
   Windows 11 on Arm"); the Mac build of the executor and a run of the
   Direct3D 11 side on a Linux or Mac host remain.
-- **Windows 11 on Arm**: the driver builds (same section); the aarch64
-  QEMU's `d3dpt-vga` and its executor loader, the Arm machine's arguments
-  (`bundle::arm_args`) and a run on the Mac remain.
+- **Windows 11 on Arm**: the driver builds, the aarch64 QEMU has the
+  device and the launcher offers it (same section); the Mac's build and
+  a run there remain.
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a

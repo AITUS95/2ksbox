@@ -175,7 +175,7 @@ The modern family (ADR-024, track M20): 64-bit, on its own QEMU target
 | TPM 2.0 | libtpms in QEMU (patch 75) on `tpm-crb`, state in `tpm_state` | the same on `tpm-tis-device` |
 | RAM / disk | 4096 MB (4096 to 32768) / 64 GB | the same |
 | Disk, CD | AHCI: disk on `ide.0`, the user's CD on `ide.1`, the drivers disc on `ide.2` | `ich9-ahci,id=ide`, the same layout |
-| Video | `std` (Basic Display) plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `std` then `d3dpt-vga,irq=on,vgamem_mb=512` with our WDDM driver (tracks M20, M25: 512 MiB so the driver offers sizes up to 3840x2160, where the default 128 stops at 1920x1200) | `ramfb` plus `virtio-gpu-pci` (viogpudo from the drivers disc) |
+| Video | `std` (Basic Display) plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `std` then `d3dpt-vga,irq=on,vgamem_mb=512` with our WDDM driver (tracks M20, M25: 512 MiB so the driver offers sizes up to 3840x2160, where the default 128 stops at 1920x1200) | `ramfb` plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `ramfb` then `d3dpt-vga,irq=on,vgamem_mb=512` with the WDDM driver's Arm build (M25) |
 | Sound | HD Audio (none) | HD Audio (none) |
 | Net | e1000e when on | `virtio-net-pci` when on (NetKVM from the drivers disc) |
 | Input | PS/2 keyboard; tablet and pad on `qemu-xhci` | `usb-kbd`, `usb-tablet` (or `usb-mouse`) on `qemu-xhci` |
@@ -290,17 +290,22 @@ machine line.
 ## The display adapter
 
 Every era family offers a choice (`bundle::Video`, the bundle's
-`video`). x64 Windows 11 has the standard VGA only, with a fixed
-`virtio-gpu-pci` beside it (2026-10-08), and Windows 11 on Arm a fixed
-`ramfb` plus `virtio-gpu-pci` whatever `video` says. The player shows the
-live one, and with viogpudo the virtio-gpu's screen follows its window:
+`video`). x64 Windows 11 has the standard VGA, with a fixed
+`virtio-gpu-pci` beside it (2026-10-08), and Windows 11 on Arm `ramfb`
+plus `virtio-gpu-pci`; on either, our adapter is the other choice, in
+place of the virtio-gpu (tracks M20, M25). It is experimental and needs
+Windows' test mode, so the form names it "(experimental)", asks before it
+takes it (`wizard::Form::video_question`, a warning alert, Cancel the
+default) and warns under the picker while it is the pick
+(`video_warning`). The player shows the live screen, and with viogpudo
+the virtio-gpu's screen follows its window:
 
 | Family | Offers | Default |
 |---|---|---|
 | XP | `d3dpt` (our adapter + driver) / `cirrus` (in-box driver) | `d3dpt` |
 | Win98 | `d3dpt` / `cirrus` | `d3dpt` |
 | Windows 7 | `d3dpt` (with `irq=on`) / `std` (no Cirrus driver) | `d3dpt` |
-| Windows 11 | `std` | `std` |
+| Windows 11 | `std` / `d3dpt` (experimental: test mode, asked first) | `std` |
 | Other | `std` (Bochs VGA, VBE 2.0) / `cirrus` | `std` |
 | DOS | `std` / `cirrus` (period VESA BIOS) | `std` |
 

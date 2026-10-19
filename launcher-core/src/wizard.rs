@@ -1202,6 +1202,45 @@ impl Form {
         AccelNote { text, warning }
     }
 
+    /// The button that takes the adapter in [`Form::video_question`]'s alert.
+    pub const VIDEO_QUESTION_YES: &'static str = "Use It";
+
+    /// An entry's name in the picker. Our adapter on Windows 11 says it
+    /// is experimental, since the picker is all a user sees before
+    /// choosing it (the cost is the question's and the warning's: a
+    /// longer name does not fit the picker).
+    pub fn video_label(&self, video: Video) -> &'static str {
+        match (video, self.family) {
+            (Video::D3dpt, Family::Win11) => "2ksbox adapter (experimental)",
+            _ => video.label(),
+        }
+    }
+
+    /// Whether our adapter on Windows 11 is the pick: an experimental
+    /// driver, test signed in the guest (tracks M20, M25).
+    fn video_experimental(&self, video: Video) -> bool {
+        video == Video::D3dpt && self.family == Family::Win11
+    }
+
+    /// The question a front end asks before [`Form::choose_video`] takes
+    /// `video`, as (headline, detail), or `None` to take it at once. Only
+    /// the experimental adapter asks, and only when it is not the pick
+    /// already. The buttons are Cancel first (the default, so Return
+    /// does not take it) and [`Form::VIDEO_QUESTION_YES`].
+    pub fn video_question(&self, video: Video) -> Option<(&'static str, &'static str)> {
+        if !self.video_experimental(video) || self.video == video {
+            return None;
+        }
+        Some((
+            "Use the experimental 2ksbox display driver?",
+            "It is an early build. Windows may draw parts of the screen wrong, and the driver can stop \
+             and restart while you use it.\n\nIts installer, wddm-install.ps1 on the guest tools disc, \
+             signs the driver with a certificate of this machine's own and turns on Windows' test mode, \
+             which needs Secure Boot off. In test mode Windows shows \"Test Mode\" on the desktop, and \
+             some games' anti-cheat refuses to start.",
+        ))
+    }
+
     /// An adapter this family does not offer is refused rather than
     /// stored: the list is per family and a front end may be a frame
     /// behind on it.
@@ -1232,9 +1271,13 @@ impl Form {
                 "2ksbox's own display adapter and driver: Aero, the full mode table and Direct3D through the driver.",
                 "Needs the driver from the guest-tools ISO (SETUP). Until it's installed, Windows uses a basic VGA driver.",
             ],
+            (Video::D3dpt, Family::Win11) if self.arch() == bundle::Arch::Aarch64 => &[
+                "2ksbox's own display adapter and driver: Direct3D 9, 10 and 11 through the driver, the full mode table.",
+                "Install the driver from the guest tools disc's WDDMARM folder (wddm-install.ps1), then restart. Until then Windows draws on the basic screen.",
+            ],
             (Video::D3dpt, Family::Win11) => &[
-                "2ksbox's own display adapter and driver, an early test build. x64 only.",
-                "Install the driver from the guest tools disc's WDDM folder (wddm-install.ps1), then restart. Windows runs in test mode.",
+                "2ksbox's own display adapter and driver: Direct3D 9, 10 and 11 through the driver, the full mode table.",
+                "Install the driver from the guest tools disc's WDDM64 folder (wddm-install.ps1), then restart. Until then Windows draws on the standard VGA.",
             ],
             (Video::Std, Family::Win7) => &[
                 "Windows drives it with its own VGA driver. 2D only: no Aero and no Direct3D through a driver.",
@@ -1461,7 +1504,20 @@ impl Form {
     /// machine simply boots. A game's own setup can still be stale: a
     /// title that already ran its SETUP wrote down a video mode, and the
     /// two adapters do not offer the same list. DOS is told that instead.
+    ///
+    /// The experimental adapter warns while it is the pick, on a new
+    /// machine too: the alert that let it in (`video_question`) is gone
+    /// by then, and the cost is not.
     pub fn video_warning(&self) -> Option<&'static str> {
+        if self.video_experimental(self.video) {
+            return Some(if self.is_editing() && !self.video_is_default_for_machine() {
+                "Experimental, and Windows must run in test mode for its driver. This machine already exists: \
+                 Windows finds new hardware on its next start and draws on the basic screen until the driver \
+                 is in."
+            } else {
+                "Experimental, and Windows must run in test mode for its driver (Secure Boot off)."
+            });
+        }
         if !self.is_editing() || self.video_is_default_for_machine() {
             return None;
         }

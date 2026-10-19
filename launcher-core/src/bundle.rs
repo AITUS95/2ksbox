@@ -337,8 +337,10 @@ pub fn video_choices(family: Family) -> &'static [Video] {
         // linear frame buffer. Beside it every x64 machine has a
         // virtio-gpu (`modern_args`), whose screen follows the window once
         // viogpudo is in. Ours is the Windows 7 WDDM driver built for x64
-        // and test signed in the guest (track M20, `video_args`); Arm
-        // keeps its own screens whatever this says (`arm_args`).
+        // and test signed in the guest (track M20, `video_args`), and for
+        // Arm (track M25, `arm_args`: on Arm "standard" is ramfb with
+        // virtio-gpu). Experimental, so the form asks before taking it
+        // (`wizard::Form::video_question`).
         Family::Win11 => &[Video::Std, Video::D3dpt],
     }
 }
@@ -2424,8 +2426,23 @@ impl Machine {
             // our viogpudo (M24).
             "-device".into(),
             "ramfb".into(),
+            // On our adapter instead (track M25, the WDDM driver's Arm
+            // build): ramfb stays for the firmware, which has no driver
+            // for d3dpt-vga, and ours replaces virtio-gpu, as on x64
+            // (`modern_args`: viogpudo beside it would make Windows a
+            // third screen). Its interrupt and 512 MiB as on x64
+            // (`video_args`).
             "-device".into(),
-            "virtio-gpu-pci,sync-ctrl=on,host-vblank=on".into(),
+            if self.effective_video() == Some(Video::D3dpt) {
+                let mut dev = "d3dpt-vga,irq=on,vgamem_mb=512".to_string();
+                if let Some(which) = self.d3d9_arg() {
+                    dev.push_str(",d3d9=");
+                    dev.push_str(which);
+                }
+                dev
+            } else {
+                "virtio-gpu-pci,sync-ctrl=on,host-vblank=on".into()
+            },
             "-device".into(),
             "qemu-xhci".into(),
             "-device".into(),
