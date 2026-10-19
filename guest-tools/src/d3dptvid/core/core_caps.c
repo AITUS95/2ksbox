@@ -489,9 +489,15 @@ void d3d_caps_init(d3dpt_core *p)
          * no video-memory copy (doc 15, BUMPTEST on XP) */
         fmt8_add(D3DFMT_Q8W8V8U8_, D3DFORMAT_OP_TEXTURE_ | D3DFORMAT_OP_BUMPMAP_);
     }
-    fmt8_add(D3DFMT_D16_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_);
-    fmt8_add(D3DFMT_D24X8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_);
-    fmt8_add(D3DFMT_D24S8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_);
+    /* the depth formats as textures too: the shadow maps of every NVIDIA
+     * card since the GeForce 3. CheckDeviceFormat(DEPTHSTENCIL, TEXTURE)
+     * succeeds and a sample compares against the depth (the host's
+     * D3DUSAGE_DEPTHSTENCIL texture, DXVK's depth compare). Without it a
+     * Direct3D 9 game on Windows 11 said "hardware shadows are not
+     * supported" (2026-10-19) */
+    fmt8_add(D3DFMT_D16_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_);
+    fmt8_add(D3DFMT_D24X8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_);
+    fmt8_add(D3DFMT_D24S8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_);
     if (!(ddflags(p) & DDF_NO_MSAA)) {
         /* multisampling (v13): 2 and 4 samples on the render-target and depth
          * formats, full screen only. MultiSampleCaps shares the green-mask
