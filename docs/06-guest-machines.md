@@ -175,7 +175,7 @@ The modern family (ADR-024, track M20): 64-bit, on its own QEMU target
 | TPM 2.0 | libtpms in QEMU (patch 75) on `tpm-crb`, state in `tpm_state` | the same on `tpm-tis-device` |
 | RAM / disk | 4096 MB (4096 to 32768) / 64 GB | the same |
 | Disk, CD | AHCI: disk on `ide.0`, the user's CD on `ide.1`, the drivers disc on `ide.2` | `ich9-ahci,id=ide`, the same layout |
-| Video | `std` (Basic Display) plus `virtio-gpu-pci` (viogpudo from the drivers disc) | `ramfb` plus `virtio-gpu-pci` (viogpudo from the drivers disc) |
+| Video | `std` (Basic Display) plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `std` then `d3dpt-vga,irq=on,vgamem_mb=512` with our WDDM driver (tracks M20, M25: 512 MiB so the driver offers sizes up to 3840x2160, where the default 128 stops at 1920x1200) | `ramfb` plus `virtio-gpu-pci` (viogpudo from the drivers disc) |
 | Sound | HD Audio (none) | HD Audio (none) |
 | Net | e1000e when on | `virtio-net-pci` when on (NetKVM from the drivers disc) |
 | Input | PS/2 keyboard; tablet and pad on `qemu-xhci` | `usb-kbd`, `usb-tablet` (or `usb-mouse`) on `qemu-xhci` |

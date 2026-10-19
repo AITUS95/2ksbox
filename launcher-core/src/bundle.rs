@@ -1840,9 +1840,14 @@ impl Machine {
         // WDDM driver starts; ours comes after it, so the player follows
         // it once the driver draws (`embed_live_console`). With its
         // interrupt, as on Windows 7, and no fixed slot: the q35's xHCI
-        // may hold 2.
+        // may hold 2. With 512 MiB of video memory (the device's most):
+        // the WDDM driver offers a widescreen size only where six of its
+        // frames fit, which the default 128 stops at 1920x1200, and 512
+        // reaches 3840x2160 (track M25). Only here: the 32-bit guests' drivers
+        // map all of it into a small kernel address space, and their
+        // modes fit the default.
         if self.family == Family::Win11 && self.effective_video() == Some(Video::D3dpt) {
-            let mut dev = "d3dpt-vga,irq=on".to_string();
+            let mut dev = "d3dpt-vga,irq=on,vgamem_mb=512".to_string();
             if let Some(which) = self.d3d9_arg() {
                 dev.push_str(",d3d9=");
                 dev.push_str(which);

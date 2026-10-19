@@ -70,7 +70,9 @@ last open bug (Explorer's XAML that never composes) also lives.
 The PC's Windows 11 test machine (`D:\vms\win11-test`, M20's tools,
 outside the repo): `run-m25.sh` (M20's `run-m20.sh` on the overlay pair
 `m25`, its own logs; `vgamem_mb=512` since 2026-10-19, so Windows lists
-every size up to 3840x2160, `VGAMEM=128` the device's default),
+every size up to 3840x2160, `VGAMEM=128` the device's default; the
+launcher's Windows 11 machines on our adapter get 512 too, the 32-bit
+families keep the default),
 `m25-test.sh` (installs the set staged in
 `M25\WDDM64` with a build number of the minute in the INF, restarts, runs
 `tools/d3d11-probe.cpp` as the logged-on user, prints its output and its
