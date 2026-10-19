@@ -172,7 +172,8 @@ i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pe
   -o "$T/d3dgame11.exe" "$ROOT/guest-tools/src/d3dgame11.c" -ld3d11 -ldxgi -luuid -lgdi32 -luser32
 # GDI's operations on a window against the same on a DIB (track M25: the
 # WDDM driver's GDI acceleration, RenderKm): ROPs, StretchBlt, AlphaBlend,
-# TransparentBlt, ClearType text, a scroll; `gditest: N cases, M failed`.
+# TransparentBlt, ClearType text, a scroll, and GDI with Direct3D 11 on one
+# GDI-compatible texture (Notepad's text area); `gditest: N cases, M failed`.
 i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pentium3 \
   -o "$T/gditest.exe" "$ROOT/guest-tools/src/gditest.c" -lmsimg32 -lgdi32 -luser32
 # Feature test (doc 14 P3): shaders, declarations, state blocks, queries, cube maps, surfaces.

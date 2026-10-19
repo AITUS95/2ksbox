@@ -182,11 +182,16 @@ typedef struct D3DPT_ALLOC {
     ULONG cur_seg, cur_addr;          /* where the last Patch saw it (dxgkrnl skips a Patch where nothing moved) */
 } D3DPT_ALLOC;
 
-/* GDI acceleration (track M25, x64): RenderKm's copies and fills and a
- * present into a window's redirection bitmap done by the host. On by
- * default on this experimental track; the service key's GdiAcceleration
- * = 0 turns it off. */
-static ULONG g_gdi_accel = 1;
+/* GDI acceleration (track M25, x64): RenderKm's operations and a present
+ * into a window's redirection bitmap done by the host. Off by default
+ * since 2026-10-19; the service key's GdiAcceleration = 1 turns it on.
+ * With it on, GDI opens a Direct3D 11 GDI_COMPATIBLE texture itself
+ * (IDXGISurface1::GetDC), and draws into it with the CPU, which a shared
+ * allocation in our memory segment cannot allow (Windows refuses one
+ * CPU-visible): Notepad's text area stayed black. With it off the runtime
+ * moves the pixels itself, and the frame rates are the same (track M25,
+ * "GDI-compatible textures"). */
+static ULONG g_gdi_accel = 0;
 /* The service key's GdiCpuVisible = 0: redirection bitmaps (TEXTURE) the
  * CPU cannot see, which a blt-model present copies straight into, where a
  * CPU-visible one gets a STAGING copy the CPU moves (track M25, "Where the
@@ -4344,13 +4349,13 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 
 /* ------------------------------------------------------------- entry */
 
-/* The service key's GdiAcceleration, GdiCpuVisible and Cached
- * (REG_DWORD, 0: off), read once */
+/* The service key's GdiAcceleration (default 0), GdiCpuVisible and Cached
+ * (default 1) (REG_DWORD, 0: off), read once */
 static void read_settings(PUNICODE_STRING reg)
 {
     RTL_QUERY_REGISTRY_TABLE q[4];
     WCHAR path[260];
-    ULONG v = 1, cv = 1, ca = 1, def = 1, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
+    ULONG v = 0, cv = 1, ca = 1, def = 1, def0 = 0, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
 
     if (!n || n >= RTL_NUMBER_OF(path)) {
         return;
@@ -4362,12 +4367,13 @@ static void read_settings(PUNICODE_STRING reg)
     q[0].Name = L"GdiAcceleration";
     q[0].EntryContext = &v;
     q[0].DefaultType = (REG_DWORD << RTL_QUERY_REGISTRY_TYPECHECK_SHIFT) | REG_DWORD;
-    q[0].DefaultData = &def;
-    q[0].DefaultLength = sizeof(def);
+    q[0].DefaultData = &def0;
+    q[0].DefaultLength = sizeof(def0);
     q[1] = q[0];
+    q[1].DefaultData = &def;
     q[1].Name = L"GdiCpuVisible";
     q[1].EntryContext = &cv;
-    q[2] = q[0];
+    q[2] = q[1];
     q[2].Name = L"Cached";
     q[2].EntryContext = &ca;
     if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, path, q, NULL, NULL))) {

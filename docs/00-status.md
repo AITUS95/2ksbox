@@ -390,8 +390,14 @@ tracks, plus the items no track owns.
     upload, one present per composition: the driver claims no GDI
     acceleration; CPU-visible texture bitmaps, `SupportSoftwareDeviceBitmaps`,
     were tried and change nothing for the present. GDI acceleration is
-    in, on by default on the track's branch (the service key's
-    `GdiAcceleration` = 0 turns it off; protocol v27's
+    in and **off by default since 2026-10-19** (the service key's
+    `GdiAcceleration` = 1 turns it on): with it on GDI draws into a
+    Direct3D 11 GDI-compatible texture itself, with the CPU, which a
+    shared allocation in our memory segment cannot allow, and Notepad's
+    text area stayed black; off, the frame rates are the same (~250 and
+    ~470 frames/s unsynced, 58 with vsync) and every window draws
+    (`gditest` 37 of 37; the track's "GDI-compatible textures"). With
+    it on (protocol v27's
     `GDI` record): RenderKm's copies and fills (and since v29 every other
     operation, ROPs, StretchBlt, AlphaBlend, TransparentBlt, ClearType,
     done by the host on the CPU and proved by `d3dpt-gdi` against the

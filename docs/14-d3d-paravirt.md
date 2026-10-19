@@ -434,8 +434,9 @@ d3d11 where the Direct3D 9 side runs on the system's d3d9.
   reports it as register set v10's `CAP_D3D11`, without which the guest
   driver does not open and Windows keeps Direct3D 11 on the Direct3D 9
   driver (d3d10level9, feature level 9_3).
-- Protocol v27 (M25) is the WDDM kernel driver's GDI acceleration (the
-  service key's `GdiAcceleration` = 0 turns it off): the `GDI` record (op 110), a copy
+- Protocol v27 (M25) is the WDDM kernel driver's GDI acceleration (off
+  by default since 2026-10-19; the service key's `GdiAcceleration` = 1
+  turns it on): the `GDI` record (op 110), a copy
   or a fill between two allocations, each the host's Direct3D 11 object
   of it (a window's redirection bitmap, made at its first use) or its
   VRAM. RenderKm's SRCCOPY BitBlts and PATCOPY ColorFills come as these,

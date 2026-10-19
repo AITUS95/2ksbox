@@ -17,6 +17,14 @@
  * surface first) and a compatible bitmap (the display's), each with a
  * pattern and a premultiplied alpha.
  *
+ * Then GDI on a Direct3D 11 texture made GDI_COMPATIBLE, as Notepad's
+ * text area is (IDXGISurface1::GetDC): Direct3D clears it, GDI fills and
+ * writes into it, Direct3D copies a block in, GDI inverts across that
+ * block's edge, and the texture is read back through a staging copy and
+ * compared with the same steps on a DIB. GDI writes such a texture with
+ * the CPU, so its drawing reaches the host's object only if the drivers
+ * bring it over, and Direct3D's reaches GDI only the other way round.
+ *
  * `gditest: N cases, M failed` is the verdict, in C:\2KSBOX\GDITEST.LOG
  * with a line per case: the largest difference and how many pixels went
  * past the case's tolerance (0 for the copies and ROPs; a few levels where
@@ -27,7 +35,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+#define COBJMACROS
 #include <windows.h>
+#include <initguid.h>
+#include <d3d11.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -255,6 +266,214 @@ static const Case table[] = {
 };
 #define NCASES ((int)(sizeof(table) / sizeof(table[0])))
 
+/* compare a 32-bit picture against the reference, red, green and blue */
+static void compare(const char *name, const DWORD *got, int got_pitch, const DWORD *want, int w, int h, int tol)
+{
+    int x, y, worst = 0, off = 0, fx = -1, fy = -1;
+
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            DWORD a = got[y * got_pitch + x], b = want[y * w + x];
+            int k, dmax = 0;
+
+            for (k = 0; k < 24; k += 8) {
+                int dd = abs((int)((a >> k) & 255) - (int)((b >> k) & 255));
+
+                dmax = dd > dmax ? dd : dmax;
+            }
+            worst = dmax > worst ? dmax : worst;
+            if (dmax > tol) {
+                if (fx < 0) {
+                    fx = x, fy = y;
+                }
+                off++;
+            }
+        }
+    }
+    cases++;
+    if (off) {
+        failed++;
+        say("FAIL %-24s max %3d, %4d pixels past %d (first at %d,%d: got %06lx, want %06lx)\n", name, worst, off, tol, fx,
+            fy, got[fy * got_pitch + fx] & 0xffffff, want[fy * w + fx] & 0xffffff);
+    } else {
+        say("ok   %-24s max %3d\n", name, worst);
+    }
+}
+
+#define TW 160              /* the Direct3D texture */
+#define TH 96
+
+typedef HRESULT(WINAPI *pfn_create)(IDXGIAdapter *, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL *, UINT,
+                                    UINT, ID3D11Device **, D3D_FEATURE_LEVEL *, ID3D11DeviceContext **);
+
+/* GDI's steps on the texture's DC (or the reference DIB's) */
+static void interop_gdi1(HDC d)
+{
+    RECT r = { 10, 10, 70, 50 };
+    HBRUSH br = CreateSolidBrush(RGB(200, 40, 60));
+
+    FillRect(d, &r, br);
+    DeleteObject(br);
+    op_text_opaque(d, 76, 0, NULL, (int)RGB(20, 20, 120));
+}
+
+static void interop_gdi2(HDC d)
+{
+    PatBlt(d, 100, 40, 50, 40, DSTINVERT);
+}
+
+/* the texture's pixels, through a staging copy, into out (TW x TH) */
+static int interop_read(ID3D11Device *dev, ID3D11DeviceContext *ctx, ID3D11Texture2D *tex, DWORD *out)
+{
+    D3D11_TEXTURE2D_DESC sd;
+    ID3D11Texture2D *st;
+    D3D11_MAPPED_SUBRESOURCE m;
+    int y;
+
+    ID3D11Texture2D_GetDesc(tex, &sd);
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    sd.MiscFlags = 0;
+    if (FAILED(ID3D11Device_CreateTexture2D(dev, &sd, NULL, &st))) {
+        return 0;
+    }
+    ID3D11DeviceContext_CopyResource(ctx, (ID3D11Resource *)st, (ID3D11Resource *)tex);
+    if (FAILED(ID3D11DeviceContext_Map(ctx, (ID3D11Resource *)st, 0, D3D11_MAP_READ, 0, &m))) {
+        ID3D11Texture2D_Release(st);
+        return 0;
+    }
+    for (y = 0; y < TH; y++) {
+        memcpy(out + y * TW, (const BYTE *)m.pData + y * m.RowPitch, TW * 4);
+    }
+    ID3D11DeviceContext_Unmap(ctx, (ID3D11Resource *)st, 0);
+    ID3D11Texture2D_Release(st);
+    return 1;
+}
+
+/* GDI and Direct3D 11 on one GDI-compatible texture (Notepad's text area) */
+static void interop_cases(HDC ref_dc)
+{
+    static const D3D_FEATURE_LEVEL want[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_9_3 };
+    static const float clear[4] = { 0.2f, 0.4f, 0.6f, 1.0f };
+    HMODULE m = LoadLibraryA("d3d11.dll");
+    pfn_create create = m ? (pfn_create)GetProcAddress(m, "D3D11CreateDevice") : NULL;
+    ID3D11Device *dev = NULL;
+    ID3D11DeviceContext *ctx = NULL;
+    ID3D11Texture2D *tex = NULL, *blk = NULL;
+    ID3D11RenderTargetView *rtv = NULL;
+    IDXGISurface1 *surf = NULL;
+    D3D11_TEXTURE2D_DESC td;
+    D3D11_BOX box = { 0, 0, 0, 40, 40, 1 };
+    DWORD *got = malloc(TW * TH * 4), blk_px[40 * 40];
+    Dib ref;
+    HDC dc;
+    HRESULT hr;
+    int i;
+
+    if (!create || !got || !dib_make(&ref, ref_dc, TW, TH)) {
+        say("FAIL interop: no d3d11.dll or memory\n");
+        cases++, failed++;
+        return;
+    }
+    hr = create(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, D3D11_CREATE_DEVICE_BGRA_SUPPORT, want, 3, D3D11_SDK_VERSION, &dev,
+                NULL, &ctx);
+    memset(&td, 0, sizeof(td));
+    td.Width = TW;
+    td.Height = TH;
+    td.MipLevels = td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    td.MiscFlags = D3D11_RESOURCE_MISC_GDI_COMPATIBLE;
+    if (SUCCEEDED(hr)) {
+        hr = ID3D11Device_CreateTexture2D(dev, &td, NULL, &tex);
+    }
+    if (SUCCEEDED(hr)) {
+        hr = ID3D11Device_CreateRenderTargetView(dev, (ID3D11Resource *)tex, NULL, &rtv);
+    }
+    if (SUCCEEDED(hr)) {
+        hr = ID3D11Texture2D_QueryInterface(tex, &IID_IDXGISurface1, (void **)&surf);
+    }
+    /* a block Direct3D copies in: yellow */
+    for (i = 0; i < 40 * 40; i++) {
+        blk_px[i] = 0xff20e0f0u;
+    }
+    if (SUCCEEDED(hr)) {
+        D3D11_TEXTURE2D_DESC bd = td;
+        D3D11_SUBRESOURCE_DATA sd = { blk_px, 40 * 4, 0 };
+
+        bd.Width = bd.Height = 40;
+        bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        bd.MiscFlags = 0;
+        hr = ID3D11Device_CreateTexture2D(dev, &bd, &sd, &blk);
+    }
+    if (FAILED(hr)) {
+        say("FAIL interop: Direct3D 11 setup 0x%08lx\n", (unsigned long)hr);
+        cases++, failed++;
+        goto out;
+    }
+
+    /* 1: Direct3D's clear, GDI's fill and text over it */
+    ID3D11DeviceContext_ClearRenderTargetView(ctx, rtv, clear);
+    ID3D11DeviceContext_OMSetRenderTargets(ctx, 0, NULL, NULL);
+    for (i = 0; i < TW * TH; i++) {
+        ref.px[i] = 0xff336699u;
+    }
+    hr = IDXGISurface1_GetDC(surf, FALSE, &dc);
+    if (FAILED(hr)) {
+        say("FAIL interop: GetDC 0x%08lx\n", (unsigned long)hr);
+        cases++, failed++;
+        goto out;
+    }
+    interop_gdi1(dc);
+    IDXGISurface1_ReleaseDC(surf, NULL);
+    interop_gdi1(ref.dc);
+    GdiFlush();
+    if (interop_read(dev, ctx, tex, got)) {
+        compare("d3d11 clear, gdi draws", got, TW, ref.px, TW, TH, 3);
+    }
+    /* the same through GDI's eyes: the texture's DC copied into a DIB */
+    if (SUCCEEDED(IDXGISurface1_GetDC(surf, FALSE, &dc))) {
+        Dib back;
+
+        if (dib_make(&back, ref_dc, TW, TH)) {
+            BitBlt(back.dc, 0, 0, TW, TH, dc, 0, 0, SRCCOPY);
+            GdiFlush();
+            compare("gdi reads it back", back.px, TW, ref.px, TW, TH, 3);
+            SelectObject(back.dc, back.old);
+            DeleteObject(back.bm);
+            DeleteDC(back.dc);
+        }
+        IDXGISurface1_ReleaseDC(surf, NULL);
+    }
+
+    /* 2: Direct3D copies a block in; GDI inverts across its edge */
+    ID3D11DeviceContext_CopySubresourceRegion(ctx, (ID3D11Resource *)tex, 0, 90, 30, 0, (ID3D11Resource *)blk, 0, &box);
+    for (i = 0; i < 40 * 40; i++) {
+        ref.px[(30 + i / 40) * TW + 90 + i % 40] = blk_px[i];
+    }
+    hr = IDXGISurface1_GetDC(surf, FALSE, &dc);
+    if (SUCCEEDED(hr)) {
+        interop_gdi2(dc);
+        IDXGISurface1_ReleaseDC(surf, NULL);
+    }
+    interop_gdi2(ref.dc);
+    GdiFlush();
+    if (interop_read(dev, ctx, tex, got)) {
+        compare("d3d11 copy, gdi inverts", got, TW, ref.px, TW, TH, 3);
+    }
+
+out:
+    if (surf) IDXGISurface1_Release(surf);
+    if (rtv) ID3D11RenderTargetView_Release(rtv);
+    if (blk) ID3D11Texture2D_Release(blk);
+    if (tex) ID3D11Texture2D_Release(tex);
+    if (ctx) ID3D11DeviceContext_Release(ctx);
+    if (dev) ID3D11Device_Release(dev);
+    free(got);
+}
+
 static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     if (m == WM_ERASEBKGND) {
@@ -376,6 +595,7 @@ int main(int argc, char **argv)
             say("ok   %-24s max %3d\n", c->name, worst);
         }
     }
+    interop_cases(wdc);
     say("gditest: %d cases, %d failed\n", cases, failed);
     if (keep) {
         pump(60000);

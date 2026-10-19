@@ -791,6 +791,39 @@ vertical mirror applied to AlphaBlend whenever its constant alpha had
 bit 1 set (the flags share a word). Windows 7's GDI does use RenderKm,
 but its WDDM 1.1 build has no GDI acceleration (track M18's).
 
+**GDI-compatible textures, and GDI acceleration off again, the same
+day** (user: "just continue"). Opening common windows one by one on the
+test machine (Notepad, `winver`, Character Map, a console in Terminal):
+all drew but **Notepad's text area, black with the default settings**,
+not only with `GdiCpuVisible=0`. Its rich-edit control draws with GDI into
+a Direct3D 11 texture made `GDI_COMPATIBLE` (`IDXGISurface1::GetDC`; the
+runtime keeps the flag from the driver, `d3d10umddi.h` reserves it, and
+makes the texture shared: Notepad's 944x508 `misc 0x2`). `gditest` gained
+three cases that do the same (a clear, GDI's fill and opaque text, GDI
+reading the texture back, a Direct3D copy, a GDI invert across it) and
+failed them: the texture kept Direct3D's clear, and GDI's own read gave
+nothing (the DIB's zeros). The only RenderKm the census saw was the invert
+(a ColorFill DSTINVERT on the Direct3D allocation); `GetDC` reaches the
+user-mode driver only as DXGI's `ResolveSharedResource`, and nothing marks
+`ReleaseDC`. With GDI acceleration on, GDI opens the texture itself and
+draws on it with the CPU where RenderKm does not, and a shared Direct3D
+allocation is not CPU-visible (Windows 7's dxgmms1 takes a shared
+CPU-visible allocation only in an aperture segment, M18 step 7). Made
+CPU-visible on the x64 build, Windows 11 refused it as well: every shared
+render target's `pfnAllocateCb` failed `E_INVALIDARG` and the taskbar
+went (reverted). An aperture segment would need the host to reach the
+guest's aperture pages, which it cannot.
+
+With **GDI acceleration off** Notepad draws, and `gditest` is 37 of 37
+exact: Windows then moves a GDI-compatible texture's pixels itself. The
+frame rates do not depend on it any more (the readback and cached-staging
+work above helps either way): d3dgame11 windowed, unsynced, DISCARD 1200
+frames in 4.8 s (~250 frames/s; ~210-240 with it on) and the flip model
+1200 in 2.5 s (~470; 515), with vsync 58.2 and 58.8 (58.3, 58.8). So the
+kernel driver's default is **off** (`GdiAcceleration` absent or 0; 1 turns
+it on, a restart applies it), as "Open" asked before the track merges;
+the host's GDI operations and `d3dpt-gdi` stay.
+
 ## Open
 
 - **A present into a CPU-visible redirection bitmap is a STAGING copy**
@@ -799,9 +832,12 @@ but its WDDM 1.1 build has no GDI acceleration (track M18's).
   model's ~515). Bitmaps that are not CPU-visible lose GDI's drawing
   with no RenderKm to bring it ("Bitmaps the CPU cannot see, again").
   Every RenderKm operation is done since 2026-10-19 ("GDI's other
-  operations"; Windows 11 sends next to none of them). Notepad's text
-  area with bitmaps not CPU-visible (blank). Before the track merges GDI
-  acceleration must draw every window or go back to off by default.
+  operations"; Windows 11 sends next to none of them). GDI acceleration
+  is off by default again since the same day ("GDI-compatible
+  textures"): with it on, a Direct3D 11 GDI-compatible texture loses
+  GDI's drawing (Notepad's text area black), which needs a shared
+  allocation GDI can reach with the CPU; turning it on by default again
+  waits for that.
 - **A blt-model window** without it waits for DWM's composition through
   Windows' system-memory redirection (above); CPU-visible texture
   bitmaps do not change that.
