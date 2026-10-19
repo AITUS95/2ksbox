@@ -25,7 +25,7 @@ typedef struct D3dptExecLib {
     int (*shared_alloc)(const char *name, uint64_t size, uint64_t *offset);
     void (*shared_map)(uint64_t offset, void *ptr);
     uint32_t (*features)(d3dpt_exec_t *x);  /* D3DPT_EXEC_FEAT_* (M25) */
-    void (*settle)(d3dpt_exec_t *x);        /* v28: before the display reads VRAM */
+    int (*settle)(d3dpt_exec_t *x, int wait); /* v28: before the display reads VRAM; readbacks still owed */
     const char *name;   /* what was opened, for the log */
 } D3dptExecLib;
 

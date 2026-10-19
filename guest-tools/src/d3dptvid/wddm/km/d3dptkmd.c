@@ -193,6 +193,13 @@ static ULONG g_gdi_accel = 1;
  * present really goes"); then GDI's own drawing must come through RenderKm.
  * 1, the default: CPU-visible. */
 static ULONG g_gdi_cpu_visible = 1;
+/* The service key's Cached = 0: both segments' CPU mappings write-combined,
+ * as a real card's are. 1, the default: they are cache-coherent (both are
+ * the host's RAM or the guest's, which the host reads and writes as the
+ * CPU does) and a staging surface is mapped cached, because the CPU reads
+ * it: a blt-model present's frame, copied out of it into the window's
+ * bitmap, was a write-combined read, uncached (track M25). */
+static ULONG g_cached = 1;
 
 /* The DEBUG register of the adapter that started last: stubs called with
  * no adapter handle (Unload, ControlEtwLogging) log through it too. */
@@ -778,10 +785,12 @@ static NTSTATUS query_segment(const D3DPT_ADAPTER *a, const DXGKARG_QUERYADAPTER
     d[0].Size = a->seg_size;
     d[0].CommitLimit = a->seg_size;
     d[0].Flags.CpuVisible = 1;
+    d[0].Flags.CacheCoherent = g_cached != 0;
     d[1].BaseAddress.QuadPart = D3DPT_AP_BASE;
     d[1].Size = D3DPT_AP_PAGES * PAGE_SIZE;
     d[1].CommitLimit = D3DPT_AP_PAGES * PAGE_SIZE;
     d[1].Flags.Aperture = 1;
+    d[1].Flags.CacheCoherent = g_cached != 0;
     o->NbSegment = 2;
     o->PagingBufferSegmentId = 0;
     o->PagingBufferSize = 64 * 1024;
@@ -1510,6 +1519,7 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
         if (d->kind == D3DPT_ALLOC_GDI && d->source == D3DPT_GDISURF_TEXTURE && !g_gdi_cpu_visible) {
             info->Flags.CpuVisible = 0;
         }
+        info->Flags.Cached = d->kind == D3DPT_ALLOC_STAGING && g_cached;
         info->pAllocationUsageHint = NULL;
         info->AllocationPriority = d->kind == D3DPT_ALLOC_PRIMARY ? D3DDDI_ALLOCATIONPRIORITY_HIGH
                                                                   : D3DDDI_ALLOCATIONPRIORITY_NORMAL;
@@ -4111,13 +4121,13 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 
 /* ------------------------------------------------------------- entry */
 
-/* The service key's GdiAcceleration and GdiCpuVisible (REG_DWORD, 0:
- * off), read once */
+/* The service key's GdiAcceleration, GdiCpuVisible and Cached
+ * (REG_DWORD, 0: off), read once */
 static void read_settings(PUNICODE_STRING reg)
 {
-    RTL_QUERY_REGISTRY_TABLE q[3];
+    RTL_QUERY_REGISTRY_TABLE q[4];
     WCHAR path[260];
-    ULONG v = 1, cv = 1, def = 1, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
+    ULONG v = 1, cv = 1, ca = 1, def = 1, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
 
     if (!n || n >= RTL_NUMBER_OF(path)) {
         return;
@@ -4134,9 +4144,13 @@ static void read_settings(PUNICODE_STRING reg)
     q[1] = q[0];
     q[1].Name = L"GdiCpuVisible";
     q[1].EntryContext = &cv;
+    q[2] = q[0];
+    q[2].Name = L"Cached";
+    q[2].EntryContext = &ca;
     if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, path, q, NULL, NULL))) {
         g_gdi_accel = v != 0;
         g_gdi_cpu_visible = cv != 0;
+        g_cached = ca != 0;
     }
 }
 

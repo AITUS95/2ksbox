@@ -170,7 +170,7 @@ bool exec_d11_available(Exec &x);
 void exec_d11_sync(Exec &x, uint32_t handle);
 /* the flips' readbacks still owed to VRAM (RES_SCANOUT): those the GPU is
  * done with (wait false: at each batch), or all (the display) */
-void exec_d11_settle(Exec &x, bool wait);
+size_t exec_d11_settle(Exec &x, bool wait);   /* the readbacks still owed */
 void exec_d11_vram_release(Exec &x, uint32_t handle);
 bool exec_d11_ctx_destroy(Exec &x, uint32_t ctx);
 /* ... and what it asks of the display driver's side (d3dpt_exec_ddi.cpp):

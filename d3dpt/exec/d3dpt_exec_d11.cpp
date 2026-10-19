@@ -713,6 +713,7 @@ void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool sca
         }
         if (scanout && x.settles) {
             d.owed.push_back({ h, first, last });
+            d.ctx->Flush();     /* submitted now: the display polls it without waiting */
             return;
         }
     }
@@ -1753,10 +1754,12 @@ void exec_d11_sync(Exec &x, uint32_t h)
     res_readback(x, *d, h, it->second, ~0u);
 }
 
-void exec_d11_settle(Exec &x, bool wait)
+size_t exec_d11_settle(Exec &x, bool wait)
 {
     D11 *d = d11_of(x);
-    if (d && !d->owed.empty()) owed_settle(x, *d, 0, wait);
+    if (!d) return 0;
+    if (!d->owed.empty()) owed_settle(x, *d, 0, wait);
+    return d->owed.size();
 }
 
 /* the allocation went (the kernel driver's VRAM_RELEASE) */

@@ -77,8 +77,10 @@ D3DPT_EXEC_API uint32_t d3dpt_exec_features(d3dpt_exec_t *x);
 /* Optional too (v28): finish what the executor still owes VRAM (a flip's
  * readback, D3DPT_D11_RES_SCANOUT) before the display reads it. Called
  * like the others, serialised with them; an executor that has never
- * been asked defers nothing. */
-D3DPT_EXEC_API void d3dpt_exec_settle(d3dpt_exec_t *x);
+ * been asked defers nothing. `wait` 0: only what the GPU is done with,
+ * so the caller never blocks on the GPU. Returns how many readbacks are
+ * still owed (0: VRAM is current). */
+D3DPT_EXEC_API int d3dpt_exec_settle(d3dpt_exec_t *x, int wait);
 D3DPT_EXEC_API int d3dpt_exec_shared_alloc(const char *name, uint64_t size, uint64_t *offset);
 D3DPT_EXEC_API void d3dpt_exec_shared_map(uint64_t offset, void *ptr);
 

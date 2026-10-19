@@ -112,6 +112,9 @@ struct D3dptVgaState {
     uint32_t cur_flags;         /* CURSOR_FLAGS (v8): CURSOR_OWNED turns the flip hiding off */
     uint32_t cur_flip_desktop;  /* the scanout offset before the chain's first flip */
     QEMUTimer *cur_flip_timer;  /* no flip for D3DPT_FB_FLIP_IDLE_MS: see fb_cursor_flip_idle */
+    QEMUTimer *settle_timer;    /* a flip-push waiting for the executor's readback (fb_settled) */
+    int push_tries;             /* its retries so far */
+    int gfx_skips;              /* refreshes skipped in a row for the same */
     uint32_t cur_flip_idles;    /* chains ended that way, for the log */
     uint32_t cur_flips;         /* show / hide changes logged so far */
 
@@ -597,15 +600,29 @@ static void fb_flip_rate(D3dptVgaState *s)
  * RES_SCANOUT) goes there before anything shows VRAM. Waited for, not
  * tried: a page shown before it was paid was that buffer's frame from two
  * or three flips ago, everything that moved flickering with its own past
- * (track M25). A batch holding the lock gave up the BQL, so this waits for
- * the batch and not the other way round. */
-static void fb_settle(D3dptVgaState *s)
+ * (track M25). A batch holding the lock gave up the BQL, so a wait waits
+ * for the batch and not the other way round, but it is a vCPU or the main
+ * loop held under the BQL: waited for at every DWM flip, 2-4 ms each (the
+ * GPU finishing the composition) stalled the whole guest ~20% of the time.
+ * So it is tried first (`wait` false: a busy lock or a readback the GPU is
+ * not done with returns false) and the caller comes back. */
+#define D3DPT_SETTLE_TRIES 20   /* 1 ms apart, then waited for */
+
+static bool fb_settled(D3dptVgaState *s, bool wait)
 {
-    if (s->exec && s->lib->settle) {
-        qemu_mutex_lock(&s->exec_lock);
-        s->lib->settle(s->exec);
-        qemu_mutex_unlock(&s->exec_lock);
+    int owed;
+
+    if (!s->exec || !s->lib->settle) {
+        return true;
     }
+    if (wait) {
+        qemu_mutex_lock(&s->exec_lock);
+    } else if (qemu_mutex_trylock(&s->exec_lock) != 0) {
+        return false;
+    }
+    owed = s->lib->settle(s->exec, wait);
+    qemu_mutex_unlock(&s->exec_lock);
+    return owed == 0;
 }
 
 static bool d3dpt_vga_gfx_update(void *opaque)
@@ -649,7 +666,13 @@ static bool d3dpt_vga_gfx_update(void *opaque)
         return true;
     }
 
-    fb_settle(s);
+    /* VRAM not current yet: this refresh shows nothing new (the flip-push
+     * or the next tick will), a few in a row and then it waits */
+    if (!fb_settled(s, s->gfx_skips >= 3)) {
+        s->gfx_skips++;
+        return true;
+    }
+    s->gfx_skips = 0;
     if (s->gamma_dirty) {
         /* a new ramp recolours every pixel; a 32 bpp mode moves between
          * VRAM itself and the shadow the ramp is applied in */
@@ -1038,12 +1061,21 @@ static void fb_flip_push(D3dptVgaState *s)
     if (!s->flip_push || !s->lin_on || !s->shadow || s->resurface ||
         !fb_get_mode(s, &m) || m.w != s->lin.w || m.h != s->lin.h ||
         m.bpp != s->lin.bpp || m.pitch != s->lin.pitch) {
+        s->push_tries = 0;
         return;     /* a mode change: the tick switches surfaces */
     }
     if (s->pal_dirty && m.bpp == 8) {
         fb_apply_palette(s);
     }
-    fb_settle(s);           /* the page's pixels, if the executor still owes them */
+    /* the page's pixels, if the executor still owes them: tried again by
+     * the timer, the newest page then (a flip in between supersedes it) */
+    if (!fb_settled(s, s->push_tries >= D3DPT_SETTLE_TRIES)) {
+        s->push_tries++;
+        timer_mod(s->settle_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 1);
+        return;
+    }
+    s->push_tries = 0;
+    timer_del(s->settle_timer);
     fb_make_src(s, &m);
     s->lin = m;
     g_free(memory_region_snapshot_and_clear_dirty(&s->vga.vram, m.offset,
@@ -1053,6 +1085,12 @@ static void fb_flip_push(D3dptVgaState *s)
     if (!s->flip_pushes++) {
         info_report("d3dpt-vga: flips push their page (flip-push)");
     }
+}
+
+/* a flip-push the executor's readback held: try it again */
+static void fb_settle_tick(void *opaque)
+{
+    fb_flip_push(opaque);
 }
 
 static uint64_t d3dpt_vga_regs_read(void *opaque, hwaddr addr, unsigned size)
@@ -1464,6 +1502,7 @@ static void d3dpt_vga_realize(PCIDevice *dev, Error **errp)
     /* one console; the VGA core's ops run through ours while ENABLE is 0 */
     vga->con = qemu_graphic_console_create(DEVICE(dev), 0, &d3dpt_vga_gfx_ops, s);
     s->cur_flip_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL, fb_cursor_flip_idle, s);
+    s->settle_timer = timer_new_ms(QEMU_CLOCK_REALTIME, fb_settle_tick, s);
 
     memory_region_init_io(&s->regs, OBJECT(dev), &d3dpt_vga_regs_ops, s,
                           "d3dpt-vga.regs", D3DPT_FB_REGS_SIZE);
@@ -1502,6 +1541,8 @@ static void d3dpt_vga_reset(DeviceState *dev)
     s->cur_flip_hidden = false;
     s->cur_flags = 0;
     timer_del(s->cur_flip_timer);
+    timer_del(s->settle_timer);
+    s->push_tries = s->gfx_skips = 0;
     s->flips = s->flips_last = 0;
     s->flips_ns = 0;
     s->vga_grace_until = 0;

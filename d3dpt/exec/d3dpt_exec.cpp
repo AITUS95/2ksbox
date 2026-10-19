@@ -455,12 +455,12 @@ uint32_t d3dpt_exec_submit(d3dpt_exec_t *xp, void *shm, uint32_t shm_size)
     return b.err;
 }
 
-void d3dpt_exec_settle(d3dpt_exec_t *xp)
+int d3dpt_exec_settle(d3dpt_exec_t *xp, int wait)
 {
     Exec *x = (Exec *)xp;
-    if (!x) return;
+    if (!x) return 0;
     x->settles = true;                /* the display asks: flips' readbacks may wait for it */
-    try { exec_d11_settle(*x, true); } catch (...) {}
+    try { return (int)exec_d11_settle(*x, wait != 0); } catch (...) { return 0; }
 }
 
 uint32_t d3dpt_exec_features(d3dpt_exec_t *xp)

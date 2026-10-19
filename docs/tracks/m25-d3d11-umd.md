@@ -724,18 +724,48 @@ reads the frame straight into the staging surface's VRAM, where `SYNC`
 put it into the buffer's own VRAM and this CPU copied it on through the
 BAR. The scene is right (a screendump of the window); the rate is not
 moved, ~80 frames/s unsynced and ~45 with vsync (one run each), so the
-guest's copy was not what held the frame. Measuring where the frame's
-time goes is next (an ETW timeline with this build; the guest was shut
-down before it ran).
+guest's copy was not what held the frame.
+
+**Where the STAGING frame went, the same day** (user: "proceed"). An
+ETW timeline (`etw3.ps1`, d3dgame11 DISCARD unsynced, median present
+interval 11.8 ms) and the executor's profile showed two costs:
+
+- **The display waited for the flip's readback under the BQL.** At every
+  one of DWM's flips (~57/s) the flip-push and the refresh settled the
+  owed readback with a blocking Map: 2.8 ms of GPU wait (slot 72) plus
+  1 ms of copy on a vCPU or the main loop, holding the BQL, ~20% of the
+  time with the whole guest stopped. `d3dpt_exec_settle` now takes
+  `wait` and returns how many readbacks are still owed; the device tries
+  it (`fb_settled`: a trylock of the executor's lock and a Map with
+  `DO_NOT_WAIT`), and a flip-push that finds its page owed comes back
+  from a 1 ms realtime timer (the newest page then; after 20 tries it
+  waits), a refresh skips (after 3 it waits). Nothing stale is shown, so
+  no flicker. The executor flushes once an owed copy is queued, so the
+  GPU has it. Slot 72 went from 796 ms to 9 ms per 5 s; the rate from
+  ~85 to ~97-119 frames/s (median interval 8.9 ms).
+- **The game's CPU copy out of the STAGING surface read write-combined
+  memory.** Between the game's Lock of the staging surface and its
+  Present, 1.6-13 ms: segment 0 was not `CacheCoherent`, so Windows
+  mapped the Lock write-combined and every read was uncached. Both
+  segments are now `CacheCoherent` and a staging allocation `Cached`
+  (the service key's `Cached` = 0 goes back; both are the host's RAM or
+  the guest's, which the host reads and writes coherently, and WHPX does
+  not trap VRAM: its `log_sync` marks it all dirty). The copy is
+  0.1-0.4 ms.
+
+DISCARD unsynced is now **~210-240 frames/s** (600 frames in 2.9 s,
+1200 in 5.0 s; ~85 before), with vsync 58.3 (~45 before); the flip
+model unsynced 515 (~350-440), with vsync 58.8. The scene and the
+desktop are right (screendumps mid-run).
 
 ## Open
 
-- **A present into a CPU-visible redirection bitmap is held** (above):
-  it is not into the bitmap at all but into a STAGING copy the CPU then
-  moves ("Where the present really goes"). Bitmaps that are not
-  CPU-visible lose GDI's drawing with no RenderKm to bring it ("Bitmaps
-  the CPU cannot see, again"), so the STAGING path is the one to make
-  fast; where its ~12 ms a frame go is open. Then the other RenderKm operations (the ROPs,
+- **A present into a CPU-visible redirection bitmap is a STAGING copy**
+  the CPU moves ("Where the present really goes"); it is fast now
+  ("Where the STAGING frame went", ~240 frames/s against the flip
+  model's ~515). Bitmaps that are not CPU-visible lose GDI's drawing
+  with no RenderKm to bring it ("Bitmaps the CPU cannot see, again").
+  Then the other RenderKm operations (the ROPs,
   AlphaBlend, StretchBlt, TransparentBlt, ClearType), and Notepad's text
   area (blank). Before the track merges GDI acceleration must draw every
   window or go back to off by default.

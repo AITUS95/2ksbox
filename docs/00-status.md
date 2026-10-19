@@ -398,9 +398,11 @@ tracks, plus the items no track owns.
     the host compares each with a shadow when DWM is about to sample it):
     the desktop draws. Open: with the bitmaps CPU-visible a DISCARD
     window's present goes into a STAGING copy the CPU moves into the
-    bitmap, not into the bitmap (~85 frames/s unsynced; ~430 with them
-    not CPU-visible, when GDI's drawing is lost; the track's "Where the
-    present really goes"), and the other RenderKm operations (the track's
+    bitmap, not into the bitmap (~240 frames/s unsynced since the
+    display stopped waiting for flips' readbacks under the BQL and the
+    staging surfaces are mapped cached, ~85 before; the flip model
+    ~515; the track's "Where the STAGING frame went"), and the other
+    RenderKm operations (the track's
     "GDI's own drawing"); the x64 kernel
     driver's flips on the blank have been MMIO flips since 2026-10-18,
     `FlipOnVSyncMmIo`: a DMA flip held for the blank
