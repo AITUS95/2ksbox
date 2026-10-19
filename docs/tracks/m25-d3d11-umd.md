@@ -758,6 +758,39 @@ DISCARD unsynced is now **~210-240 frames/s** (600 frames in 2.9 s,
 model unsynced 515 (~350-440), with vsync 58.8. The scene and the
 desktop are right (screendumps mid-run).
 
+**GDI's other operations, 2026-10-19** (user: "proceed until you
+implement all the remaining GDI operations"). RenderKm's every operation
+now reaches the host (protocol v29, `d3dpt_gdi2`): a BitBlt or a
+ColorFill with any ROP (the DDI's named ones mapped to their ROP3, P the
+fill's colour), StretchBlt (COLORONCOLOR, MirrorX / MirrorY, and the mono
+modes, whose shrink ANDs or ORs the pixels it drops), AlphaBlend
+(constant alpha, premultiplied per-pixel alpha, both, stretched),
+TransparentBlt (the key with or without its alpha) and ClearTypeBlend
+(the DDI's own formula, with the lookup table's gamma row or without).
+The kernel driver turns each into a `PKT_GDI2` (`gdi_render2`, its
+allocations' places filled at submit time as the copies' are) and claims
+`SupportAllBltRops`, `SupportMirrorStretchBlt` and
+`SupportMonoStretchBltModes`; the host does them on the CPU (`gdi_ex`):
+the destination's sub-rectangles and the source rectangle read (an
+object's through a staging copy, VRAM's in place), computed, and written
+back as a copy's are (the object, its VRAM and shadow). A ROP into a
+redirection bitmap comes out opaque, as a fill does.
+
+Windows 11 does not send them. `gditest.exe` (new: each operation on a
+window against the same on a DIB section) is 34 of 34 exact on the test
+machine, and the census shows why: GDI drew all of it with the CPU, and
+RenderKm carried one copy into ClearType's lookup table. With
+`GdiCpuVisible=0` every case fails as `winver` did, nothing coming through
+RenderKm. So the host's half is proved without a guest:
+`tools/d3dpt-gdi-test.cpp` (`d3dpt-gdi` in `test.sh`) feeds the records
+to the executor, into plain VRAM and into a redirection bitmap's object,
+against this PC's GDI on DIB sections and, where GDI has no call (a
+mirrored stretch, the mono modes, ClearType's blend), the DDI's formula:
+90 checks, all exact but AlphaBlend's rounding (within 1). It found a
+vertical mirror applied to AlphaBlend whenever its constant alpha had
+bit 1 set (the flags share a word). Windows 7's GDI does use RenderKm,
+but its WDDM 1.1 build has no GDI acceleration (track M18's).
+
 ## Open
 
 - **A present into a CPU-visible redirection bitmap is a STAGING copy**
@@ -765,10 +798,10 @@ desktop are right (screendumps mid-run).
   ("Where the STAGING frame went", ~240 frames/s against the flip
   model's ~515). Bitmaps that are not CPU-visible lose GDI's drawing
   with no RenderKm to bring it ("Bitmaps the CPU cannot see, again").
-  Then the other RenderKm operations (the ROPs,
-  AlphaBlend, StretchBlt, TransparentBlt, ClearType), and Notepad's text
-  area (blank). Before the track merges GDI acceleration must draw every
-  window or go back to off by default.
+  Every RenderKm operation is done since 2026-10-19 ("GDI's other
+  operations"; Windows 11 sends next to none of them). Notepad's text
+  area with bitmaps not CPU-visible (blank). Before the track merges GDI
+  acceleration must draw every window or go back to off by default.
 - **A blt-model window** without it waits for DWM's composition through
   Windows' system-memory redirection (above); CPU-visible texture
   bitmaps do not change that.

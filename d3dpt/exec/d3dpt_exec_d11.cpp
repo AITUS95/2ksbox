@@ -1400,7 +1400,7 @@ void prof_tok(Exec &x, D11 &d, uint32_t op, std::chrono::steady_clock::time_poin
     size_t n = (size_t)snprintf(line, sizeof line, "d11: prof %lld ms: token count us", (long long)span);
     uint64_t total = 0;
     for (uint32_t i = 0; i < 128; i++) {
-        if (i < 72) total += d.prof_ns[i];
+        if (i != 72 && i != 73) total += d.prof_ns[i];      /* a readback's parts are in its token's */
         if (d.prof_ns[i] >= 1000000 && n < sizeof line - 40)
             n += (size_t)snprintf(line + n, sizeof line - n, " %u:%llu:%llu", i, (unsigned long long)d.prof_n[i],
                                   (unsigned long long)(d.prof_ns[i] / 1000));
@@ -1648,6 +1648,208 @@ void gdi_copy(Exec &x, D11 &d, const d3dpt_gdi &g, const d3dpt_gdi_rect *rc, con
     }
 }
 
+/* A rectangle of a side's pixels on the CPU (v29's operations): read from
+ * its object through a staging copy, or from its VRAM */
+struct GdiPx {
+    std::vector<uint32_t> p;
+    int32_t x0 = 0, y0 = 0, w = 0, h = 0;
+    uint32_t &at(int32_t x, int32_t y) { return p[(size_t)(y - y0) * (size_t)w + (size_t)(x - x0)]; }
+};
+
+bool gdi_read(D11 &d, const GdiSide &s, int32_t x0, int32_t y0, int32_t x1, int32_t y1, GdiPx &o)
+{
+    if (x0 < 0 || y0 < 0 || x1 <= x0 || y1 <= y0 || (uint32_t)x1 > s.w || (uint32_t)y1 > s.h) return false;
+    o.x0 = x0;
+    o.y0 = y0;
+    o.w = x1 - x0;
+    o.h = y1 - y0;
+    o.p.assign((size_t)o.w * (size_t)o.h, 0);
+    if (s.obj) {
+        D3D11_TEXTURE2D_DESC t = { (UINT)o.w, (UINT)o.h, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, { 1, 0 }, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0 };
+        ID3D11Texture2D *stg = nullptr;
+        if (FAILED(d.dev->CreateTexture2D(&t, nullptr, &stg))) return false;
+        D3D11_BOX box = { (UINT)x0, (UINT)y0, 0, (UINT)x1, (UINT)y1, 1 };
+        d.ctx->CopySubresourceRegion(stg, 0, 0, 0, 0, s.obj->res, 0, &box);
+        D3D11_MAPPED_SUBRESOURCE m;
+        bool ok = SUCCEEDED(d.ctx->Map(stg, 0, D3D11_MAP_READ, 0, &m));
+        if (ok) {
+            for (int32_t y = 0; y < o.h; y++)
+                memcpy(&o.p[(size_t)y * o.w], (const uint8_t *)m.pData + (uint64_t)y * m.RowPitch, (size_t)o.w * 4);
+            d.ctx->Unmap(stg, 0);
+        }
+        stg->Release();
+        return ok;
+    }
+    if (!s.mem) return false;
+    for (int32_t y = 0; y < o.h; y++)
+        memcpy(&o.p[(size_t)y * o.w], s.mem + (uint64_t)(y0 + y) * s.pitch + (uint64_t)x0 * 4, (size_t)o.w * 4);
+    return true;
+}
+
+/* the rectangles of `px` back where they came from, as a copy's: into the
+ * object, and its bitmap's VRAM and shadow; or into VRAM */
+void gdi_write(Exec &x, D11 &d, const GdiSide &s, const GdiPx &px, const d3dpt_gdi_rect *rc, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++) {
+        const d3dpt_gdi_rect &r = rc[i];
+        if (r.l < px.x0 || r.t < px.y0 || r.r > px.x0 + px.w || r.b > px.y0 + px.h || r.r <= r.l || r.b <= r.t) continue;
+        const uint32_t *from = &px.p[(size_t)(r.t - px.y0) * px.w + (size_t)(r.l - px.x0)];
+        uint32_t w = (uint32_t)(r.r - r.l);
+        if (s.obj) {
+            D3D11_BOX box = { (UINT)r.l, (UINT)r.t, 0, (UINT)r.r, (UINT)r.b, 1 };
+            d.ctx->UpdateSubresource(s.obj->res, 0, &box, from, (UINT)px.w * 4, 0);
+            gdi_obj_written(s.obj);
+            if (!s.vram) continue;
+        }
+        uint8_t *to = s.obj ? s.vram : s.mem;
+        for (int32_t y = r.t; y < r.b; y++)
+            memcpy(to + (uint64_t)y * s.pitch + (uint64_t)r.l * 4, from + (size_t)(y - r.t) * px.w, (size_t)w * 4);
+        if (s.obj) shadow_take(s.obj, s, (uint32_t)r.l, (uint32_t)r.t, (uint32_t)r.r, (uint32_t)r.b);
+        else gdi_mem_written(x, d, s, r);
+    }
+}
+
+/* x / 255, rounded */
+inline uint32_t div255(uint32_t v) { v += 128; return (v + (v >> 8)) >> 8; }
+
+/* the DDI's stretch: a destination column or row's source one */
+inline int32_t gdi_map(int32_t xd, int32_t dl, int32_t dr, int32_t sl, int32_t sr)
+{
+    int64_t ws = sr - sl, wd = dr - dl;
+    if (wd <= 0) return sl;
+    int64_t v = sl + (((int64_t)(xd - dl) * 2 + 1) * ws) / (2 * wd);      /* truncate((xd - dl + 0.5) * ws / wd + sl) */
+    return (int32_t)std::min<int64_t>(std::max<int64_t>(v, sl), sr - 1);
+}
+
+/* a ROP3 over 32-bit pixels: bit P*4 + S*2 + D of `rop` */
+inline uint32_t rop3(uint32_t rop, uint32_t P, uint32_t S, uint32_t D)
+{
+    uint32_t out = 0;
+    for (uint32_t i = 0; i < 8; i++)
+        if (rop & (1u << i)) out |= ((i & 4) ? P : ~P) & ((i & 2) ? S : ~S) & ((i & 1) ? D : ~D);
+    return out;
+}
+
+/* v29: GDI's other operations, on the CPU */
+void gdi_ex(Exec &x, D11 &d, const d3dpt_gdi2 &g, const d3dpt_gdi_rect *rc, const GdiSide *src, const GdiSide &dst)
+{
+    /* the destination's pixels under every sub-rectangle */
+    int32_t x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
+    for (uint32_t i = 0; i < g.n; i++) {
+        if (!gdi_rect_ok(rc[i], dst, nullptr)) continue;
+        x0 = std::min(x0, rc[i].l);
+        y0 = std::min(y0, rc[i].t);
+        x1 = std::max(x1, rc[i].r);
+        y1 = std::max(y1, rc[i].b);
+    }
+    GdiPx D, S, A;
+    if (x1 <= x0 || !gdi_read(d, dst, x0, y0, x1, y1, D)) return;
+    const bool stretch = g.op != D3DPT_GDI_ROP && g.op != D3DPT_GDI_CLEARTYPE;
+    if (src) {
+        /* the source rectangle (a ROP's: the corner, the destination's size) */
+        int32_t sx0 = g.sl, sy0 = g.st, sx1 = g.sr, sy1 = g.sb;
+        if (!stretch) {
+            sx0 = g.sl + (x0 - g.dl);
+            sy0 = g.st + (y0 - g.dt);
+            sx1 = sx0 + (x1 - x0);
+            sy1 = sy0 + (y1 - y0);
+        }
+        if (!gdi_read(d, *src, sx0, sy0, sx1, sy1, S)) return;
+    }
+    const uint8_t *gam = nullptr, *inv = nullptr;
+    if (g.op == D3DPT_GDI_CLEARTYPE) {
+        /* the coverage, at the destination's place plus the offset */
+        GdiSide as;
+        if (!gdi_side(x, d, g.alpha, as) || !gdi_read(d, as, x0 + g.ax, y0 + g.ay, x1 + g.ax, y1 + g.ay, A)) return;
+        if (g.gamma != ~0u) {
+            const d3dpt_gdi_side &l = g.lut;
+            if (g.gamma > 15 || !x.vram || l.pitch < 512 || (uint64_t)l.offset + (uint64_t)l.pitch * g.gamma + 512 > x.vram_size) return;
+            gam = x.vram + l.offset + (uint64_t)l.pitch * g.gamma;
+            inv = gam + 256;
+        }
+    }
+    const bool opaque = (g.dst.flags & D3DPT_GDI_TEXTURE) && (g.op == D3DPT_GDI_ROP);
+    const int32_t sw = g.sr - g.sl, sh = g.sb - g.st, dw = g.dr - g.dl, dh = g.db - g.dt;
+    for (uint32_t i = 0; i < g.n; i++) {
+        const d3dpt_gdi_rect &r = rc[i];
+        if (!gdi_rect_ok(r, dst, nullptr)) continue;
+        for (int32_t yd = r.t; yd < r.b; yd++) {
+            int32_t ys = 0, ys1 = 0;
+            if (src && stretch) {
+                const bool mirror_y = g.op == D3DPT_GDI_STRETCH && (g.flags & 2);
+                ys = gdi_map(yd, g.dt, g.db, g.st, g.sb);
+                if (mirror_y) ys = g.sb - 1 - (ys - g.st);
+                /* a mono mode's shrink: every source row onto this one */
+                ys1 = (g.op == D3DPT_GDI_STRETCH && (g.rop == 1 || g.rop == 2) && sh > dh && !mirror_y)
+                          ? std::max(ys + 1, g.st + (int32_t)(((int64_t)(yd + 1 - g.dt) * sh) / dh)) : ys + 1;
+                ys1 = std::min(ys1, g.sb);
+            }
+            for (int32_t xd = r.l; xd < r.r; xd++) {
+                uint32_t &out = D.at(xd, yd), dv = out, v = dv;
+                switch (g.op) {
+                case D3DPT_GDI_ROP:
+                    v = rop3(g.rop, g.color, src ? S.at(g.sl + (xd - g.dl), g.st + (yd - g.dt)) : 0, dv);
+                    break;
+                case D3DPT_GDI_STRETCH:
+                case D3DPT_GDI_ALPHA:
+                case D3DPT_GDI_TRANSPARENT: {
+                    int32_t xs = gdi_map(xd, g.dl, g.dr, g.sl, g.sr);
+                    if (g.op == D3DPT_GDI_STRETCH && (g.flags & 1)) xs = g.sr - 1 - (xs - g.sl);
+                    uint32_t sv = S.at(xs, ys);
+                    if (g.op == D3DPT_GDI_STRETCH) {
+                        int32_t xs1 = (g.rop == 1 || g.rop == 2) && sw > dw && !(g.flags & 1)
+                                          ? std::max(xs + 1, g.sl + (int32_t)(((int64_t)(xd + 1 - g.dl) * sw) / dw)) : xs + 1;
+                        xs1 = std::min(xs1, g.sr);
+                        for (int32_t yy = ys; yy < ys1; yy++)
+                            for (int32_t xx = xs; xx < xs1; xx++)
+                                sv = g.rop == 1 ? (sv & S.at(xx, yy)) : g.rop == 2 ? (sv | S.at(xx, yy)) : sv;
+                        v = sv;
+                    } else if (g.op == D3DPT_GDI_TRANSPARENT) {
+                        if ((g.flags & 1) ? sv != g.color : (sv & 0xffffffu) != (g.color & 0xffffffu)) v = sv;
+                    } else {
+                        uint32_t ca = g.flags & 255;
+                        v = 0;
+                        if (g.flags & 0x100) {
+                            /* premultiplied: the source scaled by the constant, then over */
+                            uint32_t s4[4], sa;
+                            for (int k = 0; k < 4; k++) s4[k] = div255(((sv >> (8 * k)) & 255) * ca);
+                            sa = s4[3];
+                            for (int k = 0; k < 4; k++)
+                                v |= std::min<uint32_t>(255, s4[k] + div255(((dv >> (8 * k)) & 255) * (255 - sa))) << (8 * k);
+                        } else {
+                            for (int k = 0; k < 4; k++)
+                                v |= div255(((sv >> (8 * k)) & 255) * ca + ((dv >> (8 * k)) & 255) * (255 - ca)) << (8 * k);
+                        }
+                    }
+                    break;
+                }
+                case D3DPT_GDI_CLEARTYPE: {
+                    uint32_t a = A.at(xd + g.ax, yd + g.ay);
+                    v = dv & 0xff000000u;
+                    for (int k = 0; k < 3; k++) {       /* b, g, r */
+                        uint32_t dc = (dv >> (8 * k)) & 255, cc = (g.color >> (8 * k)) & 255, ak = (a >> (8 * k)) & 255, o;
+                        if (gam) {
+                            uint32_t t = gam[dc];
+                            o = ak == 0 ? dc : ak == 255 ? (g.color2 >> (8 * k)) & 255
+                                                         : inv[std::min<uint32_t>(255, div255(t * (255 - ak) + cc * ak))];
+                        } else {
+                            uint32_t ar = (a >> 16) & 255, ag = (a >> 8) & 255, f = cc >= dc ? ar : ag;
+                            o = div255(dc * (255 - f) + cc * f);
+                        }
+                        v |= o << (8 * k);
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+                out = opaque ? (v | 0xff000000u) : v;
+            }
+        }
+    }
+    gdi_write(x, d, dst, D, rc, g.n);
+}
+
 } // namespace
 
 /* ------------------------------------------------------------- the API */
@@ -1663,13 +1865,29 @@ bool exec_d11_gdi(Batch &b, const d3dpt_cmd *c)
     if (!d) return true;
     const d3dpt_gdi_rect *rc = (const d3dpt_gdi_rect *)(g + 1);
     GdiSide src, dst;
-    /* D3DPT_D11_PROF: GDI records count as 64 + the op */
+    /* D3DPT_D11_PROF: GDI records count as 64 + the op (op 8 and 9: 74
+     * and 75, past a readback's 72 / 73) */
     struct Prof {
         Exec &x; D11 &d; uint32_t op; std::chrono::steady_clock::time_point t0;
-        ~Prof() { if (d.prof) prof_tok(x, d, 64 + (op & 7), t0); }
+        ~Prof() { if (d.prof) prof_tok(x, d, op < 8 ? 64 + op : 74 + ((op - 8) & 1), t0); }
     } prof{ x, *d, g->op, d->prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point() };
     if (g->op == D3DPT_GDI_SYNC) {
         exec_d11_sync(x, g->dst.handle);       /* nothing if VRAM has it already */
+        return true;
+    }
+    if (g->op >= D3DPT_GDI_ROP && g->op <= D3DPT_GDI_CLEARTYPE) {
+        auto *g2 = body<d3dpt_gdi2>(c, 0, b);
+        if (!g2) return true;
+        if (sizeof(d3dpt_cmd) + sizeof(*g2) + (uint64_t)g2->n * sizeof(d3dpt_gdi_rect) > c->size) { b.err = D3DPT_ERR_MALFORMED; return true; }
+        /* a ColorFill's ROP has no source */
+        bool has_src = g2->op != D3DPT_GDI_CLEARTYPE && (g2->op != D3DPT_GDI_ROP || g2->src.width);
+        if (!gdi_side(x, *d, g2->dst, dst) || (has_src && !gdi_side(x, *d, g2->src, src))) {
+            if (d->warn(0x66000000u | g2->op))
+                x.log("d11: GDI operation %u from format %u %ux%u into %u %ux%u: not done", g2->op, g2->src.format,
+                      g2->src.width, g2->src.height, g2->dst.format, g2->dst.width, g2->dst.height);
+            return true;
+        }
+        gdi_ex(x, *d, *g2, (const d3dpt_gdi_rect *)(g2 + 1), has_src ? &src : nullptr, dst);
         return true;
     }
     if (!gdi_side(x, *d, g->dst, dst)) {

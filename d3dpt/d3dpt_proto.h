@@ -49,6 +49,10 @@
  * the host may finish later (before the display or anything else reads
  * that VRAM: d3dpt_exec_settle).
  *
+ * v29 (M25): GDI's other RenderKm operations (d3dpt_gdi2): a BitBlt or a
+ * ColorFill with any ROP3, AlphaBlend, StretchBlt, TransparentBlt and
+ * ClearTypeBlend, done by the host on the CPU.
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT_PROTO_H
@@ -56,7 +60,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_PROTO_VERSION   28u
+#define D3DPT_PROTO_VERSION   29u
 
 #define D3DPT_SHM_SIZE        0x04000000u          /* 64 MiB */
 #define D3DPT_CMD_OFFSET      0x00001000u          /* records start after the header page */
@@ -136,7 +140,7 @@ enum d3dpt_op {
                                          * of a render-target texture's mip level, after the texture's VRAM_SURFACE; a
                                          * SETRENDERTARGET / READBACK / VRAM_DIRTY of it is that level of the texture (v19) */
     D3DPT_OP_D11 = 109,                 /* body: d3dpt_d11 + tokens: a Direct3D 11 context's run (v25; see below) */
-    D3DPT_OP_GDI = 110,                 /* body: d3dpt_gdi + n d3dpt_gdi_rect: a GDI copy or fill (v27; forward) */
+    D3DPT_OP_GDI = 110,                 /* body: d3dpt_gdi (v27) or d3dpt_gdi2 (v29) + n d3dpt_gdi_rect: a GDI operation (forward) */
     D3DPT_OP_MAX
 };
 
@@ -189,6 +193,33 @@ typedef struct d3dpt_gdi {
     d3dpt_gdi_side src, dst;            /* FILL: src unused */
 } d3dpt_gdi;
 typedef struct d3dpt_gdi_rect { int32_t sx, sy, l, t, r, b; } d3dpt_gdi_rect;   /* a destination rectangle, its source corner */
+/* The other RenderKm operations (v29), as the DDI defines them
+ * (DXGK_GDIARG_*), done by the host on the CPU over the pixels of each
+ * side (an object's read back and written again, VRAM's in place):
+ * ROP: a BitBlt (src set) or a ColorFill (src.handle and src.width 0,
+ * P = `color`) with the ROP3 `rop` (bit P*4 + S*2 + D); STRETCH: StretchBlt,
+ * `rop` its mode (1 BLACKONWHITE, 2 WHITEONBLACK: a shrink ANDs or ORs the
+ * pixels; else they are skipped), `flags` 1 MirrorX, 2 MirrorY; ALPHA:
+ * AlphaBlend, `flags` the constant alpha | 0x100 if the source has alpha
+ * (premultiplied); TRANSPARENT: TransparentBlt, `color` the key, `flags` 1
+ * HonorAlpha (the key's alpha compared too); CLEARTYPE: ClearTypeBlend,
+ * `color` / `color2` the foreground with and without gamma, `gamma` the
+ * row of the lookup table (`lut`, 8 bits, 512 a row: gamma then inverse;
+ * ~0u none), `alpha` the coverage (A8R8G8B8) at the destination's place
+ * plus (ax, ay). The source rectangle maps onto the destination's by the
+ * DDI's stretch (COLORONCOLOR); the rectangles after this are the
+ * destination's sub-rectangles (d3dpt_gdi_rect, sx / sy unused). A
+ * result into a redirection bitmap is opaque, as a fill's. Starts as
+ * d3dpt_gdi does. */
+enum { D3DPT_GDI_ROP = 5, D3DPT_GDI_STRETCH = 6, D3DPT_GDI_ALPHA = 7, D3DPT_GDI_TRANSPARENT = 8, D3DPT_GDI_CLEARTYPE = 9 };
+typedef struct d3dpt_gdi2 {
+    uint32_t op, color, n, rop;
+    uint32_t flags, color2, gamma, pad;
+    int32_t sl, st, sr, sb;             /* the source rectangle */
+    int32_t dl, dt, dr, db;             /* the destination rectangle */
+    int32_t ax, ay, pad2[2];            /* CLEARTYPE: destination to alpha surface */
+    d3dpt_gdi_side src, dst, alpha, lut;
+} d3dpt_gdi2;
 
 typedef struct d3dpt_vram_surface {
     uint32_t handle, offset;

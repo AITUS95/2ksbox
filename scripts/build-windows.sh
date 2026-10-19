@@ -352,6 +352,8 @@ if want exec; then
   # mingw, as QEMU is: it loads the MSVC executor as QEMU does, so it
   # proves the boundary between the two (doc 11, "The C runtime boundary").
   "$WCXX" -std=c++17 -O2 -static -o build/win/d3dpt-dp2-test.exe tools/d3dpt-dp2-test.cpp
+  # the GDI records (protocol v27 and v29) against this PC's own GDI (M25)
+  "$WCXX" -std=c++17 -O2 -static -o build/win/d3dpt-gdi-test.exe tools/d3dpt-gdi-test.cpp -lmsimg32 -lgdi32
 fi
 
 # The WDDM driver (track M18): MSVC through the EWDK, whose own

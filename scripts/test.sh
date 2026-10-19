@@ -2725,6 +2725,12 @@ host_stage() {
       # DXVK patch 09 and the executor's once-per-library rule both guard
       # it; this asks the artefacts.
       run_check exec-no-device exec-no-device.log exec_no_device_check || true
+      # The GDI records (protocol v27 / v29: every RenderKm operation)
+      # against this PC's own GDI on DIB sections (track M25). Windows
+      # only: GDI is the answer; it SKIPs (77) without Direct3D 11.
+      if [ "$OS" = Windows ] && [ -x build/win/d3dpt-gdi-test.exe ]; then
+        run_check d3dpt-gdi d3dpt-gdi.log build/win/d3dpt-gdi-test.exe || true
+      fi
     else FAIL+=(d3dpt-dp2); echo "  FAIL d3dpt-dp2 (build)"; fi
   else
     skip d3dpt-dp2 "needs $D3DPT_EXEC_LIB and $D3DPT_DXVK_LIB"

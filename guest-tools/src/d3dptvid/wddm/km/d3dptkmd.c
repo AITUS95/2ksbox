@@ -754,6 +754,12 @@ static NTSTATUS driver_caps(const D3DPT_ADAPTER *a, DXGK_DRIVERCAPS *c)
          * there, where a blt-model window's went through a staging copy
          * the CPU read; track M25) */
         c->PresentationCaps.SupportKernelModeCommandBuffer = 1;
+        /* and every one of them (the host does the rest on the CPU,
+         * protocol v29; a source and destination in one bitmap are read
+         * before they are written) */
+        c->PresentationCaps.SupportAllBltRops = 1;
+        c->PresentationCaps.SupportMirrorStretchBlt = 1;
+        c->PresentationCaps.SupportMonoStretchBltModes = 1;
     }
 #else
     c->WDDMVersion = DXGKDDI_WDDMv1;
@@ -1642,7 +1648,7 @@ static NTSTATUS APIENTRY d3dpt_close_allocation(IN_CONST_HANDLE h, IN_CONST_PDXG
  * whose size takes the reader to the next one.
  */
 #define D3DPT_PKT_MAGIC 0x3d504b54u             /* "TKP=" */
-enum { PKT_TRANSFER = 1, PKT_FILL, PKT_BLT, PKT_COLORFILL, PKT_FLIP, PKT_MAP, PKT_UNMAP, PKT_REG, PKT_D3D, PKT_FIX, PKT_GDI };
+enum { PKT_TRANSFER = 1, PKT_FILL, PKT_BLT, PKT_COLORFILL, PKT_FLIP, PKT_MAP, PKT_UNMAP, PKT_REG, PKT_D3D, PKT_FIX, PKT_GDI, PKT_GDI2 };
 
 typedef struct PKT_HDR { ULONG magic, op, size; } PKT_HDR;
 
@@ -1684,6 +1690,14 @@ typedef struct PKT_FIX_T { PKT_HDR h; ULONG n; PKT_FIX_E e[1]; } PKT_FIX_T;
  * record, d3dpt_proto.h), its allocations where the last Patch saw them;
  * a PKT_REG of the DMA buffer's whole allocation list comes first */
 typedef struct PKT_GDI_T { PKT_HDR h; ULONG op, color, n; struct D3DPT_ALLOC *src, *dst; PKT_RECT r[1]; } PKT_GDI_T;
+/* the other operations (protocol v29's d3dpt_gdi2, its sides filled at
+ * submit time); src NULL: none (a ColorFill's ROP, ClearType) */
+typedef struct PKT_GDI2_T {
+    PKT_HDR h;
+    d3dpt_gdi2 g;
+    struct D3DPT_ALLOC *src, *dst, *alpha, *lut;
+    PKT_RECT r[1];
+} PKT_GDI2_T;
 
 static void pkt_hdr(PKT_HDR *p, ULONG op, ULONG size)
 {
@@ -2335,6 +2349,37 @@ static BOOLEAN gdi_record(D3DPT_ADAPTER *a, ULONG op, ULONG color, D3DPT_ALLOC *
     return TRUE;
 }
 
+/* The record of one of the other operations (v29); FALSE as gdi_record's */
+static BOOLEAN gdi_record2(D3DPT_ADAPTER *a, const PKT_GDI2_T *p)
+{
+    d3dpt_gdi2 g = p->g;
+    d3dpt_gdi2 *out;
+    ULONG n = g.n;
+
+    if (!gdi_side(a, &g.dst, p->dst) || (p->src && !gdi_side(a, &g.src, p->src)) ||
+        (p->alpha && !gdi_side(a, &g.alpha, p->alpha)) || (p->lut && !gdi_side(a, &g.lut, p->lut))) {
+        static ULONG logged;
+
+        if (logged < 16) {
+            logged++;
+            dbg_hex("d3dptkmd: a GDI record dropped, op ", g.op);
+            dbg_hex(" dst seg ", p->dst ? p->dst->cur_seg : 0);
+            dbg_hex(" src seg ", p->src ? p->src->cur_seg : 0);
+            dbg_hex(" alpha seg ", p->alpha ? p->alpha->cur_seg : 0);
+            dbg_hex(" lut seg ", p->lut ? p->lut->cur_seg : 0);
+            dbg_puts("\n");
+        }
+        return FALSE;
+    }
+    out = d3dpt_enc_cmd(&a->enc, D3DPT_OP_GDI, sizeof(g), n * sizeof(d3dpt_gdi_rect));
+    if (!out) {
+        return FALSE;
+    }
+    *out = g;
+    RtlCopyMemory(out + 1, p->r, n * sizeof(d3dpt_gdi_rect));
+    return TRUE;
+}
+
 /* A present into a window's redirection bitmap (GDI acceleration): a
  * copy the host does, so the bitmap's object, which DWM samples, has it.
  * And a Direct3D 11 buffer's present into a STAGING surface (a blt-model
@@ -2498,6 +2543,11 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
             }
             break;
         }
+        case PKT_GDI2:
+            if (a->d3d) {
+                gdi_record2(a, (const PKT_GDI2_T *)hd);
+            }
+            break;
         case PKT_FLIP:
             if (((const PKT_FLIP_T *)hd)->src.seg == 1 && a->flip_defer) {
                 a->flip_addr = ((const PKT_FLIP_T *)hd)->src.addr;     /* SubmitCommand queues it */
@@ -2985,8 +3035,9 @@ static void gdi_rects(const RECT *dr, ULONG nsub, const RECT *sub, const RECT *s
 /*
  * GDI acceleration's command buffer (RenderKm): a registration packet of
  * the allocation list, as Render's, then a packet for each copy (SRCCOPY)
- * and fill (PATCOPY), which the submission hands the host as GDI records.
- * The other operations are not done yet (logged). Commands that do not fit
+ * and fill (PATCOPY), which the submission hands the host as GDI records,
+ * and one for each other operation (gdi_render2, protocol v29: any ROP,
+ * AlphaBlend, StretchBlt, TransparentBlt, ClearType). Commands that do not fit
  * the DMA buffer go in the next (MultipassOffset: the next command's
  * offset).
  */
@@ -3076,6 +3127,168 @@ static void gdi_census(const DXGKARG_RENDER *r, const DXGK_RENDERKM_COMMAND *c)
     }
 }
 
+/* A BitBlt's or a ColorFill's ROP as a ROP3 (bit P*4 + S*2 + D) */
+static ULONG gdi_rop3(const DXGK_RENDERKM_COMMAND *c)
+{
+    if (c->OpCode == DXGK_GDIOP_BITBLT) {
+        switch (c->Command.BitBlt.Rop) {
+        case DXGK_GDIROP_SRCCOPY:   return 0xcc;
+        case DXGK_GDIROP_SRCINVERT: return 0x66;
+        case DXGK_GDIROP_SRCAND:    return 0x88;
+        case DXGK_GDIROP_SRCOR:     return 0xee;
+        case DXGK_GDIROP_ROP3:      return c->Command.BitBlt.Rop3 & 0xff;
+        default:                    return ~0u;
+        }
+    }
+    switch (c->Command.ColorFill.Rop) {
+    case DXGK_GDIROPCF_PATCOPY:   return 0xf0;
+    case DXGK_GDIROPCF_PATINVERT: return 0x5a;
+    case DXGK_GDIROPCF_PDXN:      return 0xa5;
+    case DXGK_GDIROPCF_DSTINVERT: return 0x55;
+    case DXGK_GDIROPCF_PATAND:    return 0xa0;
+    case DXGK_GDIROPCF_PATOR:     return 0xfa;
+    case DXGK_GDIROPCF_ROP3:      return c->Command.ColorFill.Rop3 & 0xff;
+    default:                      return ~0u;
+    }
+}
+
+/* RenderKm's other operations (protocol v29): a PKT_GDI2 each. An error
+ * status: not done (an unknown ROP, an index out of the list);
+ * STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER: it goes into the next one. */
+static NTSTATUS gdi_render2(const DXGKARG_RENDER *r, const DXGK_RENDERKM_COMMAND *c, PUCHAR *dma, PUCHAR end, PUCHAR first)
+{
+    PKT_GDI2_T *p;
+    d3dpt_gdi2 g;
+    const RECT *dr = NULL, *sr = NULL, *sub = NULL;
+    UINT si = ~0u, di = ~0u, ai = ~0u, li = ~0u, nsub = 0, nal = r->AllocationListSize;
+    ULONG n, size;
+
+    RtlZeroMemory(&g, sizeof(g));
+    switch (c->OpCode) {
+    case DXGK_GDIOP_BITBLT: {
+        const DXGK_GDIARG_BITBLT *b = &c->Command.BitBlt;
+
+        g.op = D3DPT_GDI_ROP;
+        g.rop = gdi_rop3(c);
+        dr = &b->DstRect;
+        sr = &b->SrcRect;
+        si = b->SrcAllocationIndex;
+        di = b->DstAllocationIndex;
+        nsub = b->NumSubRects;
+        sub = b->pSubRects;
+        break;
+    }
+    case DXGK_GDIOP_COLORFILL: {
+        const DXGK_GDIARG_COLORFILL *f = &c->Command.ColorFill;
+
+        g.op = D3DPT_GDI_ROP;
+        g.rop = gdi_rop3(c);
+        g.color = f->Color;
+        dr = &f->DstRect;
+        di = f->DstAllocationIndex;
+        nsub = f->NumSubRects;
+        sub = f->pSubRects;
+        break;
+    }
+    case DXGK_GDIOP_ALPHABLEND: {
+        const DXGK_GDIARG_ALPHABLEND *b = &c->Command.AlphaBlend;
+
+        g.op = D3DPT_GDI_ALPHA;
+        g.flags = b->SourceConstantAlpha | (b->SourceHasAlpha ? 0x100 : 0);
+        dr = &b->DstRect;
+        sr = &b->SrcRect;
+        si = b->SrcAllocationIndex;
+        di = b->DstAllocationIndex;
+        nsub = b->NumSubRects;
+        sub = b->pSubRects;
+        break;
+    }
+    case DXGK_GDIOP_STRETCHBLT: {
+        const DXGK_GDIARG_STRETCHBLT *b = &c->Command.StretchBlt;
+
+        g.op = D3DPT_GDI_STRETCH;
+        g.rop = b->Mode;
+        g.flags = (b->MirrorX ? 1 : 0) | (b->MirrorY ? 2 : 0);
+        dr = &b->DstRect;
+        sr = &b->SrcRect;
+        si = b->SrcAllocationIndex;
+        di = b->DstAllocationIndex;
+        nsub = b->NumSubRects;
+        sub = b->pSubRects;
+        break;
+    }
+    case DXGK_GDIOP_TRANSPARENTBLT: {
+        const DXGK_GDIARG_TRANSPARENTBLT *b = &c->Command.TransparentBlt;
+
+        g.op = D3DPT_GDI_TRANSPARENT;
+        g.color = b->Color;
+        g.flags = b->Flags.HonorAlpha ? 1 : 0;
+        dr = &b->DstRect;
+        sr = &b->SrcRect;
+        si = b->SrcAllocationIndex;
+        di = b->DstAllocationIndex;
+        nsub = b->NumSubRects;
+        sub = b->pSubRects;
+        break;
+    }
+    case DXGK_GDIOP_CLEARTYPEBLEND: {
+        const DXGK_GDIARG_CLEARTYPEBLEND *b = &c->Command.ClearTypeBlend;
+
+        g.op = D3DPT_GDI_CLEARTYPE;
+        g.color = b->Color;
+        g.color2 = b->Color2;
+        g.gamma = b->Gamma;
+        g.ax = b->DstToAlphaOffsetX;
+        g.ay = b->DstToAlphaOffsetY;
+        dr = &b->DstRect;
+        di = b->DstAllocationIndex;
+        ai = b->AlphaSurfAllocationIndex;
+        li = b->Gamma == D3DKM_INVALID_GAMMA_INDEX ? ~0u : b->GammaSurfAllocationIndex;
+        nsub = b->NumSubRects;
+        sub = b->pSubRects;
+        break;
+    }
+    default:
+        return STATUS_NOT_SUPPORTED;
+    }
+    if (g.rop == ~0u || di >= nal || (si != ~0u && si >= nal) || (g.op == D3DPT_GDI_CLEARTYPE && ai >= nal) ||
+        (li != ~0u && li >= nal) || (nsub && !sub)) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (sr) {
+        g.sl = sr->left;
+        g.st = sr->top;
+        g.sr = sr->right;
+        g.sb = sr->bottom;
+    }
+    g.dl = dr->left;
+    g.dt = dr->top;
+    g.dr = dr->right;
+    g.db = dr->bottom;
+    n = nsub ? nsub : 1;
+    size = FIELD_OFFSET(PKT_GDI2_T, r) + n * sizeof(PKT_RECT);
+    if (size > (ULONG)(end - *dma)) {
+        if (*dma != first) {
+            return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
+        }
+        n = (ULONG)((end - *dma - FIELD_OFFSET(PKT_GDI2_T, r)) / sizeof(PKT_RECT));     /* alone too big: cut */
+        size = FIELD_OFFSET(PKT_GDI2_T, r) + n * sizeof(PKT_RECT);
+        dbg_hex("d3dptkmd: RenderKm: sub-rectangles cut to ", n);
+        dbg_puts("\n");
+    }
+    g.n = n;
+    p = (PKT_GDI2_T *)*dma;
+    pkt_hdr(&p->h, PKT_GDI2, size);
+    p->g = g;
+    p->dst = (D3DPT_ALLOC *)r->pAllocationList[di].hDeviceSpecificAllocation;
+    p->src = si != ~0u ? (D3DPT_ALLOC *)r->pAllocationList[si].hDeviceSpecificAllocation : NULL;
+    p->alpha = ai != ~0u ? (D3DPT_ALLOC *)r->pAllocationList[ai].hDeviceSpecificAllocation : NULL;
+    p->lut = li != ~0u ? (D3DPT_ALLOC *)r->pAllocationList[li].hDeviceSpecificAllocation : NULL;
+    gdi_rects(dr, nsub, sub, sr, p->r, n);
+    *dma += size;
+    return STATUS_SUCCESS;
+}
+
 static DXGKDDI_RENDERKM d3dpt_render_km;
 static NTSTATUS APIENTRY d3dpt_render_km(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDER r)
 {
@@ -3136,16 +3349,26 @@ static NTSTATUS APIENTRY d3dpt_render_km(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDE
             nsub = c->Command.ColorFill.NumSubRects;
             sub = c->Command.ColorFill.pSubRects;
         } else if (c->OpCode != DXGK_GDIOP_ESCAPE) {
-            /* not done yet: counted by operation (and a BitBlt's or a
-             * ColorFill's ROP), logged every 5 s below */
-            ULONG k = (ULONG)c->OpCode & 7;
+            NTSTATUS st = gdi_render2(r, c, &dma, end, first);
 
-            if (c->OpCode == DXGK_GDIOP_BITBLT) {
-                k = 8 + (c->Command.BitBlt.Rop & 7);
-            } else if (c->OpCode == DXGK_GDIOP_COLORFILL) {
-                k = 16 + (c->Command.ColorFill.Rop & 7);
+            if (st == STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER) {
+                r->MultipassOffset = off;          /* the rest in the next DMA buffer */
+                r->pDmaBuffer = dma;
+                r->pPatchLocationListOut = out;
+                return st;
             }
-            g_gdi_skip[k]++;
+            if (!NT_SUCCESS(st)) {
+                /* not done: counted by operation (and a BitBlt's or a
+                 * ColorFill's ROP), logged every 5 s below */
+                ULONG k = (ULONG)c->OpCode & 7;
+
+                if (c->OpCode == DXGK_GDIOP_BITBLT) {
+                    k = 8 + (c->Command.BitBlt.Rop & 7);
+                } else if (c->OpCode == DXGK_GDIOP_COLORFILL) {
+                    k = 16 + (c->Command.ColorFill.Rop & 7);
+                }
+                g_gdi_skip[k]++;
+            }
         }
         if (op && di < nal && (op == D3DPT_GDI_FILL || si < nal) && (!nsub || sub)) {
             n = nsub ? nsub : 1;

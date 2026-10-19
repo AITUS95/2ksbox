@@ -392,7 +392,11 @@ tracks, plus the items no track owns.
     were tried and change nothing for the present. GDI acceleration is
     in, on by default on the track's branch (the service key's
     `GdiAcceleration` = 0 turns it off; protocol v27's
-    `GDI` record): RenderKm's copies and fills, a present into a window's
+    `GDI` record): RenderKm's copies and fills (and since v29 every other
+    operation, ROPs, StretchBlt, AlphaBlend, TransparentBlt, ClearType,
+    done by the host on the CPU and proved by `d3dpt-gdi` against the
+    PC's own GDI: Windows 11 sends next to none of them, the track's
+    "GDI's other operations"), a present into a window's
     redirection bitmap and its paging done by the host, GDI's own CPU
     drawing brought over from the bitmaps' VRAM (they are CPU-visible;
     the host compares each with a shadow when DWM is about to sample it):
@@ -401,9 +405,7 @@ tracks, plus the items no track owns.
     bitmap, not into the bitmap (~240 frames/s unsynced since the
     display stopped waiting for flips' readbacks under the BQL and the
     staging surfaces are mapped cached, ~85 before; the flip model
-    ~515; the track's "Where the STAGING frame went"), and the other
-    RenderKm operations (the track's
-    "GDI's own drawing"); the x64 kernel
+    ~515; the track's "Where the STAGING frame went"); the x64 kernel
     driver's flips on the blank have been MMIO flips since 2026-10-18,
     `FlipOnVSyncMmIo`: a DMA flip held for the blank
     held every process's later fences, ~37 frames/s in runs of one and

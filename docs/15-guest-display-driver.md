@@ -17,7 +17,7 @@ since M16 a DirectX 9 DDI with shader model 3.0). The
 register set is **v10** (`D3DPT_FB_VERSION`; v6 to v10 added only the
 WDDM driver's interrupt, fence, DMA append, CURSOR_FLAGS, VRAM fill and copy
 and the Direct3D 11 executor's `CAP_D3D11`, which this driver never
-touches) and the protocol **v27** (`D3DPT_PROTO_VERSION`; v25 to v27 are
+touches) and the protocol **v29** (`D3DPT_PROTO_VERSION`; v25 to v29 are
 the WDDM driver's Direct3D 11 and GDI records, track M25). FIFA 2000, Max Payne, Diablo, Moto Racer 1997,
 GTA 2 and GTA Vice City run on it with no DLL in their folders.
 
