@@ -88,7 +88,7 @@ typedef struct D3DPT_ADAPTER {
     DXGK_DEVICE_INFO info;            /* the PCI resources */
     PHYSICAL_ADDRESS vram_phys;       /* BAR 0 */
     ULONG vram_len;
-    PHYSICAL_ADDRESS regs_phys;       /* BAR 1 */
+    PHYSICAL_ADDRESS regs_phys;       /* BAR 1, or 2 with a 64-bit BAR 0 */
     ULONG regs_len;
     volatile ULONG *regs;             /* BAR 1 mapped (kernel VA) */
     ULONG seg_size;                   /* VRAM below the Direct3D command window */
@@ -319,7 +319,8 @@ static NTSTATUS d3dpt_add_device(IN_CONST_PDEVICE_OBJECT pdo, OUT_PPVOID ctx)
 static NTSTATUS find_bars(D3DPT_ADAPTER *a)
 {
     PCM_RESOURCE_LIST list = a->info.TranslatedResourceList;
-    ULONG bar[2], got = 0, f, i, found = 0;
+    ULONG bar[3], got = 0, f, i, found = 0;
+    ULONGLONG vram, regs;
     NTSTATUS st;
 
     if (!list) {
@@ -330,22 +331,30 @@ static NTSTATUS find_bars(D3DPT_ADAPTER *a)
     if (!NT_SUCCESS(st) || got != sizeof(bar)) {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
-    bar[0] &= ~0xfu;
-    bar[1] &= ~0xfu;
+    /* VRAM is BAR 0 either way. With the device's bar64 (Windows 11 on
+     * Arm, track M25) it is 64-bit, BARs 0 and 1, and may lie above
+     * 4 GiB; the registers are then BAR 2. */
+    vram = bar[0] & ~0xfu;
+    if ((bar[0] & 0x6u) == 0x4u) {
+        vram |= (ULONGLONG)bar[1] << 32;
+        regs = bar[2] & ~0xfu;
+    } else {
+        regs = bar[1] & ~0xfu;
+    }
     for (f = 0; f < list->Count; f++) {
         PCM_PARTIAL_RESOURCE_LIST pl = &list->List[f].PartialResourceList;
 
         for (i = 0; i < pl->Count; i++) {
             PCM_PARTIAL_RESOURCE_DESCRIPTOR d = &pl->PartialDescriptors[i];
 
-            if (d->Type != CmResourceTypeMemory || d->u.Memory.Start.HighPart) {
+            if (d->Type != CmResourceTypeMemory) {
                 continue;
             }
-            if (d->u.Memory.Start.LowPart == bar[0]) {
+            if ((ULONGLONG)d->u.Memory.Start.QuadPart == vram) {
                 a->vram_phys = d->u.Memory.Start;
                 a->vram_len = d->u.Memory.Length;
                 found |= 1;
-            } else if (d->u.Memory.Start.LowPart == bar[1]) {
+            } else if ((ULONGLONG)d->u.Memory.Start.QuadPart == regs) {
                 a->regs_phys = d->u.Memory.Start;
                 a->regs_len = d->u.Memory.Length;
                 found |= 2;

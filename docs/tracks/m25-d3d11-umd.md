@@ -934,17 +934,30 @@ drivers disc's experimental viogpudo is). The aarch64 QEMU builds
 `arm_system_ss`; the device has nothing x86 in it, and the virt board's
 PCI selects VGA_PCI, so the VGA core). A Windows 11 machine on Arm with
 `video = "d3dpt"` gets `ramfb` (the firmware's screen) then
-`d3dpt-vga,irq=on,vgamem_mb=256` in place of virtio-gpu (`arm_args`,
-checked with `launcherx --print-args` on a scratch bundle). 256, not
-x64's 512 (2026-10-20, the Mac's first boot on it): the frame buffer is
-a 32-bit BAR, the `virt` board's 32-bit PCI window is
-0x10000000-0x3eff0000, and a 512 MiB BAR aligned to its size fits
-nowhere in it; EDK2 failed the bus's resources, lost the AHCI disk and
-dropped to its shell ("map: no mapping found", Boot0004 "Not Found").
-At 256 the same machine's firmware starts Windows Boot Manager. Windows
-then stops at 2560x1600; 3840x2160 needs a 64-bit BAR in the high
-window, which the kernel driver's `find_bars` refuses today (it skips a
-memory resource above 4 GiB). In the form
+`d3dpt-vga,irq=on,vgamem_mb=512,bar64=on,romfile=` in place of
+virtio-gpu, on `virt,gic-version=3,highmem-mmio-size=16G` (`arm_args`,
+checked with `launcherx --print-args` on a scratch bundle).
+
+**The frame buffer above 4 GiB** (2026-10-20, the Mac's first boot on
+it). As a 32-bit BAR, 512 MiB fits nowhere in the `virt` board's 32-bit
+PCI window (0x10000000-0x3eff0000) aligned to its size: EDK2 failed the
+bus's resources, lost the AHCI disk and dropped to its shell ("map: no
+mapping found", Boot0004 "Not Found"; 256 MiB fits, and was the stopgap
+for a few hours). So on Arm the device's `bar64=on` makes VRAM a 64-bit
+prefetchable BAR 0 (slots 0 and 1) and the registers BAR 2, and the
+kernel driver's `find_bars` reads either layout and takes an address
+above 4 GiB (x64 and the 32-bit families keep the old layout). Two more
+things stood in the way on the Air: an M1 gives an HVF guest a 36-bit
+IPA, and QEMU never put the high regions below 256 GiB, nor its PCIe
+window below 512 GiB, so the machine had no high window at all; QEMU
+patch 97 lets them follow the memory there and the window shrink, and
+the machine asks for 16 GiB (0x4_0000_0000 to 0x7_ffff_ffff with 4 GiB
+of RAM). And EDK2 moves a 64-bit BAR below 4 GiB on a device with an
+option ROM (`PcdPciDegradeResourceForOptionRom`), so the Arm device has
+none (`romfile=`; the x86 VGA BIOS is no use there). Checked: EDK2 maps
+the bus with the BAR on it (AHCI at 0x10006000) and the user's machine
+boots Windows on the layout. Not yet seen: the BAR's address in the
+guest, which waits on the driver loading (below). In the form
 our adapter on Windows 11, either architecture, is "2ksbox adapter
 (experimental)"; picking it asks first in a warning alert
 (`Form::video_question`: early build, test mode, Secure Boot off, the
@@ -1008,9 +1021,17 @@ whose Direct3D 11 side has not run either.
   Mac build of the executor and a run there remain.
 - **Windows 11 on Arm**: the driver builds, the aarch64 QEMU has the
   device and the launcher offers it (same section); on the Mac the
-  firmware boots Windows with it at `vgamem_mb=256` (2026-10-20); the
-  driver's install and a run there remain. 3840x2160 there: a 64-bit
-  BAR (a device property) and `find_bars` taking it.
+  machine boots Windows with the 512 MiB frame buffer in a 64-bit BAR
+  (2026-10-20, QEMU patch 97). **The kernel driver does not load**
+  there: it installs cleanly (`setupapi.dev.log`), then Code 48, Kernel-PnP
+  event 219 with `0xC000036B` (`STATUS_DRIVER_BLOCKED_CRITICAL`) at
+  every start, with test signing on, memory integrity off and no
+  Code Integrity event naming it, and the ARM64 image's header matches
+  the x64 one's. Suspected, not confirmed: dxgkrnl on Arm refuses a
+  driver below WDDM 2.0 (ours registers the Windows 8 interface, 1.2),
+  as Windows on Arm may not carry `dxgmms1.sys`, the memory manager of
+  drivers before 2.0. The driver with the new `find_bars` is not yet
+  built (the PC).
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a

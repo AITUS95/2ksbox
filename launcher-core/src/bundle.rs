@@ -2393,8 +2393,15 @@ impl Machine {
     fn arm_args(&self, pc_bios_dir: &Path, shelf: Option<&Path>) -> Vec<String> {
         let arch = Arch::Aarch64;
         let bios = |name: &str| opt_value(&pc_bios_dir.join(name).display().to_string());
-        let mut args =
-            vec!["-L".into(), pc_bios_dir.display().to_string(), "-machine".into(), "virt,gic-version=3".into()];
+        // A 16 GiB high PCI window (QEMU patch 97): the default 512 GiB
+        // one does not fit an M1's 36-bit IPA under HVF and is dropped,
+        // and our adapter's frame buffer needs room above 4 GiB (below).
+        let mut args = vec![
+            "-L".into(),
+            pc_bios_dir.display().to_string(),
+            "-machine".into(),
+            "virt,gic-version=3,highmem-mmio-size=16G".into(),
+        ];
         args.extend(self.accel_args());
         args.extend([
             "-m".into(),
@@ -2437,15 +2444,16 @@ impl Machine {
             // build): ramfb stays for the firmware, which has no driver
             // for d3dpt-vga, and ours replaces virtio-gpu, as on x64
             // (`modern_args`: viogpudo beside it would make Windows a
-            // third screen). Its interrupt as on x64 (`video_args`), but
-            // 256 MiB, not 512: the frame buffer is a 32-bit BAR, the
-            // virt board's 32-bit PCI window is 0x10000000-0x3eff0000,
-            // and a 512 MiB BAR aligned to its size fits nowhere in it.
-            // EDK2 then fails the bus's resources and loses the disk
-            // ("map: no mapping found"); 256 stops Windows at 2560x1600.
+            // third screen). Its interrupt and 512 MiB as on x64
+            // (`video_args`), in a 64-bit BAR: the virt board's 32-bit
+            // PCI window (0x10000000-0x3eff0000) cannot hold 512 MiB
+            // aligned to its size, and EDK2 then fails the bus and loses
+            // the disk ("map: no mapping found"). No option ROM (an x86
+            // VGA BIOS, useless here), or EDK2 moves the BAR below 4 GiB
+            // again (`PcdPciDegradeResourceForOptionRom`).
             "-device".into(),
             if self.effective_video() == Some(Video::D3dpt) {
-                let mut dev = "d3dpt-vga,irq=on,vgamem_mb=256".to_string();
+                let mut dev = "d3dpt-vga,irq=on,vgamem_mb=512,bar64=on,romfile=".to_string();
                 if let Some(which) = self.d3d9_arg() {
                     dev.push_str(",d3d9=");
                     dev.push_str(which);

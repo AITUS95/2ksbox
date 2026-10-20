@@ -1179,6 +1179,24 @@ does is one whose guest follows the window's size (the player's
 (`D:\vms\win11-test`): the driver's `refresh` log line and d3dgame11's
 `-trace` intervals. **Drop:** with patch 90.
 
+### 97-virt-small-highmem-mmio
+The `virt` board's high PCIe window on a host with a small IPA (track
+M25). An M1 gives an HVF guest 36 bits (64 GiB, `kern.hv.ipa_size`), and
+two rules dropped the window there: the high regions never start below
+256 GiB (the legacy layout), and the window is 512 GiB aligned to its
+size. The 256 GiB floor now applies only where the PA space reaches it
+(else the high regions follow the memory, as past 255 GiB of RAM), and
+`highmem-mmio-size` may be set below its default, down to 256 MiB. A
+host with 40 bits or more keeps its layout; on the Air every Arm machine
+gets the high ECAM (0x1_5000_0000 with 4 GiB of RAM) where it had the
+low one. Windows 11 on Arm machines ask for 16 GiB, for d3dpt-vga's
+512 MiB frame buffer as a 64-bit BAR (`bar64`), which the 32-bit window
+cannot hold. **Test:** `info mtree` on the Air shows `pcie-mmio-high` at
+0x4_0000_0000 with `highmem-mmio-size=16G` (none without the patch), and
+the user's Windows 11 on Arm machine boots on it with the BAR on the bus
+(EDK2 maps AHCI; with a 32-bit 512 MiB BAR it lost it). **Drop:**
+upstream places the high regions for a small IPA.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

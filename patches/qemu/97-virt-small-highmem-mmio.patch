@@ -1,0 +1,51 @@
+The virt board gets a high PCIe window on a host with a small IPA.
+Two limits dropped it on an Apple M1 under HVF, whose guests have 36
+bits (64 GiB): the high regions never start below 256 GiB (the legacy
+layout), and the window is 512 GiB aligned to its size (40 bits). The
+256 GiB floor now applies only where the PA space reaches it (else the
+high regions follow the memory, as they do past 255 GiB of RAM), and
+highmem-mmio-size may be set below its default, down to 256 MiB. A host
+with 40 bits or more keeps the layout it had. 2ksbox's Windows 11 on Arm
+machines ask for 16 GiB, for d3dpt-vga's 512 MiB frame buffer, which the
+32-bit window (0x10000000-0x3eff0000) cannot hold aligned to its size.
+Drop when upstream places the high regions for a small IPA.
+
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index 219597cabd..b1ad2e0516 100644
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -2574,7 +2574,13 @@ static void virt_set_memmap(VirtMachineState *vms, int pa_bits)
+         error_report("maxmem/slots too huge");
+         exit(EXIT_FAILURE);
+     }
+-    if (base < vms->memmap[VIRT_MEM].base + LEGACY_RAMLIMIT_BYTES) {
++    /*
++     * 2ksbox: the legacy floor only where the PA space reaches it. Below
++     * that (an Apple M1 under HVF: 36 bits) every high region would fall
++     * off the top, the PCIe window with them, so they follow the memory.
++     */
++    if (base < vms->memmap[VIRT_MEM].base + LEGACY_RAMLIMIT_BYTES &&
++        vms->memmap[VIRT_MEM].base + LEGACY_RAMLIMIT_BYTES < BIT_ULL(pa_bits)) {
+         base = vms->memmap[VIRT_MEM].base + LEGACY_RAMLIMIT_BYTES;
+     }
+ 
+@@ -3391,11 +3397,14 @@ static void virt_set_highmem_mmio_size(Object *obj, Visitor *v,
+         return;
+     }
+ 
+-    if (size < DEFAULT_HIGH_PCIE_MMIO_SIZE) {
+-        char *sz = size_to_str(DEFAULT_HIGH_PCIE_MMIO_SIZE);
+-        error_setg(errp, "highmem-mmio-size cannot be set to a lower value "
+-                         "than the default (%s)", sz);
+-        g_free(sz);
++    /*
++     * 2ksbox: a smaller window is allowed too. The default 512 GiB one,
++     * aligned to its size, needs a 40-bit IPA, and an Apple M1 under HVF
++     * has 36 bits, so there the window is dropped and a 64-bit BAR has
++     * nowhere to go above 4 GiB.
++     */
++    if (size < 256 * MiB) {
++        error_setg(errp, "highmem-mmio-size cannot be below 256 MiB");
+         return;
+     }
+ 

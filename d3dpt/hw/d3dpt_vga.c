@@ -78,6 +78,7 @@ struct D3dptVgaState {
     QEMUTimer *vbl_timer;       /* the vertical blank interrupt's, while IRQ_VBLANK is enabled */
     int64_t vbl_next_ns;        /* its next deadline (QEMU_CLOCK_VIRTUAL) */
     bool host_vblank;           /* property: IRQ_VBLANK on the host screen's blank */
+    bool bar64;                 /* property: VRAM a 64-bit BAR 0, the registers BAR 2 */
     Notifier host_vbl;          /* qemu_host_vblank's, with host_vblank */
     uint32_t host_vbls;         /* host blanks raised since IRQ_VBLANK went on */
     uint32_t watchdog_vbls;     /* and the timer's, while host blanks had come */
@@ -1509,8 +1510,15 @@ static void d3dpt_vga_realize(PCIDevice *dev, Error **errp)
     s->indexed = g_new0(pixman_indexed_t, 1);
     s->indexed->color = true;
 
-    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &vga->vram);
-    pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->regs);
+    if (s->bar64) {
+        /* takes BAR slots 0 and 1, so the registers move to 2 */
+        pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH | PCI_BASE_ADDRESS_MEM_TYPE_64,
+                         &vga->vram);
+        pci_register_bar(dev, 2, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->regs);
+    } else {
+        pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &vga->vram);
+        pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->regs);
+    }
     if (s->irq) {
         dev->config[PCI_INTERRUPT_PIN] = 1;
     }
@@ -1605,6 +1613,12 @@ static const Property d3dpt_vga_properties[] = {
     /* with irq: IRQ_VBLANK on the host screen's blank when the player gives
      * one (fb_host_vblank); off, the guest's clock alone, the A/B */
     DEFINE_PROP_BOOL("host-vblank", D3dptVgaState, host_vblank, true),
+    /* bar64=on: VRAM is a 64-bit BAR 0 (slots 0 and 1) and the registers
+     * BAR 2, so the firmware may place VRAM above 4 GiB. Windows 11 on
+     * Arm (track M25): the virt board's 32-bit window cannot hold 512 MiB
+     * aligned to its size. Only the WDDM driver reads this layout; with
+     * an option ROM EDK2 puts the BAR below 4 GiB again (romfile=). */
+    DEFINE_PROP_BOOL("bar64", D3dptVgaState, bar64, false),
 };
 
 static void d3dpt_vga_class_init(ObjectClass *klass, const void *data)

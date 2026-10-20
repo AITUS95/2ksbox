@@ -51,6 +51,10 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
   int10 puts the core back into mode 3. The id is 1234:3d00 (the
   QEMU/Bochs pseudo vendor, our device id), matched as
   `PCI\VEN_1234&DEV_3D00`.
+- **`bar64=on`** (Windows 11 on Arm only, track M25) makes VRAM a 64-bit
+  BAR 0 (slots 0 and 1) and moves the registers to BAR 2, so the
+  firmware can place VRAM above 4 GiB; only the WDDM kernel driver reads
+  that layout (`find_bars`).
 - **The register BAR is the paravirtual part** (`d3dpt/d3dpt_fb.h`, one
   header for the device and both drivers). The host owns the mode table:
   the miniport reads MODE_COUNT and walks MODE_SEL → MODE_W/H/BPP/HZ, so
