@@ -15,7 +15,8 @@
 //! is pressed, when the field loses focus, or when the window closes with
 //! the edit still in it: the core
 //! re-sorts the shelf on every label change, so writing each keystroke
-//! would move the row being typed in.
+//! would move the row being typed in. Escape drops the edit; only an
+//! Escape outside the field closes the window.
 
 use crate::machines::Library;
 use crate::machines::icons;
@@ -107,6 +108,12 @@ impl Discs {
             }
         });
         self.edit(|s| s.remove(path));
+    }
+
+    /// Drop the label being edited, as Escape does in the field: the label
+    /// stays as it was. The field's blur that follows finds nothing to write.
+    fn cancel_label(&self) {
+        self.editing.set(None);
     }
 
     /// Write the label being edited, if any.
@@ -397,6 +404,7 @@ fn DiscRow(path: PathBuf) -> impl View {
                                 top={Length::Px(-7.0)}
                                 margin_start=Spacing::Xs
                                 hidden=move || cfg!(target_os = "macos") || !hovered.get()
+                                native=pencil()
                                 icon=icons::EDIT
                                 icon_only=true
                                 button_style=ButtonStyle::Borderless
@@ -410,19 +418,23 @@ fn DiscRow(path: PathBuf) -> impl View {
                         </Row>
                     }
                 }}>
-                    <TextInput
-                        a11y_label="Label"
-                        node_ref=field_ref
-                        native=inline_field()
-                        value=move || discs.editing.with(|e| e.as_ref().map(|(_, t)| t.clone()).unwrap_or_default())
-                        @input=move |text| discs.editing.update(|e| {
-                            if let Some((_, typed)) = e {
-                                *typed = text;
-                            }
-                        })
-                        @submit=move || discs.commit_label()
-                        @blur=move || discs.commit_label()
-                    />
+                    // Escape in the field drops the edit, and only a second
+                    // one closes the window (user).
+                    {Column::new().on_key(Key::Escape, move || discs.cancel_label()).child(view! {
+                        <TextInput
+                            a11y_label="Label"
+                            node_ref=field_ref
+                            native=inline_field()
+                            value=move || discs.editing.with(|e| e.as_ref().map(|(_, t)| t.clone()).unwrap_or_default())
+                            @input=move |text| discs.editing.update(|e| {
+                                if let Some((_, typed)) = e {
+                                    *typed = text;
+                                }
+                            })
+                            @submit=move || discs.commit_label()
+                            @blur=move || discs.commit_label()
+                        />
+                    })}
                 </Show>
                 <Text text_style=TextStyle::Caption color=Color::SecondaryLabel max_lines=1 truncation=Truncation::Middle>
                     {let path = p5.clone(); move || field(&path, Shelf::row_detail)}
@@ -451,6 +463,20 @@ fn DiscRow(path: PathBuf) -> impl View {
                 @click=move || discs.remove(&p7)
             >"Remove"</Button>
         </Row>
+    }
+}
+
+/// The pencil never takes focus on Windows. A click would focus it, the
+/// field then replaces it, and XAML's late report of that focus reads as
+/// the new field losing focus, which wrote the label and closed the field
+/// as soon as it opened (user). The keyboard renames from the row's menu.
+fn pencil() -> Tweak<Button> {
+    platform! {
+        windows => mitsuami::winui::tweak(|b: &mitsuami::winui::bindings::Button| {
+            use mitsuami::winui::windows_core::Interface;
+            b.cast::<mitsuami::winui::bindings::IUIElement>()?.SetIsTabStop(false)
+        }),
+        _ => Tweak::none(),
     }
 }
 

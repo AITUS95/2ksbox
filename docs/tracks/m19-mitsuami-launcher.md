@@ -398,7 +398,14 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    637772f's `on_hover`, with the row's context menu, Rename, Insert,
    Remove from shelf, as the keyboard's way in; clicked through on
    Broadway) that turns it into a field, focused with the label selected
-   (written on Enter or focus leaving), the
+   (written on Enter or focus leaving; Escape drops the edit, taken by
+   a container's `on_key` round the field ahead of the dialog's
+   Escape-closes, so only a second Escape closes the window, user
+   2026-10-19). On WinUI the pencil is `IsTabStop=false`: a click
+   focused it, the field replaced it, and XAML's late `GotFocus` for it
+   read as the new field's blur, which wrote the label and closed the
+   field at once (user 2026-10-19; reproduced and checked by a real
+   click through UI Automation), the
    core's "Disc image · ~/path" line, ▶ (Insert) or "In drive", and the
    trash button. The rules are doc 07's "One drive": Insert sets the boot
    disc, and on a running machine swaps the disc now too; the card polls
