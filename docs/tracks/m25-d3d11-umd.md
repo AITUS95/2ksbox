@@ -1016,7 +1016,8 @@ whose Direct3D 11 side has not run either.
   the depth buffer, sampled with DXVK's depth compare (NVIDIA's shadow
   maps), never uploaded from VRAM; a host that refuses one gets the plain
   depth surface. No new wire: the host reads the caps it already had.
-  Built, not yet run in a guest; open: the vendors' raw-depth FOURCCs
+  The user ran the game's hardware shadows on Windows 11 and on XP
+  (2026-10-20); open: the vendors' raw-depth FOURCCs
   (INTZ, DF24, DF16; not Direct3D 9's own formats), a probe of our own.
 - **Unigine Heaven in Direct3D 9** (2026-10-19, on an overlay of the
   user's machine, High, 1920x1200 full screen). With the depth textures
