@@ -92,6 +92,7 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             argv.extend(player::pad_args(&machine));
             argv.extend(player::share_args(&machine));
             argv.extend(player::window_args(&machine));
+            argv.extend(player::machine_args(Path::new(&path)));
             println!("{}", argv.join(" "));
         }
         "--prepare" => {
@@ -119,7 +120,7 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             let socket = control::socket_path(dir);
             let shelf_path = control::shelf_path(dir);
             machines::publish_shelf(&disc_library::default_path(), &shelf_path);
-            let child = player::spawn(&machine, Some(&socket), Some(&shelf_path)).expect("spawn player");
+            let child = player::spawn(&machine, &path, Some(&socket), Some(&shelf_path)).expect("spawn player");
             println!("pid {} qmp {} shelf {}", child.id(), socket.display(), shelf_path.display());
         }
         "--qmp-socket" => {
@@ -631,6 +632,30 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
                 let kind = shelf.row_kind(row).map_or("", |k| k.key());
                 let mark = if shelf.row_in_drive(row) { "in-drive" } else { "-" };
                 println!("{mark}\t{kind}\t{}\t{}", disc.label, shelf.row_detail(row));
+            }
+        }
+        "--disc-menu" => {
+            // Headless equivalent of the player's Disc menu (M22): each
+            // disc it lists, checked when it is the one in the drive.
+            // `add <disc>` is its Insert Disc Image… / Insert Folder…,
+            // which put the disc on the shelf and in the drive.
+            let usage = "usage: --disc-menu <machine.toml> [add <disc>]";
+            let path: PathBuf = args.next().expect(usage).into();
+            let mut shelf = shelf::Shelf::default();
+            shelf.open_for_path(path, &disc_library::default_path());
+            match (args.next().as_deref(), args.next()) {
+                (Some("add"), Some(disc)) => shelf.add_and_insert(disc.into()),
+                (None, _) => {}
+                _ => panic!("{usage}"),
+            }
+            shelf.flush_reporting();
+            if let Err(e) = shelf.last_result() {
+                eprintln!("[disc-menu] {e}");
+                return Some(1);
+            }
+            for disc in shelf.menu_discs() {
+                let mark = if disc.in_drive { "checked" } else { "-" };
+                println!("{mark}\t{}\t{}", disc.label, disc.path.display());
             }
         }
         "--snapshots" => {

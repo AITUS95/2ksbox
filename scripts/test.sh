@@ -161,8 +161,8 @@ if ! command -v timeout >/dev/null; then
   fi
 fi
 
-player_args() { # launcherx --print-player-args without --window-state, which every machine has (M22)
-  $LAUNCHERX --print-player-args "$1" | sed -E 's/ ?--window-state .*window\.toml//'
+player_args() { # launcherx --print-player-args without --window-state and --machine, which every machine has (M22)
+  $LAUNCHERX --print-player-args "$1" | sed -E 's/ ?--window-state .*window\.toml//; s/ ?--machine .*machine\.toml$//'
 }
 run_check() { # name, log file, command...
   local name="$1" lf="$OUT/$2"; shift 2
@@ -450,6 +450,17 @@ drive_check() { # the shelf's one drive: the boot disc when stopped, the tray wh
   grep -q $'^in-drive\tdisc\tzork\t' <<<"$o" || { echo "zork is not marked in the drive: $o"; rc=1; }
   grep -qx $'Storage\tCD in drive\tzork.iso' <<<"$($LAUNCHERX --machine-details "$bundle")" \
     || { echo "the bundle does not boot with zork"; rc=1; }
+  # The player's Disc menu (M22): the shelf's discs in its order, zork
+  # checked; a boot disc that is not on the shelf comes first, checked.
+  o="$($LAUNCHERX --disc-menu "$bundle" 2>&1)" || { echo "--disc-menu failed: $o"; return 1; }
+  [ "$(cut -f1,2 <<<"$o" | tr '\t\n' ': ')" = "-:guest-tools-3dfx-0000000 -:Patch 1.3 checked:zork " ] \
+    || { echo "the Disc menu: $o"; rc=1; }
+  truncate -s 2M "$dir/loose.iso"
+  $LAUNCHERX --boot-disc "$bundle" "$dir/loose.iso" >/dev/null
+  o="$($LAUNCHERX --disc-menu "$bundle" 2>&1)"
+  [ "$(head -1 <<<"$o" | cut -f1,2)" = $'checked\tloose' ] && [ "$(grep -c $'^checked\t' <<<"$o")" = 1 ] \
+    || { echo "a boot disc off the shelf is not first and checked in the Disc menu: $o"; rc=1; }
+  $LAUNCHERX --boot-disc "$bundle" "$dir/zork.iso" >/dev/null
   # Running: the card is the tray, read from the monitor. A paused QEMU
   # with the machine's CD drive stands in for the player.
   if [ -x $QSYS ]; then
@@ -472,6 +483,14 @@ drive_check() { # the shelf's one drive: the boot disc when stopped, the tray wh
     grep -q $'^drive\tempty\tTray empty\tInsert a disc from the library' <<<"$o" || { echo "the card after a live eject: $o"; rc=1; }
     grep -qx $'Storage\tCD in drive\tEmpty' <<<"$($LAUNCHERX --machine-details "$bundle")" \
       || { echo "a live eject did not empty the boot drive too"; rc=1; }
+    # The player's Disc menu (M22): a disc picked there goes on the shelf
+    # and into the running tray at once, and is the one checked.
+    truncate -s 2M "$dir/myst.iso"
+    o="$($LAUNCHERX --disc-menu "$bundle" add "$dir/myst.iso" 2>&1)" || { echo "--disc-menu add failed: $o"; rc=1; }
+    grep -q $'^checked\tmyst\t' <<<"$o" || { echo "the picked disc is not checked in the menu: $o"; rc=1; }
+    [ "$(grep -c $'^checked\t' <<<"$o")" = 1 ] || { echo "not one disc checked: $o"; rc=1; }
+    grep -q $'^drive\tdisc\tmyst\t' <<<"$($LAUNCHERX --drive "$bundle")" || { echo "the tray does not hold the picked disc"; rc=1; }
+    grep -q $'^myst\t' <<<"$($LAUNCHERX --discs)" || { echo "the picked disc is not on the shelf"; rc=1; }
     kill "$qpid" 2>/dev/null; wait "$qpid" 2>/dev/null
   else
     echo "  (no $QSYS: the running card is not checked)"
@@ -677,7 +696,7 @@ sharing_check() { # Windows 11's clipboard and shared folder, from the form to t
     *) echo "an x64 Windows 11 machine lacks the standard VGA or the virtio-gpu: $a"; return 1 ;; esac
   # the window's size is remembered beside the bundle (M22)
   o="$($LAUNCHERX --print-player-args "$bundle")"
-  [ "$o" = "--window-state $(dirname "$bundle")/window.toml" ] || { echo "no --window-state beside the bundle: $o"; return 1; }
+  [ "$o" = "--window-state $(dirname "$bundle")/window.toml --machine $bundle" ]     || { echo "no --window-state beside the bundle, or no --machine for the Disc menu: $o"; return 1; }
   # a folder without the network is not shared; with it, the player serves it
   edit - - - - - - - - - - - - - "$dir/folder" || return 1
   o="$(player_args "$bundle")"

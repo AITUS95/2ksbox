@@ -257,6 +257,22 @@ embed library, as for the winit player, into a target dir of its own:
 5. **What a player window can show now that it has a toolkit:** the disc
    shelf for the drive and the shader profile, from `launcher-core`
    (the player then needs the bundle it was started for).
+   **The disc shelf done (2026-10-19, user: "machine disc shelf from the
+   player"):** the launcher passes the bundle (`--machine`, after
+   `--window-state`), and `player-mitsuami/src/discs.rs` makes it a Disc
+   menu over `launcher_core::shelf` (doc 07, "The player's Disc menu"):
+   the shelf's discs with the drive's checked, Eject, Insert Disc Image…
+   and Insert Folder as Disc…, a failure in the platform's alert. The
+   player links `launcher-core` with `default-features = false`, which
+   leaves out `ureq` and its rustls (`ring`). Checked: the model through
+   `launcherx --disc-menu` in the `drive` check; on Windows, a scratch
+   machine started by `launcherx --play`, its menu driven through UI
+   Automation: a disc chosen there and Eject both reached the running
+   tray (read back with `launcherx --drive`), and the check mark and
+   Eject's state followed. Not yet: the menu by hand on GTK, Kirigami and macOS, and
+   the App Store build, whose player inherits the launcher's sandbox and
+   may not be able to open a disc picked in its own dialog. The shader
+   profile is left.
 6. **The launcher's player, packaging, the flip:** a build stage, the
    packagers' run, `player-mitsuami` shipped as `2ksbox-player` (and the
    per-target players), and `player/`'s winit front end deleted.

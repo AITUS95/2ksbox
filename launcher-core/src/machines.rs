@@ -173,7 +173,7 @@ impl Machines {
         let socket = control::socket_path(&dir);
         let shelf = control::shelf_path(&dir);
         publish_shelf(&self.disc_library_path, &shelf);
-        match player::spawn(&machine, Some(&socket), Some(&shelf)) {
+        match player::spawn(&machine, &dir.join(library::BUNDLE_FILE), Some(&socket), Some(&shelf)) {
             Ok(child) => {
                 self.running.insert(dir, child);
                 Ok(format!("started {}", machine.name))

@@ -216,6 +216,13 @@ pub fn window_args(machine: &Machine) -> Vec<String> {
     vec!["--window-state".to_string(), machine.window_state_file().display().to_string()]
 }
 
+/// The machine's bundle (M22): `--machine <machine.toml>`, after
+/// `--window-state`. The player opens the disc shelf for it, its Disc
+/// menu, which reaches the drive through `qmp_socket`.
+pub fn machine_args(bundle: &std::path::Path) -> Vec<String> {
+    vec!["--machine".to_string(), bundle.display().to_string()]
+}
+
 /// The player that runs `machine`. Each player binary links one QEMU
 /// (`libqemu-embed-<target>`), because QEMU has to be loaded with the
 /// process, not opened later: patch 63 reserves TCG's code buffer next to
@@ -371,9 +378,11 @@ pub fn mac_x64_refusal() -> &'static str {
 /// (`control.rs`). The player's own in-process monitor is untouched and
 /// the player needs no change, since everything after `--` is passed
 /// through to QEMU. `shelf` is the flat disc-shelf file the drive
-/// answers the in-guest CDSHELF program from.
+/// answers the in-guest CDSHELF program from. `bundle` is `machine`'s
+/// `machine.toml`, for the player's Disc menu.
 pub fn spawn(
     machine: &Machine,
+    bundle: &std::path::Path,
     qmp_socket: Option<&std::path::Path>,
     shelf: Option<&std::path::Path>,
 ) -> std::io::Result<Child> {
@@ -390,6 +399,7 @@ pub fn spawn(
     argv.extend(pad_args(machine));
     argv.extend(share_args(machine));
     argv.extend(window_args(machine));
+    argv.extend(machine_args(bundle));
     argv.push("--".into());
     argv.extend(args);
     // Log the command line before anything is spawned: it is the first

@@ -25,6 +25,10 @@
 //! so the drive still holds it after a restart. While the machine runs
 //! the card shows what is in the drive at this moment (`refresh_live`),
 //! which the guest can change too.
+//!
+//! The player opens the same model for the machine it runs (`--machine`,
+//! track M22) and shows it as its Disc menu (`menu_discs`), with the same
+//! Insert and Eject through the same monitor.
 
 use crate::bundle::Machine;
 use crate::control;
@@ -271,6 +275,35 @@ impl Shelf {
         }
     }
 
+    /// A disc picked in the player's Disc menu (track M22): on the shelf,
+    /// as the shelf window's Add puts it, and in the drive at once.
+    pub fn add_and_insert(&mut self, path: PathBuf) {
+        self.add(path.clone());
+        self.insert(&path);
+    }
+
+    /// The player's Disc menu (track M22): the shelf's discs in its order,
+    /// the one in the drive checked, and before them a disc the drive
+    /// holds that is not on the shelf (one removed from it since), so the
+    /// menu always says what is in the drive. Empty for a shelf opened
+    /// with no machine.
+    pub fn menu_discs(&self) -> Vec<MenuDisc> {
+        if self.machine.is_none() {
+            return Vec::new();
+        }
+        let drive = self.drive();
+        let mut rows = Vec::new();
+        if let Some(path) = drive.filter(|p| self.library.position(p).is_none()) {
+            rows.push(MenuDisc { label: self.label_for(path), path: path.to_path_buf(), in_drive: true });
+        }
+        rows.extend(self.library.discs.iter().map(|d| MenuDisc {
+            label: d.label.clone(),
+            path: d.path.clone(),
+            in_drive: drive == Some(d.path.as_path()),
+        }));
+        rows
+    }
+
     pub fn insert_row(&mut self, row: usize) {
         if let Some(path) = self.library.discs.get(row).map(|d| d.path.clone()) {
             self.insert(&path);
@@ -480,6 +513,14 @@ pub struct DriveCard {
     pub kind: Option<DiscKind>,
     pub title: String,
     pub detail: String,
+}
+
+/// One disc in the player's Disc menu (`Shelf::menu_discs`).
+#[derive(Clone, PartialEq)]
+pub struct MenuDisc {
+    pub label: String,
+    pub path: PathBuf,
+    pub in_drive: bool,
 }
 
 /// What the running machine's monitor said about its drive

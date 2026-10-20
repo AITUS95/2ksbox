@@ -176,10 +176,7 @@ pub fn fetch(dest: &Path, bytes: &AtomicU64) -> std::io::Result<()> {
     if let Some(parent) = staging.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let response = ureq::get(TARBALL_URL)
-        .call()
-        .map_err(|e| std::io::Error::other(format!("{TARBALL_URL}: {e}")))?;
-    let counted = Counting { inner: response.into_body().into_reader(), bytes };
+    let counted = Counting { inner: get(TARBALL_URL)?, bytes };
     unpack(counted, &staging)?;
     if !has_presets(&staging) {
         std::fs::remove_dir_all(&staging).ok();
@@ -196,6 +193,19 @@ pub fn fetch(dest: &Path, bytes: &AtomicU64) -> std::io::Result<()> {
     std::fs::rename(&staging, dest)?;
     std::fs::remove_dir_all(&previous).ok();
     Ok(())
+}
+
+/// The body of a GET of `url`, read as it arrives.
+#[cfg(feature = "download")]
+fn get(url: &str) -> std::io::Result<impl Read> {
+    let response = ureq::get(url).call().map_err(|e| std::io::Error::other(format!("{url}: {e}")))?;
+    Ok(response.into_body().into_reader())
+}
+
+/// A build without the `download` feature (the player's) fetches nothing.
+#[cfg(not(feature = "download"))]
+fn get(url: &str) -> std::io::Result<std::io::Empty> {
+    Err(std::io::Error::other(format!("{url}: built without downloads")))
 }
 
 fn staging_dir(dest: &Path) -> PathBuf {

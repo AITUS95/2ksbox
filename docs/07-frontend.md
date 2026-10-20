@@ -474,6 +474,19 @@ The fields, and why each is what it is:
   kind is disc, folder or guest tools (`DiscKind`), not its image
   format. `launcherx --drive` prints the card and rows; the `drive`
   check runs it against a paused QEMU.
+- **The player's Disc menu** (2026-10-19, track M22 step 5) is the same
+  model for the machine the player runs: the launcher names the bundle
+  (`--machine`, `player::machine_args`), and the menu lists
+  `Shelf::menu_discs` (the shelf in its order, the disc in the drive
+  checked, one off the shelf first), with Eject, Insert Disc Image… and
+  Insert Folder as Disc… (`add_and_insert`: on the shelf and in the
+  drive at once, the shelf republished to the drive). It reaches the
+  tray through the launcher's monitor socket, as the window does, and
+  reads the shelf and the drive again every two seconds, because the
+  launcher and `CDSHELF` change them too. `launcherx --disc-menu`
+  prints its rows; the `drive` check covers it. The player links
+  `launcher-core` without its `download` feature, so no TLS stack
+  (ADR-009, ADR-010).
 - **Sorted by label**, case-insensitively, with **digit runs compared as
   numbers** (`disc 10` after `disc 2`). It is an invariant of
   `DiscLibrary`, not a sort each view does, because the flat file the
