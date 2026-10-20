@@ -3,7 +3,8 @@
 Opened 2026-10-16 (user: "the correct would be to implement a real
 direct3d 10 or 11 driver, right?", then "let's do it from scratch
 ourselves ... first milestone feature level 10_0"). ADR-029. Branch
-`track/m25-d3d11-umd`.
+`track/m25-d3d11-umd`, merged to `main` 2026-10-20 (user: "good enough
+to be merged") and deleted; each later stretch is a `track/m25-*` branch.
 
 ## Why
 
