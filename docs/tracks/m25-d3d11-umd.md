@@ -1081,7 +1081,14 @@ whose Direct3D 11 side has not run either.
   where DXVK takes only Direct3D 11's 88 (the same eight, then hull,
   domain and compute): a runtime at feature level 10_x reads the 10
   layout. The executor now asks the host at the query's own size and
-  gives the guest the bytes it named. The Arm kernel
+  gives the guest the bytes it named. Past that, Heaven loads for a long
+  while (x86 under emulation on Arm) and then the player crashed in
+  KosmicKrisp itself (LunarG SDK 1.4.357.1): a null dereference in
+  Mesa's `nir_opt_varyings` / `nir_opt_dce`, from
+  `vkCreateGraphicsPipelines` as DXVK built a draw's pipeline on its CS
+  thread (macOS crash report, 2026-10-20 13:16). A driver bug, open: the
+  shaders want capturing (DXVK_SHADER_DUMP_PATH) for a newer KosmicKrisp
+  or a Mesa report. The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and
