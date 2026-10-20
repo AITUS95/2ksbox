@@ -1017,8 +1017,8 @@ whose Direct3D 11 side has not run either.
   DWM composed on before.
 - Multisampling (above).
 - ~~The packages~~ (done 2026-10-19, "The packages, and the driver for
-  Windows 11 on Arm"); a Linux host runs it (KVM, `d3dgame8` / `9` / `11`; the user, 2026-10-20); the
-  Mac build of the executor and a run there remain.
+  Windows 11 on Arm"); a Linux host runs it (KVM, `d3dgame8` / `9` / `11`; the user, 2026-10-20), and
+  the Mac (Windows 11 on Arm under HVF, `d3dgame8` / `11`, same day).
 - **Windows 11 on Arm**: the driver builds, the aarch64 QEMU has the
   device and the launcher offers it (same section); on the Mac the
   machine boots Windows with the 512 MiB frame buffer in a 64-bit BAR
@@ -1061,7 +1061,10 @@ whose Direct3D 11 side has not run either.
   (`do_hv_vm_protect`: a 4 KiB-aligned range where Apple Silicon's host
   page is 16 KiB); QEMU patch 98 rounds HVF's dirty-log ranges to whole
   host pages. With it the desktop runs on our adapter, Mica's
-  translucency included (the user, 2026-10-20). The Arm kernel
+  translucency included, `d3dgame11` and `d3dgame8` run at 60 frames/s,
+  and every size up to 3840x2160 works (the 512 MiB segment above
+  4 GiB; the user on the Air, 2026-10-20). The Mac app carries the
+  driver in its guest-tools disc (`WDDMARM\`). Left there: games. The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and
