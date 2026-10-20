@@ -934,8 +934,17 @@ drivers disc's experimental viogpudo is). The aarch64 QEMU builds
 `arm_system_ss`; the device has nothing x86 in it, and the virt board's
 PCI selects VGA_PCI, so the VGA core). A Windows 11 machine on Arm with
 `video = "d3dpt"` gets `ramfb` (the firmware's screen) then
-`d3dpt-vga,irq=on,vgamem_mb=512` in place of virtio-gpu (`arm_args`,
-checked with `launcherx --print-args` on a scratch bundle). In the form
+`d3dpt-vga,irq=on,vgamem_mb=256` in place of virtio-gpu (`arm_args`,
+checked with `launcherx --print-args` on a scratch bundle). 256, not
+x64's 512 (2026-10-20, the Mac's first boot on it): the frame buffer is
+a 32-bit BAR, the `virt` board's 32-bit PCI window is
+0x10000000-0x3eff0000, and a 512 MiB BAR aligned to its size fits
+nowhere in it; EDK2 failed the bus's resources, lost the AHCI disk and
+dropped to its shell ("map: no mapping found", Boot0004 "Not Found").
+At 256 the same machine's firmware starts Windows Boot Manager. Windows
+then stops at 2560x1600; 3840x2160 needs a 64-bit BAR in the high
+window, which the kernel driver's `find_bars` refuses today (it skips a
+memory resource above 4 GiB). In the form
 our adapter on Windows 11, either architecture, is "2ksbox adapter
 (experimental)"; picking it asks first in a warning alert
 (`Form::video_question`: early build, test mode, Secure Boot off, the
@@ -998,8 +1007,10 @@ whose Direct3D 11 side has not run either.
   Windows 11 on Arm"); a Linux host runs it (KVM, `d3dgame8` / `9` / `11`; the user, 2026-10-20); the
   Mac build of the executor and a run there remain.
 - **Windows 11 on Arm**: the driver builds, the aarch64 QEMU has the
-  device and the launcher offers it (same section); the Mac's build and
-  a run there remain.
+  device and the launcher offers it (same section); on the Mac the
+  firmware boots Windows with it at `vgamem_mb=256` (2026-10-20); the
+  driver's install and a run there remain. 3840x2160 there: a 64-bit
+  BAR (a device property) and `find_bars` taking it.
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a
