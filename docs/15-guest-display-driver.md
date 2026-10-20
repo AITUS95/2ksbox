@@ -486,14 +486,21 @@ adds the sprite every card of the era had.
   user: the host's cursor rather than the guest's at Windows' scaling),
   by a hash of the shape cut to its visible pixels
   (`CursorImage::trimmed_hash`), since both of Windows 11's adapters pad
-  it to 64x64. They were measured at Windows' 100 % scaling and default
-  pointer size; another scaling draws other shapes, which stay the
-  guest's. The busy cursors are animated (18 shapes each, every one
-  the host's busy cursor, set once). The measurement was by hand on the
-  Windows 11 test machine: `CURSORS.EXE` started in the logged-in session
-  (a scheduled task, `LogonType Interactive`), the guest's mouse moved
-  first through QMP's `input-send-event` (Windows 11 shows no pointer
-  until a mouse is used), `PLAYER_CURSOR_LOG=1` read in order. XP's never reach the hardware
+  it to 64x64. They were measured at the default pointer size and each
+  display scaling from 100 % to 200 %: Windows draws three sizes (32x32
+  at 100 % and 125 %, 48x48 at 150 % and 175 %, 64x64 at 200 %); another
+  scaling or pointer size draws other shapes, which stay the guest's. The
+  busy cursors are animated (18 shapes each, every one the host's busy
+  cursor, set once). The measurement was by hand on the Windows 11 test
+  machine: `CURSORS.EXE` started in the logged-in session (a scheduled
+  task, `LogonType Interactive`), the guest's mouse moved first through
+  QMP's `input-send-event` (Windows 11 shows no pointer until a mouse is
+  used), `PLAYER_CURSOR_LOG=1` read in order. The scaling is the
+  display's own, set live as the Settings app does
+  (`DisplayConfigSetDeviceInfo` with the undocumented type -4, the step
+  relative to the recommended one; type -3 reads the range), at
+  1600x1200, where Windows allows up to 200 %. Custom scaling (`LogPixels` with `Win8DpiScaling`) does not
+  do: Windows applies its DPI and keeps the 100 % cursors. XP's never reach the hardware
   cursor (with the pointer shadow on and no `GCAPS2_ALPHACURSOR`, GDI
   draws XP's pointer itself), so XP keeps its own in the frame. It hides
   when the guest hides it. With a
