@@ -880,9 +880,8 @@ share): `build-windows.sh` runs `build-wddm.cmd` with
 `D3DPT_KM_ARM64=nuget`, which leaves it out, then builds it with that
 Visual Studio 2022's MSBuild on NuGet's WDK 10.0.26100, the project
 importing `build/wddm/arm64/wdk.props` (`D3DPT_WDK_PROPS`; its objects in
-`obj-km`). Windows 11 on Arm refused the EWDK's build (Code 48,
-`0xC000036B`, no Code Integrity event; 2026-10-20), where viogpudo from
-that kit loads. The newer kit deprecates `ExAllocatePoolWithTag` (C4996),
+`obj-km`; user, 2026-10-20: the Arm kernel drivers on one kit). The
+newer kit deprecates `ExAllocatePoolWithTag` (C4996),
 which the Windows 7 build needs, so that build turns the warning off.
 Notes:
 

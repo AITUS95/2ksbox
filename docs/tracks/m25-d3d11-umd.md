@@ -1022,31 +1022,22 @@ whose Direct3D 11 side has not run either.
 - **Windows 11 on Arm**: the driver builds, the aarch64 QEMU has the
   device and the launcher offers it (same section); on the Mac the
   machine boots Windows with the 512 MiB frame buffer in a 64-bit BAR
-  (2026-10-20, QEMU patch 97). **The kernel driver does not load**
-  there: it installs cleanly (`setupapi.dev.log`), then Code 48, Kernel-PnP
-  event 219 with `0xC000036B` (`STATUS_DRIVER_BLOCKED_CRITICAL`) at
-  every start, with test signing on, memory integrity off and no
-  Code Integrity event naming it, and the ARM64 image's header matches
-  the x64 one's. Not a missing `dxgmms1.sys` (the memory manager of
-  drivers before WDDM 2.0): Windows on Arm carries it. Next: the driver
-  writes `InitStatus` in its service key (0xffffffff on entry, then
-  `DxgkInitialize`'s status), which tells the kernel refusing the image
-  from dxgkrnl refusing the driver. With that build installed there was
-  no value at all (user, 2026-10-20): `DriverEntry` never ran, so the
-  kernel refused the image (unless driver isolation denied the write).
-  Its difference from our viogpudo's ARM64 driver, which loads on the
-  same machine, is the toolchain (the EWDK's 2020 linker, 14.27, against
-  Visual Studio 2022's 14.44 on NuGet's WDK 10.0.26100) and a version
-  resource; nothing Microsoft publishes names either. So the Arm kernel
-  driver is now built as viogpudo is (`build-windows.sh`,
-  `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver").
-  **But neither new build had run**: the guest's `d3dptkmd.sys` was
-  still the first one (52,624 bytes: the EWDK's 50,176 and the test
-  signature), because the INF's `DriverVer` is the same for every build
-  and Windows keeps a device on the package it has over one of the same
-  version. So the "no value" above says nothing yet. `wddm-install.ps1`
-  now stamps `DriverVer` with the install's date and minute (major and
-  minor the INF's), as `m25-test.sh` does on the PC.
+  (2026-10-20, QEMU patch 97; Windows puts BAR 0 at 0x7_e000_0000 and
+  the registers' BAR 2 at 0x3efe_b000). The Code 48 first seen there
+  (`0xC000036B`, `STATUS_DRIVER_BLOCKED_CRITICAL`) was the x64 driver
+  installed on Arm by mistake. The Arm build loads and **fails its start**: DxgKrnl-Admin event 549,
+  `StartAdapter_DdiStartDeviceFailed`, `STATUS_DEVICE_CONFIGURATION_ERROR`,
+  with no line from after the registers are mapped, so `find_bars`
+  matched no BAR. It now decodes `CmResourceTypeMemoryLarge` too
+  (`RtlCmDecodeMemIoResource`; a large BAR may come that way), and a
+  failed match leaves `BarDiag` in the service key (REG_BINARY, 64-bit
+  words: BAR 0 | BAR 1 << 32, BAR 2, then each memory resource's
+  type << 16 | flags, start, length). `InitStatus` there: 0xffffffff when
+  `DriverEntry` runs, then `DxgkInitialize`'s status. The Arm kernel
+  driver is built as our viogpudo is (`build-windows.sh`,
+  `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
+  `wddm-install.ps1` stamps `DriverVer` with the install's date and
+  minute so a new build always replaces the installed one.
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a
