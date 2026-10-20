@@ -1046,7 +1046,12 @@ whose Direct3D 11 side has not run either.
   read 0x0004 every time it was looked at from the host). `StartRegs`
   (32-bit words: the command register, MAGIC and VERSION as read, then
   the same after the driver turns memory decoding on if it was off)
-  checks it, and the turning on is the fix if it was. **With it the
+  checks it, and the turning on is the fix: `StartRegs` read 0x0004
+  (bus master only) with MAGIC and VERSION 0xffffffff, then 0x0006,
+  0x42463344 and 11. Windows on Arm hands the driver its device with
+  memory decoding off (the x64 machines never did), so the driver turns
+  it on itself when it is off, and keeps `StartRegs` / `StartStage` /
+  `BarDiag` / `InitStatus` as the record of a start there. **With it the
   driver starts on Arm** (2026-10-20): `StartDevice` reads register set
   v11, the Direct3D window at 448 MiB, the interrupt for the vertical
   blank and fences, Windows commits 1024x768 on our adapter, and
@@ -1055,7 +1060,8 @@ whose Direct3D 11 side has not run either.
   scanout to VRAM offset 0x565000 and the player aborted in HVF
   (`do_hv_vm_protect`: a 4 KiB-aligned range where Apple Silicon's host
   page is 16 KiB); QEMU patch 98 rounds HVF's dirty-log ranges to whole
-  host pages. The Arm kernel
+  host pages. With it the desktop runs on our adapter, Mica's
+  translucency included (the user, 2026-10-20). The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and
