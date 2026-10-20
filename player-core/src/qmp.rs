@@ -13,7 +13,8 @@
 //! "File descriptor 'N' is not a socket".
 //!
 //! `execute` is synchronous (id-matched, 10 s timeout). Events accumulate in
-//! a queue the UI thread drains with `take_events`.
+//! a queue the UI thread drains with `take_events`, and go to whoever asked
+//! with `on_event` as they arrive.
 
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -35,6 +36,8 @@ pub struct Qmp {
     writer: Mutex<Stream>,
     pending: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
     events: Mutex<VecDeque<Value>>,
+    /// called on the reader's thread with each event (`on_event`)
+    listeners: Mutex<Vec<Box<dyn Fn(&Value) + Send>>>,
     next_id: AtomicU64,
     /// set once the greeting arrived and capabilities were negotiated
     ready: Mutex<bool>,
@@ -50,6 +53,7 @@ impl Qmp {
             writer: Mutex::new(ours),
             pending: Mutex::new(HashMap::new()),
             events: Mutex::new(VecDeque::new()),
+            listeners: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             ready: Mutex::new(false),
         });
@@ -93,6 +97,9 @@ impl Qmp {
                 continue;
             }
             if v.get("event").is_some() {
+                for listener in self.listeners.lock().unwrap().iter() {
+                    listener(&v);
+                }
                 let mut ev = self.events.lock().unwrap();
                 if ev.len() >= 256 {
                     ev.pop_front();
@@ -174,6 +181,13 @@ impl Qmp {
             std::thread::sleep(Duration::from_millis(5));
         }
         true
+    }
+
+    /// Call `f` with each event from now on, as it arrives, on the
+    /// reader's thread: the mitsuami player's Disc menu hears the tray
+    /// move (`DEVICE_TRAY_MOVED`) this way.
+    pub fn on_event(&self, f: impl Fn(&Value) + Send + 'static) {
+        self.listeners.lock().unwrap().push(Box::new(f));
     }
 
     /// Drain queued events (oldest first).

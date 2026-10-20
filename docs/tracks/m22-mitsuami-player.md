@@ -257,6 +257,47 @@ embed library, as for the winit player, into a target dir of its own:
 5. **What a player window can show now that it has a toolkit:** the disc
    shelf for the drive and the shader profile, from `launcher-core`
    (the player then needs the bundle it was started for).
+   **The disc shelf done (2026-10-19, user: "machine disc shelf from the
+   player"):** the launcher passes the bundle (`--machine`, after
+   `--window-state`), and `player-mitsuami/src/discs.rs` makes it a Disc
+   menu over `launcher_core::shelf` (doc 07, "The player's Disc menu"):
+   the shelf's discs with the drive's checked, Eject, Insert Disc Image…
+   and Insert Folder as Disc…, a failure in the platform's alert. The
+   player links `launcher-core` with `default-features = false`, which
+   leaves out `ureq` and its rustls (`ring`). Checked: the model through
+   `launcherx --disc-menu` in the `drive` check; on Windows, a scratch
+   machine started by `launcherx --play`, its menu driven through UI
+   Automation: a disc chosen there and Eject both reached the running
+   tray (read back with `launcherx --drive`), and the check mark and
+   Eject's state followed. Not yet: the menu by hand on GTK, Kirigami and macOS, and
+   the App Store build, whose player inherits the launcher's sandbox and
+   may not be able to open a disc picked in its own dialog.
+   **The shader profile done (2026-10-19, user: "just swapping the
+   shader profile"):** View > Shader (`player-mitsuami/src/shaders.rs`)
+   is the settings window's picker as a menu, the machine's profile
+   checked; a choice is saved to the bundle and the render thread swaps
+   the chain (`Gpu::set_shader`), or drops it for a profile of none. No
+   editing or creating here: that stays the launcher's Shader Profiles
+   window. Checked: the rows and the saved choice through `launcherx
+   --shader-menu` in the `shader-defaults` check; on Windows, a scratch
+   machine with the three starter profiles, View > Shader driven through
+   UI Automation: CRT Royale and then the default row each loaded live
+   (`[shader] loaded` in `player.log`) and were saved to the bundle. Not
+   yet: by hand on GTK, Kirigami and macOS.
+   **Off, and no timers (2026-10-19, user):** both shader pickers have an
+   Off row (no shader whatever the default, the bundle's `shader_off`).
+   The two menus no longer read their files every two seconds: they
+   follow file notifications (`watch.rs`, the `notify` crate) and, for
+   the drive, QEMU's `DEVICE_TRAY_MOVED` on the player's own monitor
+   (`Qmp::on_event`). A `Menu::on_open` in mitsuami was looked at first
+   and left: WinUI 3's `MenuBarItem` and GTK 4's `PopoverMenuBar` give no
+   per-menu opening event. Checked on Windows on a scratch machine through
+   UI Automation: Off from the menu dropped the chain live (`[shader]
+   none`) and wrote `shader_off`; `launcherx --assign-shader` from outside
+   moved the menu's check with no click; `launcherx --insert-disc` (the
+   live tray only, not the bundle) moved the Disc menu's check through
+   the tray event alone. `packaging/flatpak/cargo-sources.json` still
+   needs regenerating for `notify` (no `uv` on the PC).
 6. **The launcher's player, packaging, the flip:** a build stage, the
    packagers' run, `player-mitsuami` shipped as `2ksbox-player` (and the
    per-target players), and `player/`'s winit front end deleted.

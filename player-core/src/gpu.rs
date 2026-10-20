@@ -265,20 +265,38 @@ impl Gpu {
     }
 
     pub fn load_shader(&mut self, path: &std::path::Path, params: &[(String, f32)]) {
-        match shader_chain::Chain::load(
-            path,
-            &self.device,
-            &self.queue,
-            self.adapter_info.clone(),
-            self.config.format,
-        ) {
-            Ok(c) => {
+        if let Err(e) = self.set_shader(Some((path, params))) {
+            eprintln!("[shader] failed to load {}: {e}", path.display());
+        }
+    }
+
+    /// The CRT chain swapped for `preset` with `params`, or taken away
+    /// (`None`): the mitsuami player's Shader menu (track M22). A preset
+    /// that fails to load leaves the chain as it was. The new chain gets
+    /// the mode's parameters at once, as a first one does with the first
+    /// frame.
+    pub fn set_shader(&mut self, shader: Option<(&std::path::Path, &[(String, f32)])>) -> Result<(), String> {
+        let chain = match shader {
+            None => None,
+            Some((path, params)) => {
+                let c = shader_chain::Chain::load(path, &self.device, &self.queue, self.adapter_info.clone(), self.config.format)
+                    .map_err(|e| e.to_string())?;
                 c.set_parameters(params);
                 eprintln!("[shader] loaded {}", path.display());
-                self.chain = Some(c);
+                Some(c)
             }
-            Err(e) => eprintln!("[shader] failed to load {}: {e}", path.display()),
+        };
+        if chain.is_none() && self.chain.is_some() {
+            eprintln!("[shader] none");
         }
+        self.chain = chain;
+        // the old chain's output, which a bind group of the same size
+        // would otherwise go on drawing
+        self.chain_bg = None;
+        self.warned_no_scanline_params = false;
+        self.mode = mode::Mode::analyse(0, 0);
+        self.guest_surface_changed();
+        Ok(())
     }
 
     /// Whether the device imports the backend's 3D frames (dma-buf or

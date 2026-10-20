@@ -92,6 +92,7 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             argv.extend(player::pad_args(&machine));
             argv.extend(player::share_args(&machine));
             argv.extend(player::window_args(&machine));
+            argv.extend(player::machine_args(Path::new(&path)));
             println!("{}", argv.join(" "));
         }
         "--prepare" => {
@@ -119,7 +120,7 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             let socket = control::socket_path(dir);
             let shelf_path = control::shelf_path(dir);
             machines::publish_shelf(&disc_library::default_path(), &shelf_path);
-            let child = player::spawn(&machine, Some(&socket), Some(&shelf_path)).expect("spawn player");
+            let child = player::spawn(&machine, &path, Some(&socket), Some(&shelf_path)).expect("spawn player");
             println!("pid {} qmp {} shelf {}", child.id(), socket.display(), shelf_path.display());
         }
         "--qmp-socket" => {
@@ -633,6 +634,30 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
                 println!("{mark}\t{kind}\t{}\t{}", disc.label, shelf.row_detail(row));
             }
         }
+        "--disc-menu" => {
+            // Headless equivalent of the player's Disc menu (M22): each
+            // disc it lists, checked when it is the one in the drive.
+            // `add <disc>` is its Insert Disc Image… / Insert Folder…,
+            // which put the disc on the shelf and in the drive.
+            let usage = "usage: --disc-menu <machine.toml> [add <disc>]";
+            let path: PathBuf = args.next().expect(usage).into();
+            let mut shelf = shelf::Shelf::default();
+            shelf.open_for_path(path, &disc_library::default_path());
+            match (args.next().as_deref(), args.next()) {
+                (Some("add"), Some(disc)) => shelf.add_and_insert(disc.into()),
+                (None, _) => {}
+                _ => panic!("{usage}"),
+            }
+            shelf.flush_reporting();
+            if let Err(e) = shelf.last_result() {
+                eprintln!("[disc-menu] {e}");
+                return Some(1);
+            }
+            for disc in shelf.menu_discs() {
+                let mark = if disc.in_drive { "checked" } else { "-" };
+                println!("{mark}\t{}\t{}", disc.label, disc.path.display());
+            }
+        }
         "--snapshots" => {
             // Headless equivalent of the "Snapshots…" window: the same
             // operations its buttons run, over a bundle's disk.
@@ -879,12 +904,50 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             }
         }
         "--assign-shader" => {
-            let usage = "usage: --assign-shader <machine.toml> <profile-id-or-(none)>";
+            // `(none)` is the app default, `(off)` no shader at all.
+            let usage = "usage: --assign-shader <machine.toml> <profile-id|(none)|(off)>";
             let path: PathBuf = args.next().expect(usage).into();
             let id = args.next().expect(usage);
             let mut machine = Machine::load(&path).expect("load bundle");
-            machine.shader_profile = if id == "(none)" { None } else { Some(id) };
+            machine.shader_off = id == "(off)";
+            machine.shader_profile = if id == "(none)" || id == "(off)" { None } else { Some(id) };
             machine.save(&path).expect("save bundle");
+        }
+        "--shader-menu" => {
+            // Headless equivalent of the player's Shader menu (M22): each
+            // row, checked when it is the machine's. `choose <label>` is a
+            // click on a row, which saves the bundle and prints what the
+            // player then swaps to (`plays <preset>`, or `plays none`).
+            let usage = "usage: --shader-menu <machine.toml> [choose <label>]";
+            let path: PathBuf = args.next().expect(usage).into();
+            let dir = shader_library::default_dir();
+            match (args.next().as_deref(), args.next()) {
+                (Some("choose"), Some(label)) => {
+                    let Some(row) = shader_library::menu_profiles(&path, &dir).into_iter().find(|r| r.label == label) else {
+                        eprintln!("[shader-menu] no row {label}");
+                        return Some(1);
+                    };
+                    match shader_library::choose_for(&path, row.choice) {
+                        Ok(Some(profile)) => println!("plays\t{}", profile.preset.display()),
+                        Ok(None) => println!("plays\tnone"),
+                        Err(e) => {
+                            eprintln!("[shader-menu] {e}");
+                            return Some(1);
+                        }
+                    }
+                }
+                (None, _) => {}
+                _ => panic!("{usage}"),
+            }
+            for row in shader_library::menu_profiles(&path, &dir) {
+                let mark = if row.chosen { "checked" } else { "-" };
+                let id = match &row.choice {
+                    shader_library::ShaderChoice::Default => "(default)",
+                    shader_library::ShaderChoice::Off => "(off)",
+                    shader_library::ShaderChoice::Profile(id) => id,
+                };
+                println!("{mark}\t{}\t{id}", row.label);
+            }
         }
         "--preview-shader" => {
             // Headless equivalent of the profile editor's live preview

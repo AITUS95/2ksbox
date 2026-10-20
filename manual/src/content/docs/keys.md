@@ -20,6 +20,9 @@ The *Machine* menu also has **Reset** and **Power Button**. The power
 button asks Windows to shut down, as on a real PC. It's the clean way to
 turn a machine off.
 
+The *Disc* menu swaps the disc in the machine's CD drive. See
+[Discs and the disc shelf](../discs/).
+
 ## The view
 
 | Keys | What |

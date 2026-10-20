@@ -65,6 +65,9 @@ pub struct Args {
     /// The window's remembered size (`--window-state`, `window_state`),
     /// one file per machine in its bundle.
     pub window_state: Option<std::path::PathBuf>,
+    /// The machine's `machine.toml` (`--machine`), for the mitsuami
+    /// player's Disc menu.
+    pub machine: Option<std::path::PathBuf>,
 }
 
 /// Everything a player does before its window: tell QEMU where the
@@ -137,6 +140,12 @@ pub fn startup() -> Args {
         window_state = Some(std::path::PathBuf::from(args[1].clone()));
         args.drain(0..2);
     }
+    // the machine's bundle (M22), for the disc shelf
+    let mut machine = None;
+    if args.first().map(String::as_str) == Some("--machine") && args.len() >= 2 {
+        machine = Some(std::path::PathBuf::from(args[1].clone()));
+        args.drain(0..2);
+    }
     let mut sweep = None;
     if args.first().map(String::as_str) == Some("--mode-sweep") && args.len() >= 2 {
         sweep = Some(std::path::PathBuf::from(args[1].clone()));
@@ -164,6 +173,7 @@ pub fn startup() -> Args {
         sweep,
         calib,
         window_state,
+        machine,
     }
 }
 

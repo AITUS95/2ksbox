@@ -214,6 +214,8 @@ pub struct Form {
     /// (`shader_library::default_id`). Independent of `EditTarget::shader`
     /// (see `bundle::Machine`).
     pub shader_profile: Option<String>,
+    /// The Off row: no shader, whatever the default (`Machine::shader_off`).
+    pub shader_off: bool,
     /// What the last `submit` failed with, for the form to show.
     pub error: Option<String>,
     /// The bundle the last successful `submit` wrote.
@@ -312,6 +314,7 @@ impl Default for Form {
             disk_size_gb: bundle::default_disk_size_gb(Family::Win98),
             install_media: String::new(),
             shader_profile: None,
+            shader_off: false,
             error: None,
             saved_path: None,
             family: Family::Win98,
@@ -401,6 +404,7 @@ impl Form {
             disk_path: machine.disk.display().to_string(),
             install_media: machine.boot_disc().map(|d| d.display().to_string()).unwrap_or_default(),
             shader_profile: machine.shader_profile.clone(),
+            shader_off: machine.shader_off,
             editing: Some(EditTarget {
                 bundle_path,
                 shader: machine.shader.clone(),
@@ -1367,45 +1371,54 @@ impl Form {
 
     /// The shader picker's rows: the app default first (named after the
     /// library's default profile when one is marked, or "None" on a
-    /// modern machine, `shader_library::default_label_for`), then every profile of the
+    /// modern machine, `shader_library::default_label_for`), then Off (no
+    /// shader whatever the default, `shader_library::OFF_LABEL`; user,
+    /// 2026-10-19), then every profile of the
     /// library by name, in `shader_library::scan`'s order. A front end hands the same `profiles` to the three verbs
     /// below, so a row is a profile and nothing in the widget translates
     /// between an index and an id. When the Qt launcher's window (retired
     /// 2026-10-02) did that itself it needed a delegate of its own, and
     /// its combo box looked unlike the others in the form.
     pub fn shader_profile_labels(&self, profiles: &[ProfileEntry]) -> Vec<String> {
-        std::iter::once(shader_library::default_label_for(self.family, profiles))
+        [shader_library::default_label_for(self.family, profiles), shader_library::OFF_LABEL.to_string()]
+            .into_iter()
             .chain(profiles.iter().map(|e| e.profile.name.clone()))
             .collect()
     }
 
-    /// The row the form's `shader_profile` is on: 0 for the app default,
+    /// The row the form's shader is on: 0 for the app default, 1 for Off,
     /// and 0 too for an id no profile of `profiles` has any more (a
     /// profile deleted after a machine picked it plays as the default,
     /// `shader_library::find`, so that is what the picker shows).
     pub fn shader_profile_index(&self, profiles: &[ProfileEntry]) -> usize {
+        if self.shader_off {
+            return 1;
+        }
         self.shader_profile
             .as_deref()
             .and_then(|id| profiles.iter().position(|e| shader_library::id_of(&e.path) == id))
-            .map_or(0, |i| i + 1)
+            .map_or(0, |i| i + 2)
     }
 
     pub fn shader_profile_is_default(&self) -> bool {
-        self.shader_profile.is_none()
+        self.shader_profile.is_none() && !self.shader_off
     }
 
     /// Row `index` of `shader_profile_labels(profiles)`; a row past the
     /// end is ignored, as `choose_sound` ignores a card the family lacks.
     pub fn choose_shader_profile(&mut self, profiles: &[ProfileEntry], index: usize) {
-        if index == 0 {
-            self.shader_profile = None;
-        } else if let Some(entry) = profiles.get(index - 1) {
-            self.shader_profile = Some(shader_library::id_of(&entry.path));
+        match index {
+            0 | 1 => (self.shader_profile, self.shader_off) = (None, index == 1),
+            _ => {
+                if let Some(entry) = profiles.get(index - 2) {
+                    (self.shader_profile, self.shader_off) = (Some(shader_library::id_of(&entry.path)), false);
+                }
+            }
         }
     }
 
     pub fn reset_shader_profile(&mut self) {
-        self.shader_profile = None;
+        (self.shader_profile, self.shader_off) = (None, false);
     }
 
     /// Whether the MIDI port is a question at all: Windows 11's family
@@ -1683,6 +1696,7 @@ impl Form {
                 disc: None,
                 discs: Vec::new(),
                 shader_profile: None,
+                shader_off: false,
                 shader: edit.shader.clone(),
                 floppy: None,
                 boot: None,
@@ -1762,6 +1776,7 @@ impl Form {
             Some(self.shared_folder.trim()).filter(|d| modern && !d.is_empty()).map(PathBuf::from);
         machine.clipboard = modern && self.clipboard;
         machine.shader_profile = self.shader_profile.clone();
+        machine.shader_off = self.shader_off;
         // The single slot this form has is the machine's boot disc;
         // everything else lives on the shared shelf (`disc_library.rs`).
         machine.disc = Some(self.install_media.trim()).filter(|m| !m.is_empty()).map(PathBuf::from);

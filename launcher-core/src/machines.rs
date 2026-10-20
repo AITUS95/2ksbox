@@ -100,8 +100,12 @@ impl Machines {
     /// The label the "Shader" column shows: the profile's name if the
     /// machine names one that still exists, else a raw `shader`
     /// override's path, else the app default (named after the library's
-    /// default profile when one is marked, `shader_library::default_label`).
+    /// default profile when one is marked, `shader_library::default_label`);
+    /// Off for a machine with no shader at all.
     pub fn shader_label(&self, entry: &library::LibraryEntry) -> String {
+        if entry.machine.shader_off {
+            return shader_library::OFF_LABEL.to_string();
+        }
         entry
             .machine
             .shader_profile
@@ -173,7 +177,7 @@ impl Machines {
         let socket = control::socket_path(&dir);
         let shelf = control::shelf_path(&dir);
         publish_shelf(&self.disc_library_path, &shelf);
-        match player::spawn(&machine, Some(&socket), Some(&shelf)) {
+        match player::spawn(&machine, &dir.join(library::BUNDLE_FILE), Some(&socket), Some(&shelf)) {
             Ok(child) => {
                 self.running.insert(dir, child);
                 Ok(format!("started {}", machine.name))

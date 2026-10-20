@@ -164,8 +164,8 @@ if ! command -v timeout >/dev/null; then
   fi
 fi
 
-player_args() { # launcherx --print-player-args without --window-state, which every machine has (M22)
-  $LAUNCHERX --print-player-args "$1" | sed -E 's/ ?--window-state .*window\.toml//'
+player_args() { # launcherx --print-player-args without --window-state and --machine, which every machine has (M22)
+  $LAUNCHERX --print-player-args "$1" | sed -E 's/ ?--window-state .*window\.toml//; s/ ?--machine .*machine\.toml$//'
 }
 run_check() { # name, log file, command...
   local name="$1" lf="$OUT/$2"; shift 2
@@ -453,6 +453,17 @@ drive_check() { # the shelf's one drive: the boot disc when stopped, the tray wh
   grep -q $'^in-drive\tdisc\tzork\t' <<<"$o" || { echo "zork is not marked in the drive: $o"; rc=1; }
   grep -qx $'Storage\tCD in drive\tzork.iso' <<<"$($LAUNCHERX --machine-details "$bundle")" \
     || { echo "the bundle does not boot with zork"; rc=1; }
+  # The player's Disc menu (M22): the shelf's discs in its order, zork
+  # checked; a boot disc that is not on the shelf comes first, checked.
+  o="$($LAUNCHERX --disc-menu "$bundle" 2>&1)" || { echo "--disc-menu failed: $o"; return 1; }
+  [ "$(cut -f1,2 <<<"$o" | tr '\t\n' ': ')" = "-:guest-tools-3dfx-0000000 -:Patch 1.3 checked:zork " ] \
+    || { echo "the Disc menu: $o"; rc=1; }
+  truncate -s 2M "$dir/loose.iso"
+  $LAUNCHERX --boot-disc "$bundle" "$dir/loose.iso" >/dev/null
+  o="$($LAUNCHERX --disc-menu "$bundle" 2>&1)"
+  [ "$(head -1 <<<"$o" | cut -f1,2)" = $'checked\tloose' ] && [ "$(grep -c $'^checked\t' <<<"$o")" = 1 ] \
+    || { echo "a boot disc off the shelf is not first and checked in the Disc menu: $o"; rc=1; }
+  $LAUNCHERX --boot-disc "$bundle" "$dir/zork.iso" >/dev/null
   # Running: the card is the tray, read from the monitor. A paused QEMU
   # with the machine's CD drive stands in for the player.
   if [ -x $QSYS ]; then
@@ -475,6 +486,14 @@ drive_check() { # the shelf's one drive: the boot disc when stopped, the tray wh
     grep -q $'^drive\tempty\tTray empty\tInsert a disc from the library' <<<"$o" || { echo "the card after a live eject: $o"; rc=1; }
     grep -qx $'Storage\tCD in drive\tEmpty' <<<"$($LAUNCHERX --machine-details "$bundle")" \
       || { echo "a live eject did not empty the boot drive too"; rc=1; }
+    # The player's Disc menu (M22): a disc picked there goes on the shelf
+    # and into the running tray at once, and is the one checked.
+    truncate -s 2M "$dir/myst.iso"
+    o="$($LAUNCHERX --disc-menu "$bundle" add "$dir/myst.iso" 2>&1)" || { echo "--disc-menu add failed: $o"; rc=1; }
+    grep -q $'^checked\tmyst\t' <<<"$o" || { echo "the picked disc is not checked in the menu: $o"; rc=1; }
+    [ "$(grep -c $'^checked\t' <<<"$o")" = 1 ] || { echo "not one disc checked: $o"; rc=1; }
+    grep -q $'^drive\tdisc\tmyst\t' <<<"$($LAUNCHERX --drive "$bundle")" || { echo "the tray does not hold the picked disc"; rc=1; }
+    grep -q $'^myst\t' <<<"$($LAUNCHERX --discs)" || { echo "the picked disc is not on the shelf"; rc=1; }
     kill "$qpid" 2>/dev/null; wait "$qpid" 2>/dev/null
   else
     echo "  (no $QSYS: the running card is not checked)"
@@ -680,7 +699,7 @@ sharing_check() { # Windows 11's clipboard and shared folder, from the form to t
     *) echo "an x64 Windows 11 machine lacks the standard VGA or the virtio-gpu: $a"; return 1 ;; esac
   # the window's size is remembered beside the bundle (M22)
   o="$($LAUNCHERX --print-player-args "$bundle")"
-  [ "$o" = "--window-state $(dirname "$bundle")/window.toml" ] || { echo "no --window-state beside the bundle: $o"; return 1; }
+  [ "$o" = "--window-state $(dirname "$bundle")/window.toml --machine $bundle" ]     || { echo "no --window-state beside the bundle, or no --machine for the Disc menu: $o"; return 1; }
   # a folder without the network is not shared; with it, the player serves it
   edit - - - - - - - - - - - - - "$dir/folder" || return 1
   o="$(player_args "$bundle")"
@@ -941,6 +960,26 @@ shaderdefaults_check() { # the first-run shader offer and its starter profiles (
   o="$($LAUNCHERX --print-shader-args "$bundle")"
   case "$o" in *apple-monitor-II.slangp) ;; *) echo "a machine naming Apple II plays something else: $o"; rc=1;; esac
   $LAUNCHERX --assign-shader "$bundle" "(none)"
+  # The player's Shader menu (M22): the picker's rows, the machine's
+  # checked; a row chosen is saved and is what the player swaps to.
+  o="$($LAUNCHERX --shader-menu "$bundle")" || { echo "--shader-menu failed"; return 1; }
+  [ "$(cut -f1,2 <<<"$o" | tr '\t\n' ': ')" = "checked:(default) CRT Aperture -:Off -:Apple II -:CRT Aperture -:CRT Royale " ] \
+    || { echo "the Shader menu: $o"; rc=1; }
+  # Off is no shader whatever the default, and its own bundle field.
+  o="$($LAUNCHERX --shader-menu "$bundle" choose Off)" || { echo "--shader-menu choose Off failed: $o"; rc=1; }
+  [ "$(head -1 <<<"$o")" = $'plays\tnone' ] || { echo "Off plays: $(head -1 <<<"$o")"; rc=1; }
+  grep -qx $'checked\tOff\t(off)' <<<"$o" || { echo "Off is not checked after choosing it: $o"; rc=1; }
+  grep -qx 'shader_off = true' "$bundle" || { echo "Off is not shader_off in the bundle"; rc=1; }
+  [ -z "$($LAUNCHERX --print-shader-args "$bundle")" ] || { echo "a machine on Off still gets a shader"; rc=1; }
+  o="$(LAUNCHER_LIBRARY_DIR="$dir/library" $LAUNCHERX --machine-details "$bundle")"
+  grep -qx $'Display\tShader profile\tOff' <<<"$o" || { echo "the machine's details do not say Off: $o"; rc=1; }
+  o="$($LAUNCHERX --shader-menu "$bundle" choose "CRT Royale")" || { echo "--shader-menu choose failed: $o"; rc=1; }
+  case "$(head -1 <<<"$o")" in plays*crt-royale.slangp) ;; *) echo "the menu's swap plays: $(head -1 <<<"$o")"; rc=1;; esac
+  grep -qx $'checked\tCRT Royale\tcrt-royale' <<<"$o" || { echo "CRT Royale is not checked after choosing it: $o"; rc=1; }
+  case "$($LAUNCHERX --print-shader-args "$bundle")" in *crt-royale.slangp) ;; *) echo "the menu's choice was not saved"; rc=1;; esac
+  o="$($LAUNCHERX --shader-menu "$bundle" choose "(default) CRT Aperture")"
+  case "$(head -1 <<<"$o")" in plays*crt-aperture.slangp) ;; *) echo "back to the default plays: $(head -1 <<<"$o")"; rc=1;; esac
+  if grep -q '^shader_profile = \|^shader_off = ' "$bundle"; then echo "the default row left a profile or Off in the bundle"; rc=1; fi
   # Moving the default moves every machine on it; clearing it is the
   # unshaded app default again, and the picker's first row says which.
   o="$($LAUNCHERX --default-shader-profile crt-royale)"

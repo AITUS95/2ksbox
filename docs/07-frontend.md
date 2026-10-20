@@ -163,7 +163,12 @@ player line runs a machine with nothing else.
   copy runs on a thread and writes `machine.toml` last, so a clone in
   progress or failed never shows in the list. It cannot be cancelled
   mid-file: `std::fs::copy` keeps the kernel's fast paths (reflinks,
-  `copy_file_range`). **"Use the same hard disk instead of copying it"**
+  `copy_file_range`). Its progress is the new files' sizes against the
+  old ones', except on Windows, where the copy gives the new file its
+  full length before it writes any of it (the bar sat at "24.6 GB of
+  24.6 GB" for the whole copy, user report 2026-10-19). There the copy is
+  `CopyFileExW` itself (what `std::fs::copy` calls, fast paths and all),
+  and its progress callback does the counting. **"Use the same hard disk instead of copying it"**
   (user request, 2026-09-26) makes the clone name the original's disk by
   its absolute path and copy only the rest of the bundle; the window
   warns that only one machine at a time may run on that disk. Nothing
@@ -469,6 +474,25 @@ The fields, and why each is what it is:
   kind is disc, folder or guest tools (`DiscKind`), not its image
   format. `launcherx --drive` prints the card and rows; the `drive`
   check runs it against a paused QEMU.
+- **The player's Disc menu** (2026-10-19, track M22 step 5) is the same
+  model for the machine the player runs: the launcher names the bundle
+  (`--machine`, `player::machine_args`), and the menu lists
+  `Shelf::menu_discs` (the shelf in its order, the disc in the drive
+  checked, one off the shelf first), with Eject, Insert Disc Image… and
+  Insert Folder as Disc… (`add_and_insert`: on the shelf and in the
+  drive at once, the shelf republished to the drive). It reaches the
+  tray through the launcher's monitor socket, as the window does. It
+  follows changes as they happen, never on a timer (user, 2026-10-19):
+  the launcher writing `discs.toml` or the bundle (file notifications,
+  `player-mitsuami/src/watch.rs`, the `notify` crate), and the tray
+  moving, whoever moved it (the guest's eject, `CDSHELF`, the
+  launcher's Insert), which QEMU reports as `DEVICE_TRAY_MOVED` on the
+  player's own in-process monitor (`Qmp::on_event`). Not on the
+  launcher's `-qmp` socket: QEMU serves that to one client at a time,
+  and a listener there would lock the launcher's window out. `launcherx --disc-menu`
+  prints its rows; the `drive` check covers it. The player links
+  `launcher-core` without its `download` feature, so no TLS stack
+  (ADR-009, ADR-010).
 - **Sorted by label**, case-insensitively, with **digit runs compared as
   numbers** (`disc 10` after `disc 2`). It is an invariant of
   `DiscLibrary`, not a sort each view does, because the flat file the
@@ -593,10 +617,29 @@ and runs without live control.
   spawn, and the player skips an unknown parameter with a log line.
 - **The form's picker has the same shape as every other picker.**
   `Form::shader_profile_labels` gives its rows (the app default,
-  `SHADER_DEFAULT_LABEL`, then the library by name),
+  `SHADER_DEFAULT_LABEL`, then Off, then the library by name),
   `shader_profile_index` the current row (0 for a profile that no
   longer exists, which is what the machine plays with), and
   `choose_shader_profile` / `reset_shader_profile` are the verbs.
+- **Off** (2026-10-19, user: "there needs to be the Off option, like no
+  shaders applied") is no shader whatever the default, in the form's
+  picker and the player's menu alike: `shader_library::OFF_LABEL`, the
+  bundle's `shader_off = true`. A field of its own, not a reserved
+  `shader_profile` id, since any word can be a profile's id (`slug`).
+  `player::resolve_shader` checks it before everything else; the
+  library's Shader column says Off; `--assign-shader <bundle> (off)`.
+- **The player's View > Shader menu** (2026-10-19, track M22 step 5) is
+  that picker for the machine the player runs (the bundle from
+  `--machine`), and only a swap (user: "no editing or creating, just
+  swapping"): `shader_library::menu_profiles` gives the picker's rows
+  with the machine's checked, and `choose_for` saves the choice to the
+  bundle and returns what the machine now plays
+  (`player::resolve_shader`), which the player swaps to at once
+  (`Gpu::set_shader`; a preset that will not load keeps the old chain
+  and says so in an alert). The rows follow the bundle and the profile
+  folder through file notifications (`watch.rs`), never a timer.
+  `launcherx --shader-menu` prints and chooses them; the
+  `shader-defaults` check covers it.
 - **The library has a default profile** (user decision 2026-09-24): one
   file beside the profiles, `default-profile.txt`, naming a profile id
   (`shader_library::default_id` / `set_default`; one file rather than a
