@@ -374,7 +374,10 @@ driver under `$WinPEDriver$`, and ours opt-in beside it (below,
    of the timer alone stays, but with the host's blank the timer is only
    the watchdog.
 5. **Then the decision on shipping** (attestation signing, upstream, or
-   both) with the numbers in hand.
+   both) with the numbers in hand. Not taken yet. Beside it since
+   2026-10-17: M25's Direct3D 11 driver on our own adapter (the user:
+   "the desktop is already
+   feeling better than the viogpudo one"); it is test signed as well.
 
 ## Test loop
 

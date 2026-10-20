@@ -574,11 +574,15 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
 
 ## Left
 
-- Run the Linux packager with this launcher; its window check has not
-  run. The Windows packager has (on the PC; it passed except for a
-  pre-existing bug in the executor on the system's d3d9), the macOS ones
-  (App Store, community and Intel, 2026-10-04, M21's Mac step) and the
-  Flatpak (below).
+- ~~Run the Linux packager with this launcher~~ (done 2026-10-16, the
+  release's Linux gate: `package-linux.sh` with mitsuami 1.3.1 from
+  crates.io). Every packager has now run it: the Windows one (on the PC;
+  it passed except for a pre-existing bug in the executor on the
+  system's d3d9), the macOS ones (App Store, community and Intel,
+  2026-10-04, M21's Mac step) and the Flatpak (below).
+- Pin mitsuami's next release, which carries `da71060` (the disc shelf's
+  rename field on Windows, step 3's shelf; user's choice 2026-10-20 to
+  wait for it).
 - ~~Regenerate `packaging/flatpak/cargo-sources.json`~~ (done
   2026-10-04: the generator's merge had refused mitsuami's git crates).
 - **The Flatpak (2026-10-04).** The packager ran with this launcher on

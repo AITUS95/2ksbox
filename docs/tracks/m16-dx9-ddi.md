@@ -28,6 +28,15 @@ OpenGL ICD, is left open: `OPENGL32.DLL` stays the per-game copy from
 it, at least for the time being"). Also not done: vertex texture fetch
 in a title (step 3). The history below is as the track left it.
 
+Since then: on 2026-10-19 M25 moved the depth-texture claim (D16 /
+D24X8 / D24S8 with `D3DFORMAT_OP_TEXTURE`, the shadow maps a Direct3D 9
+game asks for) into the core's format list (`core_caps.c`), so the XP
+and 9x drivers answer it too; their surface with `DDSCAPS_TEXTURE |
+DDSCAPS_ZBUFFER` reaches the host with both caps, and the executor makes
+it a `D3DUSAGE_DEPTHSTENCIL` texture. The user ran a game's hardware
+shadows on XP with it (2026-10-20); not yet run on Win98
+(`tracks/m25-d3d11-umd.md`).
+
 Opened 2026-09-25. Step 0 is built and run on today's driver; the rig's
 two baselines are the part left (they are the user's runs). Step 1 is
 done: XP's `d3d9.dll` takes the driver as a DirectX 9 device with vs /

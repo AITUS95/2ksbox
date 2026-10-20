@@ -96,6 +96,9 @@ is small, so each needs its own A/B switch.
    chunk and the fence. A readback completed at the next doorbell rather
    than at once would hide it, but the guest may show or read the VRAM in
    between (the flip right after), so it needs the flip to complete it.
+   M25 did this for Direct3D 11's flips (protocol v28, 2026-10-18: a
+   flip's readback finished when the host's GPU is done or the display
+   needs it, `d3dpt_exec_settle`); the DDI path's readback still waits.
 4. **The readback's copies** (2.1 %): a compare against the shadow and
    two copies of 1.9 MB a frame, at memory speed. Skipping the compare
    needs to know which pixels the guest wrote, and QEMU's display already

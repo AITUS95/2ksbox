@@ -166,12 +166,17 @@ INI, or it opens its first-run wizard.
 5. **The Windows build.** The card ran on the PC's earlier builds
    (3DMark 99, `scripts/win-voodoo-ab.sh`); no run on the package's MSVC
    QEMU (since 2026-10-04, `build-windows.sh qemu-msvc`) is recorded.
+   Two threads from those 3DMark 99 runs are in `docs/00-status.md`
+   ("3DMark 99 on the Windows PC"): a garbled loading screen (the
+   desktop on `d3dpt-vga`, not a Voodoo frame) and the whole machine
+   slower after some guest restarts, with no Voodoo too.
 6. **Diablo II**, the title the route was chosen for, measured, and
    Tirtanium (one of the titles that stranded the screen) run.
 7. **Upstream.** Offer patches 64 and 71 and the two command-counter
    asymmetries to 86Box; a sync that brings them in drops the patch.
 8. A Voodoo Graphics (`VOODOO_1`) type only if a title wants one; SLI
-   never.
+   never (an SLI pair and the Voodoo 3's screen filter sit unmerged on
+   `track/m14-voodoo2-sli`, 2026-09-18).
 
 ## Rules
 

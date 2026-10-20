@@ -650,7 +650,14 @@ device's half is plain QEMU C and builds anywhere.
    checked by `tools/win7-aero-test.sh` (finding 15). Left: the loose ends
    of step 6 (full-screen d3d9 swap chains, render targets on a level or
    face, 32-bit indices, the depth StretchRect) and step 5 (timeout
-   recovery).
+   recovery). Two of them landed in the same user-mode driver's sources
+   on x64 Windows 11 (track M20, 2026-10-09; not rechecked on Windows 7):
+   32-bit indices (protocol v24's `D3DPT_DRAW8_INDEX32`, with feature
+   level 9_3's caps) and full-screen swap chains whose flips wait for the
+   vertical blank; and since 2026-10-19 (track M25) the driver claims
+   depth textures. Timeout recovery is still untested: on Windows 11 a TDR
+   ends in a bugcheck and a guest restart (M20's "The hangs were TDRs",
+   M25's QEMU patch 94).
 
 After Aero, not planned yet: 64-bit (test mode, or signing, which on
 64-bit Windows 10/11 means an EV certificate and Microsoft's attestation

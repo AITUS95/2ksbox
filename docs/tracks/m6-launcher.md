@@ -116,14 +116,17 @@ in-guest shelf on a real XP.
 - **Library thumbnails** (a machine's last frame) and **bundle
   import/export**, in doc 07's launcher list, not built.
 - **The player's own overlay** (pause, snapshot, disc swap, doc 07's
-  Player section); today these live in the launcher only.
+  Player section). The mitsuami player's menus have since taken most of
+  it (track M22): Machine > Pause, Machine > Disc over the machine's
+  drive and the shared shelf (2026-10-19, under Machine since
+  2026-10-20) and View > Shader (2026-10-19). Left: a snapshot from the
+  player; snapshots are the launcher's only.
 - **Packaging.** Flathub, the AppImage and a Windows installer beside
   the zip are dropped (ADR-028, 2026-10-06: the project publishes
   binaries only through app stores; the packagers stay for the stores
   and for anyone packaging it). Windows live control (AF_UNIX) is
-  M11's item. The Linux packager has not yet run with the mitsuami
-  launcher; the Windows, macOS and Flatpak ones have (track M19,
-  "Left").
+  M11's item. Every packager has run with the mitsuami launcher, the
+  Linux one last, on 2026-10-16 (track M19).
 - **Clone cannot be cancelled once copying.** `std::fs::copy` keeps the
   kernel's fast paths (reflinks, `copy_file_range`) and cannot stop
   mid-file, so Cancel is off during a copy.

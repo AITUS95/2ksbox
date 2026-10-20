@@ -121,15 +121,20 @@ Kept here:
    through it (`guest-G9`, `-G8`, `-F9`, `guest-ddvm` pass). Left: its
    `SETUP.EXE`, and the Win98 half (the checks need the winetests and a
    FreeDOS floppy that PC's checkout lacked).
-4. **An installer** beside the zip (doc 07). QEMU's own NSIS recipe
-   (`mingw-w64-x86_64-nsis` in MSYS2) is one way.
+4. ~~**An installer** beside the zip~~: dropped (ADR-028, 2026-10-06:
+   the project publishes binaries only through app stores, and the MSIX
+   is the Store's).
 5. **The Store upload.** The MSIX passes the certification kit and
-   sideloads; the upload needs the user (`docs/build-windows.md` "What
-   is not there yet").
+   sideloads; since 2026-10-17 it is packed as 1.0.0.0 with Partner
+   Center's identity `RoboportTecnologia.2ksbox` (the name reserved
+   2026-10-07), sideloaded with `-Check` and certified
+   (`OVERALL_RESULT=PASS`). The submission needs the user
+   (`docs/build-windows.md` "What is not there yet").
 6. **Zero-copy frames** through a DXGI shared handle, the counterpart of
    the dma-buf ring and IOSurface. Frames take the readback path today.
-7. **Windows 11 on a Windows host** is track M20's: QEMU builds no TPM
-   there, so the package's `2ksbox-player-x86_64.exe` runs no Windows 11 yet.
+7. ~~**Windows 11 on a Windows host**~~ (track M20's): done 2026-10-09,
+   under WHPX with the libtpms TPM in the MSVC QEMU (patches 88, 89) and
+   our OVMF with Secure Boot and no SMM.
 
 A Windows check that boots a guest, once an open item here, is done:
 `scripts/test.sh all` runs natively on the PC since 2026-10-02

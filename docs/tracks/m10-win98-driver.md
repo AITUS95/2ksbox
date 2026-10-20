@@ -31,12 +31,17 @@ Steps 0–4 are done; step 5, real titles, is where the work is.
   session's first DirectDraw program is §42.
 - **Titles**: Total Annihilation, LEGO Island, Carmageddon, Blood (DOS
   box), Crimson Skies (§28, §34), Diablo II (§33), 3DMark 99, 3DMark2001
-  SE's whole benchmark (§36–§39).
+  SE's whole benchmark (§36–§39), Age of Empires' intro videos (§46,
+  2026-10-11: they froze the machine until the DCI primary became a
+  flat pointer; `gdiprobe.exe` checks it at each depth).
 - **DirectX 9 on the same HAL** (track M16, closed 2026-09-27): Win98's
   own `d3d9.dll` / `d3d8.dll` run on the driver with SM3, and Max Payne
   2, Vice City, 3DMark2001 SE and Crimson Skies play on it. The design
   is doc 15's DX9 section; the `win98-dx9` and `win98-winetest` checks
-  are M16's.
+  are M16's. Since 2026-10-19 the core's format list claims depth
+  textures (D16 / D24X8 / D24S8, shadow maps) for the XP, 9x and WDDM
+  drivers alike (M25); a game's hardware shadows run on Windows 11 and
+  XP (the user, 2026-10-20), not yet run on Win98.
 
 ## Scope and files
 
@@ -77,6 +82,7 @@ needed no adapter change, so a change would be a finding),
 | titles and screen switches | §26–§39 |
 | no executor, 9x's one DirectDraw per session, the front-buffer flush | §40, §42–§44 |
 | monitor power-down | §41 |
+| DirectX 9 on 9x, the DCI primary | §45, §46 |
 
 ## Build and test loop
 

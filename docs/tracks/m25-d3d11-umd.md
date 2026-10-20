@@ -901,7 +901,8 @@ Windows one** (the user, by hand, 2026-10-20: under KVM, `d3dgame8`,
 `d3dgame9` and `d3dgame11` run as on the Windows host). On macOS DXVK's d3d11
 and dxgi build since 2026-10-20 (DXVK patch 18: ld64 export lists, a
 `tzcnt` overload clang called ambiguous), and so does the executor
-(`build.sh dxvk exec`); a run there is untested.
+(`build.sh dxvk exec`); the same day they ran there, Windows 11 on Arm's
+desktop on DXVK's d3d11 on KosmicKrisp (Open, "Windows 11 on Arm").
 
 **The driver builds for Windows 11 on Arm** into `build/wddm/arm64`
 (`build-wddm.cmd`, the `wddm` stage), and the guest-tools ISO carries it
@@ -957,17 +958,16 @@ of RAM). And EDK2 moves a 64-bit BAR below 4 GiB on a device with an
 option ROM (`PcdPciDegradeResourceForOptionRom`), so the Arm device has
 none (`romfile=`; the x86 VGA BIOS is no use there). Checked: EDK2 maps
 the bus with the BAR on it (AHCI at 0x10006000) and the user's machine
-boots Windows on the layout. Not yet seen: the BAR's address in the
-guest, which waits on the driver loading (below). In the form
+boots Windows on the layout; Windows puts BAR 0 at 0x7_e000_0000 (Open,
+"Windows 11 on Arm"). In the form
 our adapter on Windows 11, either architecture, is "2ksbox adapter
 (experimental)"; picking it asks first in a warning alert
 (`Form::video_question`: early build, test mode, Secure Boot off, the
 watermark, anti-cheat; Cancel the default), and while it is the pick a
 warning under the picker says test mode (`video_warning`); the note names
-`WDDMARM\` or `WDDM64\`. **Not run**: the aarch64 QEMU is built only on an
-Arm host, so neither its compile with the device nor a guest on it has
-been tried; the Mac is next. The executor there is DXVK on KosmicKrisp,
-whose Direct3D 11 side has not run either.
+`WDDMARM\` or `WDDM64\`. The aarch64 QEMU is built only on an Arm host;
+on the Mac (2026-10-20) it builds with the device and the desktop runs on
+it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
 
 ## Open
 

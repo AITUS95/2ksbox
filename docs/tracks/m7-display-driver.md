@@ -14,8 +14,9 @@ DirectX 8 feature is a protocol bump made here.
 
 - **M7a**, framebuffer: the host's mode table, the desktop from VRAM,
   unattended install (`DRIVER\DRVINST.EXE`), 8 bpp palettes, hardware
-  cursor, gamma ramps. Register set **v5** (`D3DPT_FB_VERSION`; v8 now:
-  M18 added the interrupt, fence and cursor registers); drivers built since
+  cursor, gamma ramps. Register set **v5** (`D3DPT_FB_VERSION`; v11 now:
+  M18 added the interrupt, fence and cursor registers, M20 the host's VRAM
+  fill and copy, M25 `CAP_D3D11` and `HOST_MHZ`); drivers built since
   2026-09-12 accept any adapter at or above their version.
 - **M7b**, DirectDraw: VRAM surfaces, flips paced by a vertical blank,
   colour keys.
@@ -23,7 +24,8 @@ DirectX 8 feature is a protocol bump made here.
   hardware T&L, vs/ps 1.x, palettized and compressed textures, VRAM
   vertex/index buffers, sixteen streams, cube and volume textures,
   anisotropic filtering, multisampling. Protocol **v13**
-  (`D3DPT_PROTO_VERSION`; v22 now, after M16's DX9 DDI and M18).
+  (`D3DPT_PROTO_VERSION`; v29 now, after M16's DX9 DDI, M18, M20 and
+  M25's Direct3D 11 and GDI records).
 - Titles: FIFA 2000, Max Payne, Diablo, Moto Racer 1997, GTA 2, GTA Vice
   City (played by hand by the user). The user's daily XP runs on it with
   no custom DLL. The FIFA 2000 keyboard shim `DINPUT\DINPUT.DLL` is

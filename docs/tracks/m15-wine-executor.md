@@ -53,7 +53,9 @@ section.
   11.17) and on a real macOS 15.8 on the M1's GL (328 fps,
   user-confirmed). The `exec-wine` check holds
   `d3dpt-dp2-test`'s half (`d3dpt-exec-test` left with the guest DLLs'
-  records, M16 step 7).
+  records, M16 step 7). It passes in the Air's `test.sh host` since
+  2026-10-04, where Wine's d3d9 on Apple's OpenGL averages an autogen
+  texture's 1x1 level in linear light, which the check accepts.
 - **XP guest.** D3DGAME8 within the rig budget (600 frames in 3.4 s
   against 2.1 s in process); the ten DX8 DDI probes give the in-process
   verdicts; FIFA 2000 plays a match at 22.6 frames/s against 19.0.
@@ -174,8 +176,8 @@ Numbered as ADR-018, doc 07 and CLAUDE.md cite them.
 2. **The transport.** Done (doc 14). If a guest profile ever shows the
    pipe round trip, the answer is a bounded spin on a sequence word in
    the shared file before blocking.
-3. **The guest.** Done on XP and Win98. Open: who programs the XP
-   black-screen VGA mode (Traps) and why it draws nothing.
+3. **The guest.** Done on XP and Win98. The XP black screen (Traps)
+   was patch 44's, fixed 2026-09-24.
 4. **The launcher and the packages.** Done (doc 07 has the verdicts).
 5. **A real game on a below-floor host.** The acceptance, and what is
    left. The community app is built on the 26 side (`scripts/package-macos.sh
@@ -263,8 +265,10 @@ Numbered as ADR-018, doc 07 and CLAUDE.md cite them.
      subprojects download` in `qemu/`), which a normal `build.sh` does.
    - Still open: a game through the add-on on a below-floor host (this
      box has Vulkan 1.3, so the sandbox check cannot reach the child's
-     device), and the Flathub submission itself, where the add-on is its
-     own repo submitted after the app.
+     device). The Flathub submission is dropped: the project publishes
+     binaries only through app stores (ADR-028, 2026-10-06).
+     `package-flatpak.sh` built and checked the add-on again on
+     2026-10-17.
 
 ## Rules
 

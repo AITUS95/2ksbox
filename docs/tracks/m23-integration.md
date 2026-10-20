@@ -293,6 +293,24 @@ handles coherent), and sees the host's rewrite of `live.txt`: the log
 shows the lease granted and broken about 2.5 s after the host's change.
 macOS's client the same, now in the `smb` host check.
 
+## The agent from other tracks (2026-10-09 on)
+
+- **Installed at the first logon** (track M24, 2026-10-09): the drivers
+  disc carries `guest-agent/autounattend.xml`, so a machine installed
+  with the disc in runs `2ksbox\install.ps1` at its first logon (and
+  setup asks for a local account); `install.cmd` stays for a machine
+  installed without it. Checked by a fresh install on the Air; x64's
+  disc carries the same file, not yet installed with. Since 2026-10-15
+  the file holds a product key of none, so Windows 10's setup takes it
+  too. Doc 24 §4.
+- **The installer updates a running agent** (2026-10-09): it stops both
+  logon tasks and every agent, waits for them, renames a still-held file
+  aside and checks the installed file's hash (before, the copy failed on
+  the held file and the old agent stayed, silently).
+- **The agent keeps one screen** (tracks M24, M20): it makes the
+  paravirtual card's screen the only one, so DWM paces on it (doc 24 §4,
+  "The screen").
+
 ## Open items
 
 - An ARM64-native agent (an ARM64 Windows toolchain on the build host).
