@@ -245,6 +245,32 @@ impl CursorImage {
         }
         h
     }
+
+    /// `hash` over the shape cut to its visible pixels, the hot spot
+    /// taken from the cut's corner: the same for a shape however much
+    /// transparent margin an adapter pads it with (virtio-gpu's cursor is
+    /// always 64x64, ours the shape's own size).
+    pub fn trimmed_hash(&self) -> u64 {
+        let (w, h) = (self.width as usize, self.height as usize);
+        let seen = |x: usize, y: usize| self.argb[y * w + x] >> 24 != 0;
+        let rows: Vec<usize> = (0..h).filter(|&y| (0..w).any(|x| seen(x, y))).collect();
+        let cols: Vec<usize> = (0..w).filter(|&x| (0..h).any(|y| seen(x, y))).collect();
+        let (Some(&y0), Some(&y1), Some(&x0), Some(&x1)) = (rows.first(), rows.last(), cols.first(), cols.last()) else {
+            return 0;
+        };
+        let mut argb = Vec::with_capacity((x1 - x0 + 1) * (y1 - y0 + 1));
+        for y in y0..=y1 {
+            argb.extend_from_slice(&self.argb[y * w + x0..=y * w + x1]);
+        }
+        CursorImage {
+            argb,
+            width: (x1 - x0 + 1) as u32,
+            height: (y1 - y0 + 1) as u32,
+            hot_x: self.hot_x.wrapping_sub(x0 as u32),
+            hot_y: self.hot_y.wrapping_sub(y0 as u32),
+        }
+        .hash()
+    }
 }
 
 pub struct Display(Arc<Mutex<Shared>>);
@@ -387,9 +413,10 @@ unsafe extern "C" fn on_cursor(
     if std::env::var_os("PLAYER_CURSOR_LOG").is_some() {
         match &s.cursor {
             Some(c) => eprintln!(
-                "[cursor] guest shape #{} {w}x{h} hot {hot_x},{hot_y} hash {:016x} ({})",
+                "[cursor] guest shape #{} {w}x{h} hot {hot_x},{hot_y} hash {:016x} trimmed {:016x} ({})",
                 s.cursor_seq,
                 c.hash(),
+                c.trimmed_hash(),
                 crate::cursor_shape::recognise(c).map_or("not a standard one".into(), |k| format!("{k:?}"))
             ),
             None => eprintln!("[cursor] guest shape #{} cleared", s.cursor_seq),

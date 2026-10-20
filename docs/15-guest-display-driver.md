@@ -494,13 +494,25 @@ adds the sprite every card of the era had.
   `CURSORS.EXE` (`guest-tools/src/cursors.c`, each `IDC_*` in turn) and
   checked by `tools/win98-cursor-test.sh`. Any other shape (a game's own,
   `IDC_UPARROW`) is the guest's at the picture's zoom, each pixel
-  repeated. While the guest takes the window's size (Windows 11 on
-  virtio-gpu or ours, whose picture is the screen's physical pixels) it
-  is at the host's scale instead, each of its pixels a point, rather
-  than at Windows' (user, 2026-10-20), filtered at a fractional scale.
-  The shape comes with no DPI, so a Windows scaled above 100 % still
-  hands over a bigger one, and that is drawn at the host's scale too.
-  The sprite composited under a grab stays at the guest's size. Windows 98's are in the table; XP's never reach the hardware
+  repeated. Windows 98's are in the table, and Windows 11's (2026-10-20,
+  user: the host's cursor rather than the guest's at Windows' scaling),
+  by a hash of the shape cut to its visible pixels
+  (`CursorImage::trimmed_hash`), since both of Windows 11's adapters pad
+  it to 64x64. They were measured at the default pointer size and each
+  display scaling from 100 % to 200 %: Windows draws three sizes (32x32
+  at 100 % and 125 %, 48x48 at 150 % and 175 %, 64x64 at 200 %); another
+  scaling or pointer size draws other shapes, which stay the guest's. The
+  busy cursors are animated (18 shapes each, every one the host's busy
+  cursor, set once). The measurement was by hand on the Windows 11 test
+  machine: `CURSORS.EXE` started in the logged-in session (a scheduled
+  task, `LogonType Interactive`), the guest's mouse moved first through
+  QMP's `input-send-event` (Windows 11 shows no pointer until a mouse is
+  used), `PLAYER_CURSOR_LOG=1` read in order. The scaling is the
+  display's own, set live as the Settings app does
+  (`DisplayConfigSetDeviceInfo` with the undocumented type -4, the step
+  relative to the recommended one; type -3 reads the range), at
+  1600x1200, where Windows allows up to 200 %. Custom scaling (`LogPixels` with `Win8DpiScaling`) does not
+  do: Windows applies its DPI and keeps the 100 % cursors. XP's never reach the hardware
   cursor (with the pointer shadow on and no `GCAPS2_ALPHACURSOR`, GDI
   draws XP's pointer itself), so XP keeps its own in the frame. It hides
   when the guest hides it. With a
