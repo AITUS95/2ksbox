@@ -4,6 +4,9 @@
   Built by guest-tools/build-wddm.cmd inside the EWDK (WDK 10.0.19041 and
   VS 2019's v142 build tools), the last kit that targets Windows 7 and
   32-bit kernel drivers. docs/build-windows.md "The WDDM driver".
+  ARM64 is built as our viogpudo is, by scripts/build-windows.sh: Visual
+  Studio 2022 with NuGet's WDK 10.0.26100, whose props D3DPT_WDK_PROPS
+  names (track M25: Windows 11 on Arm refused the EWDK's build, Code 48).
 -->
 <Project DefaultTargets="Build" ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
@@ -26,6 +29,10 @@
     <ProjectGuid>{6D3A2B1E-7C44-4E0B-9B57-3D00D3D7A001}</ProjectGuid>
     <RootNamespace>d3dptkmd</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(D3DPT_WDK_PROPS)" Condition="'$(D3DPT_WDK_PROPS)' != ''" />
+  <PropertyGroup Condition="'$(D3DPT_WDK_PROPS)' != ''">
+    <WindowsTargetPlatformVersion>$(D3DPT_WDK_VER)</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
@@ -57,6 +64,9 @@
            memory before it; MSVC's Arm default (/volatile:iso) orders
            nothing -->
       <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/volatile:ms %(AdditionalOptions)</AdditionalOptions>
+      <!-- the newer kit deprecates ExAllocatePoolWithTag, which the
+           Windows 7 build needs; the same calls on both kits -->
+      <DisableSpecificWarnings Condition="'$(D3DPT_WDK_PROPS)' != ''">4996;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <AdditionalDependencies>displib.lib;%(AdditionalDependencies)</AdditionalDependencies>

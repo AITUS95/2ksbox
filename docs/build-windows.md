@@ -39,7 +39,7 @@ re-applies the patch queue) while another build reads `qemu/`
 | DXVK's `d3d9.dll`, `d3dpt_exec.dll` | Visual Studio's `cl`, static C runtime, in the environment `scripts/msvc-env.sh` sets up | DXVK throws C++ exceptions out of `Direct3DCreate9`, which only an executor built by the same compiler catches, so the two moved to MSVC together (ADR-026's amendments). QEMU loads the executor by name; only C crosses that edge. DXVK under MSVC needed patch 15 ("DXVK under MSVC" below) |
 | the guest-tools ISO | MSYS2's i686 GCC with Linux's i686 runtime, Open Watcom | Windows 9x and XP guests; modern MSVC targets neither |
 | `d3dpt-dp2-test.exe`, `launcher-capi`'s check in `test.sh` | MSYS2's GCC, Rust `x86_64-pc-windows-gnu` | test programs only, never shipped: the executor's host test loads the MSVC executor across two C runtimes, which only C crosses |
-| the WDDM driver | the Enterprise WDK 10.0.19041, and for Windows 11 on Arm's user-mode drivers VS 2022 17.8+ with its ARM64EC build tools | Windows 7 and 32-bit kernel drivers; ARM64X, which VS 2019 cannot build ("The WDDM driver") |
+| the WDDM driver | the Enterprise WDK 10.0.19041, and for Windows 11 on Arm VS 2022 17.8+ with its ARM64EC build tools (the user-mode drivers) and viogpudo's toolchain (the kernel driver) | Windows 7 and 32-bit kernel drivers; ARM64X, which VS 2019 cannot build; an Arm kernel driver Windows 11 on Arm loads ("The WDDM driver") |
 | our viogpudo (track M24) | Visual Studio 2022 with the WDK 10.0.26100 from NuGet | ARM64 and x64 Windows 11 kernel drivers; the NuGet kit needs no EWDK ISO ("Our viogpudo") |
 
 QEMU's libraries are ours (`build-deps.sh`), not MSYS2's, which are
@@ -745,7 +745,8 @@ drivers disc carries it, opt-in, in `2ksbox\experimental-display`
 decision 2026-10-09, over the 26H1 EWDK's 15 GB ISO), which the script
 restores into `build/viogpudo/packages` with a `nuget.exe` it fetches,
 and imports through a `Directory.Build.props` it writes at the source
-tree's root, as Microsoft's driver samples do. Visual Studio 2022 brings
+tree's root, as Microsoft's driver samples do (`scripts/nuget-wdk.sh`,
+shared with the WDDM driver's Arm kernel driver). Visual Studio 2022 brings
 the rest; it needs four components, which the script names when one is
 missing (Visual Studio Installer > Modify, or `setup.exe modify --add`):
 
@@ -862,7 +863,7 @@ M25; the same toolset and settings, compiled as C++), into
 a prompt (its INF section installs Direct3D 9's alone so far). The same
 three projects build `build/wddm/x64/` for Windows 11, and
 `build/wddm/arm64/` for Windows 11 on Arm (track M25): the kernel driver
-ARM64 from the EWDK, and the two user-mode drivers **ARM64X**, an ARM64
+ARM64, and the two user-mode drivers **ARM64X**, an ARM64
 half for Arm processes and an ARM64EC half for the x64 programs Windows
 emulates, in one DLL. VS 2019 has no ARM64EC, so the script builds those
 two first, in the environment of a VS 2022 17.8 or later that vswhere
@@ -873,7 +874,17 @@ Windows SDK), with the EWDK's display headers (`d3d10umddi.h`,
 which predates ARM64EC; without that Visual Studio it skips the Arm set
 with a note. The x86 user-mode drivers go beside them for the x86
 programs Windows on Arm emulates. `dumpbin -headers` says `AA64 machine
-(ARM64) (ARM64X)` for the two DLLs. Notes:
+(ARM64) (ARM64X)` for the two DLLs. The Arm kernel driver is built as
+our viogpudo is ("Our viogpudo"; `scripts/nuget-wdk.sh`, which both
+share): `build-windows.sh` runs `build-wddm.cmd` with
+`D3DPT_KM_ARM64=nuget`, which leaves it out, then builds it with that
+Visual Studio 2022's MSBuild on NuGet's WDK 10.0.26100, the project
+importing `build/wddm/arm64/wdk.props` (`D3DPT_WDK_PROPS`; its objects in
+`obj-km`). Windows 11 on Arm refused the EWDK's build (Code 48,
+`0xC000036B`, no Code Integrity event; 2026-10-20), where viogpudo from
+that kit loads. The newer kit deprecates `ExAllocatePoolWithTag` (C4996),
+which the Windows 7 build needs, so that build turns the warning off.
+Notes:
 
 - The kernel-mode include path has no `<stdint.h>`, which
   `d3dpt/d3dpt_fb.h` includes, and MSVC's own pulls in the user-mode CRT:

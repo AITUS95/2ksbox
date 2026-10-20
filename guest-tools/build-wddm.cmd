@@ -18,6 +18,10 @@ rem installed. docs/build-windows.md "The WDDM driver" has where to get it.
 rem VS 2019 has no ARM64EC, so the Arm user-mode drivers are VS 2022's
 rem (17.8 or later, with the ARM64EC build tools) on its own Windows SDK,
 rem with the EWDK's display headers; without it there is no Arm set.
+rem With D3DPT_KM_ARM64=nuget the Arm kernel driver is left out here:
+rem scripts/build-windows.sh builds it as our viogpudo is (Visual Studio
+rem 2022, NuGet's WDK 10.0.26100; track M25: Windows 11 on Arm refused
+rem the EWDK's build, Code 48).
 rem
 rem   guest-tools\build-wddm.cmd               finds a mounted EWDK
 rem   set EWDK=E:                              ... or names its drive
@@ -89,9 +93,11 @@ exit /b 0
 rem :arm64: the rest of the Arm set, in the EWDK's environment
 :arm64
 set "OUT=%ROOT%\build\wddm\arm64"
-msbuild "%ROOT%\guest-tools\src\d3dptvid\wddm\km\d3dptkmd.vcxproj" -nologo -v:minimal ^
-  -p:Configuration=Release -p:Platform=ARM64 "-p:D3DPT_OUT=%OUT%"
-if errorlevel 1 exit /b 1
+if not "%D3DPT_KM_ARM64%"=="nuget" (
+  msbuild "%ROOT%\guest-tools\src\d3dptvid\wddm\km\d3dptkmd.vcxproj" -nologo -v:minimal ^
+    -p:Configuration=Release -p:Platform=ARM64 "-p:D3DPT_OUT=%OUT%"
+  if errorlevel 1 exit /b 1
+)
 copy /y "%ROOT%\guest-tools\src\d3dptvid\wddm\km\d3dptkmd.inf" "%OUT%\" >nul
 copy /y "%ROOT%\guest-tools\src\d3dptvid\wddm\wddm-install.ps1" "%OUT%\" >nul
 copy /y "%ROOT%\build\wddm\x86\d3dptumd.dll" "%OUT%\d3dptumd32.dll" >nul

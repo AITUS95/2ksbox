@@ -1031,8 +1031,16 @@ whose Direct3D 11 side has not run either.
   drivers before WDDM 2.0): Windows on Arm carries it. Next: the driver
   writes `InitStatus` in its service key (0xffffffff on entry, then
   `DxgkInitialize`'s status), which tells the kernel refusing the image
-  from dxgkrnl refusing the driver; with the new `find_bars`, it is not
-  yet built (the PC).
+  from dxgkrnl refusing the driver. With that build installed there was
+  no value at all (user, 2026-10-20): `DriverEntry` never ran, so the
+  kernel refused the image (unless driver isolation denied the write).
+  Its difference from our viogpudo's ARM64 driver, which loads on the
+  same machine, is the toolchain (the EWDK's 2020 linker, 14.27, against
+  Visual Studio 2022's 14.44 on NuGet's WDK 10.0.26100) and a version
+  resource; nothing Microsoft publishes names either. So the Arm kernel
+  driver is now built as viogpudo is (`build-windows.sh`,
+  `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"); not
+  yet built on the PC.
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a

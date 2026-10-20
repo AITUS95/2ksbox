@@ -21,12 +21,9 @@
 # Hosts that cannot build it fetch the PC's build for their checkout,
 # which the PC publishes: scripts/windows-drivers.sh fetch|publish viogpudo.
 #
-# The WDK and SDK are Microsoft's NuGet packages at the versions below,
-# restored into build/viogpudo/packages by a nuget.exe fetched next to them;
-# Visual Studio 2022 supplies the compilers and, through its "Windows Driver
-# Kit" component, the kernel-driver toolset (the components it needs are
-# named when one is missing). WDK 10.0.26100 is the last for Visual Studio
-# 2022. docs/build-windows.md "Our viogpudo".
+# The toolchain (Visual Studio 2022, the WDK and SDK from NuGet at their
+# pins) is scripts/nuget-wdk.sh's, shared with the WDDM driver's Arm kernel
+# driver. docs/build-windows.md "Our viogpudo".
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,14 +36,7 @@ UPSTREAM=https://github.com/virtio-win/kvm-guest-drivers-windows.git
 PIN=fbcc19d763f92a8281abe364c7ea1de3de87e61d
 OUT=build/viogpudo
 SRC=$OUT/src
-WDK_VER=10.0.26100.6584
-# the SDK the WDK packages depend on, at their floor (what NuGet resolves)
-SDK_VER=10.0.26100.1
-NUGET_URL=https://dist.nuget.org/win-x86-commandline/v6.14.0/nuget.exe
-VS_COMPONENTS=(Component.Microsoft.Windows.DriverKit
-               Microsoft.VisualStudio.Component.VC.Tools.ARM64
-               Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre
-               Microsoft.VisualStudio.Component.VC.Runtimes.ARM64.Spectre)
+. scripts/nuget-wdk.sh
 
 # Upstream at the pin, every patch in filename order, from a clean tree
 # each time (a patch edited since the last run applies to the pristine
@@ -69,39 +59,6 @@ source_tree() {
   done
 }
 
-# Visual Studio 2022 with every component in VS_COMPONENTS, or a sentence
-# naming what to add.
-find_vs() {
-  local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" vs
-  [ -x "$vswhere" ] || { echo "build-viogpudo.sh: no Visual Studio installer (vswhere)" >&2; return 1; }
-  vs=$("$vswhere" -version '[17.0,18.0)' -products '*' -requires "${VS_COMPONENTS[@]}" \
-       -property installationPath | tr -d '\r' | head -1)
-  if [ -z "$vs" ]; then
-    echo "build-viogpudo.sh: needs Visual Studio 2022 with these components (Visual Studio Installer > Modify, or setup.exe modify --add <id>):" >&2
-    printf '    %s\n' "${VS_COMPONENTS[@]}" >&2
-    return 1
-  fi
-  cygpath -u "$vs"
-}
-
-# The WDK and SDK packages, at the pins, in $OUT/packages.
-restore_wdk() {
-  local nuget="$OUT/tools/nuget.exe" p
-  if ! [ -f "$nuget" ]; then
-    mkdir -p "$OUT/tools"
-    curl -fsSL -o "$nuget" "$NUGET_URL"
-  fi
-  for p in "Microsoft.Windows.SDK.CPP $SDK_VER" "Microsoft.Windows.SDK.CPP.x64 $SDK_VER" \
-           "Microsoft.Windows.SDK.CPP.arm64 $SDK_VER" \
-           "Microsoft.Windows.WDK.x64 $WDK_VER" "Microsoft.Windows.WDK.ARM64 $WDK_VER"; do
-    set -- $p
-    [ -d "$OUT/packages/$1.$2" ] && continue
-    echo "==> NuGet: $1 $2"
-    "$nuget" install "$1" -Version "$2" -OutputDirectory "$(cygpath -w "$OUT/packages")" \
-      -NonInteractive -Verbosity quiet
-  done
-}
-
 build() {
   case "$(uname -s)" in MINGW*|MSYS*) ;; *)
     echo "build-viogpudo.sh: the drivers build on Windows (MSYS2); elsewhere: fetch" >&2; exit 1 ;;
@@ -111,19 +68,9 @@ build() {
   echo "==> Visual Studio at $vs"
   restore_wdk
   source_tree
-  # What the WDK's NuGet packages ask of a project (Microsoft's
-  # Windows-driver-samples do the same); MSBuild picks it up from the tree's
-  # root. Forward slashes: MSBuild takes them, and no shell eats them.
-  pkgs='$(MSBuildThisFileDirectory)../packages'
-  {
-    echo '<Project>'
-    echo "  <Import Project=\"$pkgs/Microsoft.Windows.WDK.x64.$WDK_VER/build/native/Microsoft.Windows.WDK.x64.props\" Condition=\"'\$(Platform)' == 'x64'\"/>"
-    echo "  <Import Project=\"$pkgs/Microsoft.Windows.WDK.ARM64.$WDK_VER/build/native/Microsoft.Windows.WDK.ARM64.props\" Condition=\"'\$(Platform)' == 'ARM64'\"/>"
-    echo "  <Import Project=\"$pkgs/Microsoft.Windows.SDK.CPP.x64.$SDK_VER/build/native/Microsoft.Windows.SDK.cpp.x64.props\" Condition=\"'\$(Platform)' == 'x64'\"/>"
-    echo "  <Import Project=\"$pkgs/Microsoft.Windows.SDK.CPP.arm64.$SDK_VER/build/native/Microsoft.Windows.SDK.cpp.arm64.props\" Condition=\"'\$(Platform)' == 'ARM64'\"/>"
-    echo "  <Import Project=\"$pkgs/Microsoft.Windows.SDK.CPP.$SDK_VER/build/native/Microsoft.Windows.SDK.cpp.props\"/>"
-    echo '</Project>'
-  } > "$SRC/Directory.Build.props"
+  # MSBuild picks it up from the tree's root. Forward slashes: MSBuild
+  # takes them, and no shell eats them.
+  wdk_props "$SRC/Directory.Build.props" '$(MSBuildThisFileDirectory)../packages'
   # upstream's packaging step runs inf2cat by name; the catalog it makes is
   # not used (the installer writes and signs its own)
   PATH="$ROOT/$OUT/packages/Microsoft.Windows.WDK.x64.$WDK_VER/c/bin/${WDK_VER%.*}.0/x86:$PATH"
@@ -165,5 +112,5 @@ case "${1:-}" in
   source) source_tree ;;
   build) build ;;
   iso) iso ;;
-  *) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

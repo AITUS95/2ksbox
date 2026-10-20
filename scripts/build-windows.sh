@@ -375,7 +375,25 @@ if want wddm; then
     skip wddm "no EWDK 10.0.19041 mounted (mount it, or EWDK_ISO=<iso>; docs/build-windows.md \"The WDDM driver\")" || true
   else
     say "wddm: d3dptkmd.sys + d3dptumd.dll (MSVC, the EWDK)"
-    cmd //c "$(cygpath -w guest-tools/build-wddm.cmd)"
+    # the Arm kernel driver is not the EWDK's (below)
+    D3DPT_KM_ARM64=nuget cmd //c "$(cygpath -w guest-tools/build-wddm.cmd)"
+    # ... but viogpudo's toolchain: Visual Studio 2022 and NuGet's WDK
+    # 10.0.26100 (scripts/nuget-wdk.sh). Windows 11 on Arm refused the
+    # EWDK's build (Code 48, 0xC000036B; track M25), where our viogpudo
+    # from this kit loads.
+    if [ -f build/wddm/arm64/d3dptumd.dll ]; then
+      say "wddm: d3dptkmd.sys ARM64 (Visual Studio 2022, NuGet's WDK $(. scripts/nuget-wdk.sh; echo $WDK_VER))"
+      ( . scripts/nuget-wdk.sh
+        vs=$(find_vs)
+        restore_wdk
+        wdk_props build/wddm/arm64/wdk.props "$(cygpath -m "$ROOT/$WDK_PKGS")"
+        "$vs/MSBuild/Current/Bin/amd64/MSBuild.exe" \
+          "$(cygpath -w guest-tools/src/d3dptvid/wddm/km/d3dptkmd.vcxproj)" -nologo -v:minimal \
+          -p:Configuration=Release -p:Platform=ARM64 \
+          "-p:D3DPT_OUT=$(cygpath -w build/wddm/arm64)" \
+          "-p:IntDir=$(cygpath -w build/wddm/arm64/obj-km)\\" \
+          "-p:D3DPT_WDK_PROPS=$(cygpath -w build/wddm/arm64/wdk.props)" )
+    fi
     # the sources it was built from, which a publish checks
     scripts/windows-drivers.sh key wddm > build/wddm/.key
     rm -f build/wddm/x86/.key   # where it was before the x64 pair joined it
