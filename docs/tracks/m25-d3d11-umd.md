@@ -897,8 +897,10 @@ for Linux with g++ against DXVK's native headers, warning-free and with no
 unresolved symbol (checked in WSL's Ubuntu on the PC), and its Wine build
 with mingw. **On a Linux host Windows 11 on the driver works as on the
 Windows one** (the user, by hand, 2026-10-20: under KVM, `d3dgame8`,
-`d3dgame9` and `d3dgame11` run as on the Windows host); the macOS build and a run
-there are untested.
+`d3dgame9` and `d3dgame11` run as on the Windows host). On macOS DXVK's d3d11
+and dxgi build since 2026-10-20 (DXVK patch 18: ld64 export lists, a
+`tzcnt` overload clang called ambiguous), and so does the executor
+(`build.sh dxvk exec`); a run there is untested.
 
 **The driver builds for Windows 11 on Arm** into `build/wddm/arm64`
 (`build-wddm.cmd`, the `wddm` stage), and the guest-tools ISO carries it

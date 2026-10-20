@@ -1,8 +1,9 @@
 # DXVK patch queue
 
 DXVK's d3d9 is the host executor's Direct3D 9 for the paravirtual
-Direct3D device (doc 14, ADR-006/007) on Linux, macOS and Windows. Only
-`d3d9` is built: `scripts/configure-dxvk.sh` → `build/dxvk`, and with
+Direct3D device (doc 14, ADR-006/007) on Linux, macOS and Windows, and its
+d3d11 and dxgi the Direct3D 10 / 11 one's (track M25). Those three are
+built: `scripts/configure-dxvk.sh` → `build/dxvk`, and with
 `--windows` → `build/win/dxvk`, built with MSVC (shipped as
 `dxvk_d3d9.dll`). The macOS
 Vulkan setup (KosmicKrisp, the SDK, the app's own loader) is in
@@ -33,6 +34,7 @@ compiler), paths relative to that repository.
 | `15-vertex-input-eq-divisors` | `DxvkGraphicsPipelineVertexInputState::eq` stops at the first difference in the divisor loop too. It assigned `eq` there without `&& eq`, so a matching divisor overwrote a `false` from the attributes and two vertex layouts with the same counts and divisors compared equal (d3d9's null binding gives every fixed-function draw a divisor). libstdc++'s `unordered_map` compares stored hashes before calling `eq`, MSVC's does not, so only the MSVC build (the Windows one since 2026-10-04) reused the wrong pipeline: the oracle's two-stream fixed-function, cube and volume checks failed. `docs/build-windows.md` "DXVK under MSVC" | upstream adds `&& eq` |
 | `16-create-no-throw` | `CreateD3D9`, behind every `Direct3DCreate9*` export, catches what constructing the interface throws (`DxvkInstance` with no usable device) and returns null / `D3DERR_NOTAVAILABLE`. A native build links libstdc++ statically with its symbols hidden, so an exception that left DXVK reached the executor's `catch` through the system libstdc++'s personality and DXVK's own unwinder, and the process aborted (SIGABRT, `exec-no-device` on Linux). MSVC and macOS share one runtime with the caller, so it was caught there | upstream catches at the export |
 | `17-no-loader-no-crash` | `LibraryLoader::sym` answers null when no Vulkan loader was found. `LibraryFn`'s members look themselves up as it is constructed, through the null `vkGetInstanceProcAddr`, so a process with no loader (a Mac without `DYLD_LIBRARY_PATH`, the native harnesses) died of SIGSEGV in `LibraryFn::LibraryFn` before DxvkInstance could throw "Failed to load vulkan-1 library"; now that is thrown, patch 16 catches it, and `Direct3DCreate9` returns null. The executor probes for a loader before opening DXVK and never reached it. `dxvk-no-loader` in `scripts/test.sh` | upstream checks the loader before the lookups |
+| `18-native-macos-d3d11` | dxvk-native's d3d11 and dxgi (built since track M25) on macOS, as patch 01 did for d3d9: their export lists as ld64 `-exported_symbols_list`s (`d3d11.exports`, `dxgi.exports`, from the `.sym` files; ld64 has no `--version-script`); `DxvkBindingSet`'s 64-bit mask is `uint64_t`, not `uintptr_t` (`unsigned long` on macOS, which matches neither `bit::tzcnt` overload: "call to 'tzcnt' is ambiguous"); the four state-object classes are `final`, which silences `-Wdelete-non-abstract-non-virtual-dtor` (their set deletes each through its own type, so it was never wrong) | upstream accepts a macOS port |
 | `dxbc-spirv/01-vs-fog-default` | a vertex shader that never writes `oFog` leaves fog at 0.0 (fully fogged), not 1.0, as the cards of the era do (`fog_with_shader_test`). Applied inside `subprojects/dxbc-spirv` | upstream matches the hardware |
 | `dxbc-spirv/02-ps2-point-sprite-texcoords` | point sprites replace a ps_2_x shader's `t` registers too (declared as `eTexture`, which the adjustment skipped), so a particle system's ps_2_0 read one texel over the whole sprite (`test_pointsize`) | upstream fixes it |
 
