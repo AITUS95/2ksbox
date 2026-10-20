@@ -351,17 +351,9 @@ fn DiscRow(path: PathBuf) -> impl View {
         move || discs.read(|s| row(&path).is_some_and(|r| s.row_in_drive(r)))
     };
     let menu = (
-        // Opened a moment after the menu closes: WinUI's menu gives focus
-        // back to what had it before, in a step queued after the choice, and
-        // that took it from a field opened at once, which then closed
-        // (user). 16 ms is enough on the PC; 50 leaves room.
         MenuItem::new("Rename").on_select(move || {
-            let path = m1.clone();
-            spawn_local(async move {
-                sleep(Duration::from_millis(50)).await;
-                discs.start_rename(&path);
-                field_ref.select_text(0..usize::MAX);
-            });
+            discs.start_rename(&m1);
+            field_ref.select_text(0..usize::MAX);
         }),
         MenuItem::new("Insert")
             .enabled({
@@ -412,7 +404,6 @@ fn DiscRow(path: PathBuf) -> impl View {
                                 top={Length::Px(-7.0)}
                                 margin_start=Spacing::Xs
                                 hidden=move || cfg!(target_os = "macos") || !hovered.get()
-                                native=pencil()
                                 icon=icons::EDIT
                                 icon_only=true
                                 button_style=ButtonStyle::Borderless
@@ -471,20 +462,6 @@ fn DiscRow(path: PathBuf) -> impl View {
                 @click=move || discs.remove(&p7)
             >"Remove"</Button>
         </Row>
-    }
-}
-
-/// The pencil never takes focus on Windows. A click would focus it, the
-/// field then replaces it, and XAML's late report of that focus reads as
-/// the new field losing focus, which wrote the label and closed the field
-/// as soon as it opened (user). The keyboard renames from the row's menu.
-fn pencil() -> Tweak<Button> {
-    platform! {
-        windows => mitsuami::winui::tweak(|b: &mitsuami::winui::bindings::Button| {
-            use mitsuami::winui::windows_core::Interface;
-            b.cast::<mitsuami::winui::bindings::IUIElement>()?.SetIsTabStop(false)
-        }),
-        _ => Tweak::none(),
     }
 }
 

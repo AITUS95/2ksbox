@@ -401,14 +401,15 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    (written on Enter or focus leaving; Escape drops the edit, taken by
    a container's `on_key` round the field ahead of the dialog's
    Escape-closes, so only a second Escape closes the window, user
-   2026-10-19). On WinUI the pencil is `IsTabStop=false`: a click
-   focused it, the field replaced it, and XAML's late `GotFocus` for it
-   read as the new field's blur, which wrote the label and closed the
-   field at once (user 2026-10-19; reproduced and checked by a real
-   click through UI Automation). The menu's Rename opens the field 50 ms
-   after the choice: WinUI's menu gives focus back to what had it before
-   in a step queued after the choice, and took it from a field opened at
-   once (user 2026-10-20; 0 ms fails, 16 ms is enough on the PC), the
+   2026-10-19). On Windows the field opened from the pencil or the
+   menu's Rename closed at once (user 2026-10-19, 20): XAML's late
+   `GotFocus` for a move it made itself (the clicked pencil going away,
+   the menu giving focus back as it closed) read as the new field's
+   blur, which wrote the label. Fixed in mitsuami (`da71060`, after
+   1.3.5: its late `GotFocus` reports what has focus then); until a
+   release with it is pinned here, the bug stays on Windows (user's
+   choice, 2026-10-20). Checked against that checkout with real clicks
+   through UI Automation, three runs each way. After the label come the
    core's "Disc image · ~/path" line, ▶ (Insert) or "In drive", and the
    trash button. The rules are doc 07's "One drive": Insert sets the boot
    disc, and on a running machine swaps the disc now too; the card polls
