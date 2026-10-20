@@ -310,6 +310,17 @@ static NTSTATUS d3dpt_add_device(IN_CONST_PDEVICE_OBJECT pdo, OUT_PPVOID ctx)
     return STATUS_SUCCESS;
 }
 
+/* The service key (DriverEntry's registry path), for what the driver
+ * leaves there to be read in the guest: InitStatus, BarDiag. */
+static WCHAR g_svc_path[260];
+
+static void note_value(PCWSTR name, ULONG type, PVOID data, ULONG len)
+{
+    if (g_svc_path[0]) {
+        RtlWriteRegistryValue(RTL_REGISTRY_ABSOLUTE, g_svc_path, name, type, data, len);
+    }
+}
+
 /* BAR 0 (VRAM) and BAR 1 (the registers), found by address. A VGA-class
  * device's resource list also carries the legacy window at 0xA0000 and
  * the VGA ports, ahead of the BARs, so counting memory resources (what
@@ -319,8 +330,8 @@ static NTSTATUS d3dpt_add_device(IN_CONST_PDEVICE_OBJECT pdo, OUT_PPVOID ctx)
 static NTSTATUS find_bars(D3DPT_ADAPTER *a)
 {
     PCM_RESOURCE_LIST list = a->info.TranslatedResourceList;
-    ULONG bar[3], got = 0, f, i, found = 0;
-    ULONGLONG vram, regs;
+    ULONG bar[3], got = 0, f, i, found = 0, n = 2;
+    ULONGLONG vram, regs, start, len, diag[2 + 3 * 16];
     NTSTATUS st;
 
     if (!list) {
@@ -347,21 +358,39 @@ static NTSTATUS find_bars(D3DPT_ADAPTER *a)
         for (i = 0; i < pl->Count; i++) {
             PCM_PARTIAL_RESOURCE_DESCRIPTOR d = &pl->PartialDescriptors[i];
 
-            if (d->Type != CmResourceTypeMemory) {
+            /* a large BAR may come as MemoryLarge, whose length is
+             * encoded by its flags: the decoder reads both */
+            if (d->Type != CmResourceTypeMemory && d->Type != CmResourceTypeMemoryLarge) {
                 continue;
             }
-            if ((ULONGLONG)d->u.Memory.Start.QuadPart == vram) {
-                a->vram_phys = d->u.Memory.Start;
-                a->vram_len = d->u.Memory.Length;
+            len = RtlCmDecodeMemIoResource(d, &start);
+            if (n + 3 <= RTL_NUMBER_OF(diag)) {
+                diag[n++] = ((ULONGLONG)d->Type << 16) | d->Flags;
+                diag[n++] = start;
+                diag[n++] = len;
+            }
+            if (start == vram) {
+                a->vram_phys.QuadPart = (LONGLONG)start;
+                a->vram_len = (ULONG)len;
                 found |= 1;
-            } else if ((ULONGLONG)d->u.Memory.Start.QuadPart == regs) {
-                a->regs_phys = d->u.Memory.Start;
-                a->regs_len = d->u.Memory.Length;
+            } else if (start == regs) {
+                a->regs_phys.QuadPart = (LONGLONG)start;
+                a->regs_len = (ULONG)len;
                 found |= 2;
             }
         }
     }
-    return found == 3 ? STATUS_SUCCESS : STATUS_DEVICE_CONFIGURATION_ERROR;
+    if (found != 3) {
+        /* BarDiag (REG_BINARY, 64-bit words): BAR 0 | BAR 1 << 32, BAR 2,
+         * then for each memory resource type << 16 | flags, start,
+         * length; on Arm no debug line before the registers are mapped
+         * reaches the host */
+        diag[0] = bar[0] | ((ULONGLONG)bar[1] << 32);
+        diag[1] = bar[2];
+        note_value(L"BarDiag", REG_BINARY, diag, n * sizeof(diag[0]));
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+    return STATUS_SUCCESS;
 }
 
 /* The sizes a Windows 10 / 11 desktop is expected to offer that the
@@ -4378,20 +4407,17 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 
 /* The service key's InitStatus (REG_DWORD): 0xffffffff once DriverEntry
  * runs, then what DxgkInitialize returned. On Arm the debug lines before
- * StartDevice go nowhere (dbg_puts), and a load Windows refuses
- * (Code 48, track M25) is told apart by it: no value, the image never
- * ran; a status, dxgkrnl refused it. */
+ * StartDevice go nowhere (dbg_puts): no value means the image never ran,
+ * a status says how far it got (track M25). */
 static void note_init_status(PUNICODE_STRING reg, ULONG st)
 {
-    WCHAR path[260];
     ULONG n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
 
-    if (!n || n >= RTL_NUMBER_OF(path)) {
-        return;
+    if (!g_svc_path[0] && n && n < RTL_NUMBER_OF(g_svc_path)) {
+        RtlCopyMemory(g_svc_path, reg->Buffer, n * sizeof(WCHAR));
+        g_svc_path[n] = 0;
     }
-    RtlCopyMemory(path, reg->Buffer, n * sizeof(WCHAR));
-    path[n] = 0;
-    RtlWriteRegistryValue(RTL_REGISTRY_ABSOLUTE, path, L"InitStatus", REG_DWORD, &st, sizeof(st));
+    note_value(L"InitStatus", REG_DWORD, &st, sizeof(st));
 }
 
 /* The service key's GdiAcceleration (default 0), GdiCpuVisible and Cached

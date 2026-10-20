@@ -20,8 +20,7 @@ rem (17.8 or later, with the ARM64EC build tools) on its own Windows SDK,
 rem with the EWDK's display headers; without it there is no Arm set.
 rem With D3DPT_KM_ARM64=nuget the Arm kernel driver is left out here:
 rem scripts/build-windows.sh builds it as our viogpudo is (Visual Studio
-rem 2022, NuGet's WDK 10.0.26100; track M25: Windows 11 on Arm refused
-rem the EWDK's build, Code 48).
+rem 2022, NuGet's WDK 10.0.26100; user, 2026-10-20, track M25).
 rem
 rem   guest-tools\build-wddm.cmd               finds a mounted EWDK
 rem   set EWDK=E:                              ... or names its drive

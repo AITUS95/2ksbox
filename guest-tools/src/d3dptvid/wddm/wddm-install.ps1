@@ -29,6 +29,18 @@ foreach ($f in "d3dptkmd.sys", "d3dptumd.dll", "d3dptumd32.dll", "d3dpt11.dll", 
     (Get-Item (Join-Path $work $f)).IsReadOnly = $false
 }
 
+# A version of this install's minute: the INF's DriverVer is the same for
+# every build, and Windows keeps a device on the package it has over one
+# of the same version, so a new build installed over an old one never ran
+# (the Arm machine, track M25). Major and minor stay the INF's.
+$inf = Join-Path $work "d3dptkmd.inf"
+$now = Get-Date
+$build = [int]($now.Date - [datetime]"2026-01-01").TotalDays
+$rev = $now.Hour * 60 + $now.Minute
+(Get-Content $inf) -replace '^DriverVer=[^,]*,(\d+\.\d+)\.\d+\.\d+', `
+    "DriverVer=$($now.ToString('MM/dd/yyyy', [cultureinfo]::InvariantCulture)),`$1.$build.$rev" | Set-Content $inf -Encoding ascii
+Select-String -Path $inf -Pattern '^DriverVer=' | ForEach-Object { Write-Host "wddm-install: $($_.Line)" }
+
 bcdedit /set testsigning on | Out-Host
 if ($LASTEXITCODE) { throw "bcdedit refused test mode (Secure Boot on?)" }
 

@@ -6,7 +6,7 @@
   32-bit kernel drivers. docs/build-windows.md "The WDDM driver".
   ARM64 is built as our viogpudo is, by scripts/build-windows.sh: Visual
   Studio 2022 with NuGet's WDK 10.0.26100, whose props D3DPT_WDK_PROPS
-  names (track M25: Windows 11 on Arm refused the EWDK's build, Code 48).
+  names (user, 2026-10-20, track M25).
 -->
 <Project DefaultTargets="Build" ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">

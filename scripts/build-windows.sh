@@ -378,9 +378,8 @@ if want wddm; then
     # the Arm kernel driver is not the EWDK's (below)
     D3DPT_KM_ARM64=nuget cmd //c "$(cygpath -w guest-tools/build-wddm.cmd)"
     # ... but viogpudo's toolchain: Visual Studio 2022 and NuGet's WDK
-    # 10.0.26100 (scripts/nuget-wdk.sh). Windows 11 on Arm refused the
-    # EWDK's build (Code 48, 0xC000036B; track M25), where our viogpudo
-    # from this kit loads.
+    # 10.0.26100 (scripts/nuget-wdk.sh), the kit of every Arm kernel
+    # driver of ours (user, 2026-10-20; track M25).
     if [ -f build/wddm/arm64/d3dptumd.dll ]; then
       say "wddm: d3dptkmd.sys ARM64 (Visual Studio 2022, NuGet's WDK $(. scripts/nuget-wdk.sh; echo $WDK_VER))"
       ( . scripts/nuget-wdk.sh
