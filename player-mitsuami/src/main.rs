@@ -871,7 +871,9 @@ fn apply_cursor(w: Window_) {
         })
     })
     .flatten();
-    if let Some(cursor) = set {
+    // every frame of the guest's animated busy cursor is a new shape, and
+    // all of them the host's one busy cursor: set it once
+    if let Some(cursor) = set.filter(|c| *c != w.cursor.get_untracked()) {
         w.cursor.set(cursor);
     }
 }

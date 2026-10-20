@@ -482,7 +482,18 @@ adds the sprite every card of the era had.
   `CURSORS.EXE` (`guest-tools/src/cursors.c`, each `IDC_*` in turn) and
   checked by `tools/win98-cursor-test.sh`. Any other shape (a game's own,
   `IDC_UPARROW`) is the guest's at the picture's zoom, each pixel
-  repeated. Windows 98's are in the table; XP's never reach the hardware
+  repeated. Windows 98's are in the table, and Windows 11's (2026-10-20,
+  user: the host's cursor rather than the guest's at Windows' scaling),
+  by a hash of the shape cut to its visible pixels
+  (`CursorImage::trimmed_hash`), since both of Windows 11's adapters pad
+  it to 64x64. They were measured at Windows' 100 % scaling and default
+  pointer size; another scaling draws other shapes, which stay the
+  guest's. The busy cursors are animated (18 shapes each, every one
+  the host's busy cursor, set once). The measurement was by hand on the
+  Windows 11 test machine: `CURSORS.EXE` started in the logged-in session
+  (a scheduled task, `LogonType Interactive`), the guest's mouse moved
+  first through QMP's `input-send-event` (Windows 11 shows no pointer
+  until a mouse is used), `PLAYER_CURSOR_LOG=1` read in order. XP's never reach the hardware
   cursor (with the pointer shadow on and no `GCAPS2_ALPHACURSOR`, GDI
   draws XP's pointer itself), so XP keeps its own in the frame. It hides
   when the guest hides it. With a
