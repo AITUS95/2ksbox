@@ -380,17 +380,14 @@ static NTSTATUS find_bars(D3DPT_ADAPTER *a)
             }
         }
     }
-    if (found != 3) {
-        /* BarDiag (REG_BINARY, 64-bit words): BAR 0 | BAR 1 << 32, BAR 2,
-         * then for each memory resource type << 16 | flags, start,
-         * length; on Arm no debug line before the registers are mapped
-         * reaches the host */
-        diag[0] = bar[0] | ((ULONGLONG)bar[1] << 32);
-        diag[1] = bar[2];
-        note_value(L"BarDiag", REG_BINARY, diag, n * sizeof(diag[0]));
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
-    }
-    return STATUS_SUCCESS;
+    /* BarDiag (REG_BINARY, 64-bit words): BAR 0 | BAR 1 << 32, BAR 2,
+     * then for each memory resource type << 16 | flags, start, length;
+     * on Arm no debug line before the registers are mapped reaches the
+     * host */
+    diag[0] = bar[0] | ((ULONGLONG)bar[1] << 32);
+    diag[1] = bar[2];
+    note_value(L"BarDiag", REG_BINARY, diag, n * sizeof(diag[0]));
+    return found == 3 ? STATUS_SUCCESS : STATUS_DEVICE_CONFIGURATION_ERROR;
 }
 
 /* The sizes a Windows 10 / 11 desktop is expected to offer that the
@@ -479,30 +476,43 @@ static NTSTATUS d3dpt_start_device(IN_CONST_PVOID ctx, IN_PDXGK_START_INFO start
 {
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
     NTSTATUS st;
-    ULONG magic, version;
+    ULONG magic, version, stage;
 
     UNREFERENCED_PARAMETER(start);
     if (!a || !dxgk || !sources || !children) {
         return STATUS_INVALID_PARAMETER;
     }
+    /* StartStage (REG_DWORD in the service key): how far this got before
+     * the registers are mapped, where on Arm no debug line reaches the
+     * host (track M25) */
+    stage = 1;
+    note_value(L"StartStage", REG_DWORD, &stage, sizeof(stage));
     a->dxgk = *dxgk;
     st = a->dxgk.DxgkCbGetDeviceInformation(a->dxgk.DeviceHandle, &a->info);
     if (!NT_SUCCESS(st)) {
         return st;
     }
+    stage = 2;
+    note_value(L"StartStage", REG_DWORD, &stage, sizeof(stage));
     st = find_bars(a);
     if (!NT_SUCCESS(st)) {
         dbg_hex("d3dptkmd: StartDevice: no BAR 0 / BAR 1 in the resources ", st);
         dbg_puts("\n");
         return st;
     }
+    stage = 3;
+    note_value(L"StartStage", REG_DWORD, &stage, sizeof(stage));
     if (a->regs_len < D3DPT_FB_REGS_SIZE) {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
+    stage = 4;
+    note_value(L"StartStage", REG_DWORD, &stage, sizeof(stage));
     a->regs = MmMapIoSpace(a->regs_phys, D3DPT_FB_REGS_SIZE, MmNonCached);
     if (!a->regs) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+    stage = 5;
+    note_value(L"StartStage", REG_DWORD, &stage, sizeof(stage));
     g_regs = a->regs;
 
     magic = a->regs[D3DPT_FB_REG_MAGIC / 4];
