@@ -1,0 +1,33 @@
+A UDP recvfrom that fails EPERM tears the socket down, as ENOTCONN already
+does. The macOS App Sandbox refuses a reply to an unconnected UDP socket
+in an app with network.client but not network.server: the datagram stays
+queued, poll keeps reporting the socket readable, and slirp, which kept the
+socket and answered the guest with an ICMP error, read it again forever,
+spinning QEMU's main loop with the BQL held. Detaching costs that one reply;
+the guest's next packet makes a fresh socket. Also frees the mbuf the
+ENOTCONN branch leaked.
+
+diff --git a/src/socket.c b/src/socket.c
+index 8ca61d7..6335ffb 100644
+--- a/src/socket.c
++++ b/src/socket.c
+@@ -664,12 +664,18 @@ void sorecvfrom(struct socket *so)
+         DEBUG_MISC(" did recvfrom %d, errno = %d-%s", m->m_len, errno,
+                    g_strerror(errno));
+         if (m->m_len < 0) {    	
+-            if (errno == ENOTCONN) {
++            if (errno == ENOTCONN || errno == EPERM) {
+                 /*
+                  * UDP socket got burnt, e.g. by suspend on iOS. Tear it down
+                  * and let it get re-created if the guest still needs it
++                 *
++                 * EPERM: the macOS sandbox refused the datagram (an app with
++                 * network.client but not network.server, on a socket that
++                 * never connect()ed). It stays queued and poll keeps saying
++                 * readable, so a socket kept open spins the main loop.
+                  */
+                 udp_detach(so);
++                m_free(m);
+             } else {
+                 /* Report error as ICMP */
+                 switch (so->so_lfamily) {

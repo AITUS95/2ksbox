@@ -414,7 +414,9 @@ launcher has its own sandbox (`packaging/macos/app-store.entitlements`:
 the App ID and team from the profile, the network for the guest and the
 preset download (`network.client` and `network.server`: the sandbox
 counts the replies to slirp's unconnected UDP sockets, DNS first, as
-inbound, and without the server half QEMU's main loop spins on them),
+inbound; without the server half the guest gets no UDP replies, and
+before `patches/deps/libslirp/02-udp-eperm-detach` QEMU's main loop
+spun on them),
 files the user picks in a panel); everything it starts
 inherits it (`com.apple.security.inherit`), with access to whatever
 the user picked in earlier runs (security-scoped bookmarks, doc 07 "A
