@@ -1064,7 +1064,13 @@ whose Direct3D 11 side has not run either.
   translucency included, `d3dgame11` and `d3dgame8` run at 60 frames/s,
   and every size up to 3840x2160 works (the 512 MiB segment above
   4 GiB; the user on the Air, 2026-10-20). The Mac app carries the
-  driver in its guest-tools disc (`WDDMARM\`). Left there: games. The Arm kernel
+  driver in its guest-tools disc (`WDDMARM\`). Left there: games.
+  The drivers' debug lines are one DEBUG register write a character, a
+  VM exit each under HVF, and the desktop's steady stream of them
+  (allocations, VidPn negotiation, adapter queries, the user-mode
+  drivers' 4000 lines a process) slowed it (user): the kernel driver's
+  per-event lines now log their first 8 to 32 (`log_few`), and the
+  user-mode drivers 400 lines a process (`D3D11Trace` still lifts it). The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and

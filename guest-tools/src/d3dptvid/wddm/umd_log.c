@@ -52,7 +52,10 @@ BOOL umd_listed(const char *value)
 static D3DKMT_HANDLE g_kmt_adapter;
 static ULONG g_log_lines;
 
-#define UMD_LOG_MAX 4000          /* lines per process; a frame loop must not drown the QEMU log */
+/* lines per process; a frame loop must not drown the QEMU log, and each
+ * character is a register write, an exit to the host (a VM exit under
+ * HVF, track M25): 4000 slowed Windows 11 on Arm's desktop */
+#define UMD_LOG_MAX 400
 #define UMD_LOG_TRACED 400000     /* a traced one: DWM's idle composition spends 4000 in seconds */
 
 static ULONG g_log_max = UMD_LOG_MAX;

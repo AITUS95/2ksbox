@@ -272,6 +272,15 @@ static void dbg_line(const char *s)
     dbg_puts("\n");
 }
 
+/* The first `max` times a site logs, then nothing: a line is one register
+ * write per character, each an exit to the host (a VM exit under HVF on
+ * Apple Silicon, track M25), and allocations, modes and adapter queries
+ * come by the thousand once a desktop runs. Failures log every time. */
+static BOOLEAN log_few(volatile LONG *n, LONG max)
+{
+    return *n < max && InterlockedIncrement(n) <= max;
+}
+
 /* The command window's doorbell: the host runs the batch inside this
  * write. The window is write-combined, so the records are pushed out
  * first. */
@@ -953,10 +962,16 @@ static NTSTATUS APIENTRY d3dpt_query_adapter_info(IN_CONST_HANDLE h,
         st = STATUS_NOT_SUPPORTED;
         break;
     }
-    dbg_hex("d3dptkmd: QueryAdapterInfo type=", (ULONG)q->Type);
-    dbg_hex(" out=", q->OutputDataSize);
-    dbg_hex(" -> ", (ULONG)st);
-    dbg_puts("\n");
+    {
+        static volatile LONG logged;
+
+        if (log_few(&logged, 32)) {
+            dbg_hex("d3dptkmd: QueryAdapterInfo type=", (ULONG)q->Type);
+            dbg_hex(" out=", q->OutputDataSize);
+            dbg_hex(" -> ", (ULONG)st);
+            dbg_puts("\n");
+        }
+    }
     return st;
 }
 
@@ -1630,18 +1645,24 @@ static NTSTATUS APIENTRY d3dpt_create_allocation(IN_CONST_HANDLE h, INOUT_PDXGKA
         info->pAllocationUsageHint = NULL;
         info->AllocationPriority = d->kind == D3DPT_ALLOC_PRIMARY ? D3DDDI_ALLOCATIONPRIORITY_HIGH
                                                                   : D3DDDI_ALLOCATIONPRIORITY_NORMAL;
-        dbg_hex("d3dptkmd: CreateAllocation kind=", d->kind);
-        dbg_hex(" ", d->w);
-        dbg_hex(" x ", d->h);
-        dbg_hex(" fmt ", (ULONG)d->format);
-        if (d->kind == D3DPT_ALLOC_D3D) {
-            dbg_hex(" caps ", d->caps);
-            dbg_hex(" bytes ", d->size);
-            dbg_hex(" handle ", al->handle);
-        } else if (d->kind == D3DPT_ALLOC_GDI) {
-            dbg_hex(" GDI type ", d->source);
+        {
+            static volatile LONG logged;
+
+            if (log_few(&logged, 32)) {
+                dbg_hex("d3dptkmd: CreateAllocation kind=", d->kind);
+                dbg_hex(" ", d->w);
+                dbg_hex(" x ", d->h);
+                dbg_hex(" fmt ", (ULONG)d->format);
+                if (d->kind == D3DPT_ALLOC_D3D) {
+                    dbg_hex(" caps ", d->caps);
+                    dbg_hex(" bytes ", d->size);
+                    dbg_hex(" handle ", al->handle);
+                } else if (d->kind == D3DPT_ALLOC_GDI) {
+                    dbg_hex(" GDI type ", d->source);
+                }
+                dbg_puts("\n");
+            }
         }
-        dbg_puts("\n");
     }
     return STATUS_SUCCESS;
 
@@ -1658,9 +1679,12 @@ static NTSTATUS APIENTRY d3dpt_destroy_allocation(IN_CONST_HANDLE h, IN_CONST_PD
 {
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
     ULONG i;
+    static volatile LONG logged;
 
-    dbg_hex("d3dptkmd: DestroyAllocation ", d->NumAllocations);
-    dbg_puts("\n");
+    if (log_few(&logged, 16)) {
+        dbg_hex("d3dptkmd: DestroyAllocation ", d->NumAllocations);
+        dbg_puts("\n");
+    }
     for (i = 0; i < d->NumAllocations; i++) {
         D3DPT_ALLOC *al = (D3DPT_ALLOC *)d->pAllocationList[i];
 
@@ -1727,8 +1751,14 @@ static NTSTATUS APIENTRY d3dpt_open_allocation(IN_CONST_HANDLE h, IN_CONST_PDXGK
         }
         o->pOpenAllocation[i].hDeviceSpecificAllocation = al;
     }
-    dbg_hex("d3dptkmd: OpenAllocation ", o->NumAllocations);
-    dbg_puts("\n");
+    {
+        static volatile LONG logged;
+
+        if (log_few(&logged, 16)) {
+            dbg_hex("d3dptkmd: OpenAllocation ", o->NumAllocations);
+            dbg_puts("\n");
+        }
+    }
     return STATUS_SUCCESS;
 }
 
@@ -4049,9 +4079,12 @@ static NTSTATUS APIENTRY d3dpt_enum_vidpn_cofunc_modality(IN_CONST_HANDLE h,
     D3DKMDT_HVIDPNTOPOLOGY top;
     const D3DKMDT_VIDPN_PRESENT_PATH *path, *next;
     NTSTATUS st;
+    static volatile LONG logged;
 
-    dbg_hex("d3dptkmd: EnumVidPnCofuncModality pivot=", (ULONG)e->EnumPivotType);
-    dbg_puts("\n");
+    if (log_few(&logged, 16)) {
+        dbg_hex("d3dptkmd: EnumVidPnCofuncModality pivot=", (ULONG)e->EnumPivotType);
+        dbg_puts("\n");
+    }
     st = a->dxgk.DxgkCbQueryVidPnInterface(e->hConstrainingVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vi);
     if (!NT_SUCCESS(st)) {
         return st;
@@ -4145,9 +4178,13 @@ static NTSTATUS APIENTRY d3dpt_enum_vidpn_cofunc_modality(IN_CONST_HANDLE h,
 static DXGKDDI_ISSUPPORTEDVIDPN d3dpt_is_supported_vidpn;
 static NTSTATUS APIENTRY d3dpt_is_supported_vidpn(IN_CONST_HANDLE h, INOUT_PDXGKARG_ISSUPPORTEDVIDPN s)
 {
+    static volatile LONG logged;
+
     UNREFERENCED_PARAMETER(h);
     s->IsVidPnSupported = TRUE;
-    dbg_line("IsSupportedVidPn: yes");
+    if (log_few(&logged, 8)) {
+        dbg_line("IsSupportedVidPn: yes");
+    }
     return STATUS_SUCCESS;
 }
 
