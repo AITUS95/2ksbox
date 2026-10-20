@@ -482,13 +482,7 @@ adds the sprite every card of the era had.
   `CURSORS.EXE` (`guest-tools/src/cursors.c`, each `IDC_*` in turn) and
   checked by `tools/win98-cursor-test.sh`. Any other shape (a game's own,
   `IDC_UPARROW`) is the guest's at the picture's zoom, each pixel
-  repeated. While the guest takes the window's size (Windows 11 on
-  virtio-gpu or ours, whose picture is the screen's physical pixels) it
-  is at the host's scale instead, each of its pixels a point, rather
-  than at Windows' (user, 2026-10-20), filtered at a fractional scale.
-  The shape comes with no DPI, so a Windows scaled above 100 % still
-  hands over a bigger one, and that is drawn at the host's scale too.
-  The sprite composited under a grab stays at the guest's size. Windows 98's are in the table; XP's never reach the hardware
+  repeated. Windows 98's are in the table; XP's never reach the hardware
   cursor (with the pointer shadow on and no `GCAPS2_ALPHACURSOR`, GDI
   draws XP's pointer itself), so XP keeps its own in the frame. It hides
   when the guest hides it. With a
