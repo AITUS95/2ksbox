@@ -7,7 +7,10 @@
  * indexed textured quad (an immutable texture, a sampler that wraps), a
  * blended triangle in front of it (depth test, a texture written by
  * UpdateSubresource), a dynamic constant buffer mapped per draw, a copy
- * into a staging texture. With "present" also a windowed swap chain's
+ * into a staging texture. Then the scene at 10_1 with shader model 4.1
+ * (Gather) on ours and on WARP, and through Direct3D 10's API on ours
+ * (d3d10.dll, and d3d10_1.dll at 10_1 and 10_0: the driver's 10.0 and 10.1
+ * interfaces) against WARP's 10_0 frame. With "present" also a windowed swap chain's
  * frames, read off the screen (a third argument: how many milliseconds
  * each window stays up before that, 1000 by default). With "flags", for
  * each D3D11_CREATE_DEVICE flag the level our adapter gives and the
@@ -28,9 +31,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <d3d11.h>
+#include <d3d10_1.h>
 #include <dxgi.h>
 #include <d3dcompiler.h>
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "d3d10.lib")
+#pragma comment(lib, "d3d10_1.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "user32.lib")
@@ -90,7 +96,11 @@ static const char *src =
     "struct v2p { float4 pos : SV_Position; float4 col : COLOR; float2 uv : TEXCOORD; };\n"
     "v2p vs(float3 pos : POSITION, float4 col : COLOR, float2 uv : TEXCOORD) {\n"
     "  v2p o; o.pos = mul(m, float4(pos, 1)); o.col = col; o.uv = uv; return o; }\n"
-    "float4 ps(v2p i) : SV_Target { return t.Sample(s, i.uv) * i.col * tint; }\n";
+    "float4 ps(v2p i) : SV_Target { return t.Sample(s, i.uv) * i.col * tint; }\n"
+    /* shader model 4.1 (feature level 10_1): Gather, the red of the four
+     * texels a bilinear sample reads */
+    "float4 ps41(v2p i) : SV_Target { float4 g = t.Gather(s, i.uv);\n"
+    "  return lerp(t.Sample(s, i.uv), float4(g.wzy, 1), 0.25) * i.col * tint; }\n";
 
 struct Vtx { float x, y, z; float r, g, b, a; float u, v; };
 
@@ -120,10 +130,10 @@ static void cb_set(ID3D11DeviceContext *c, ID3D11Buffer *cb, float sx, float sy,
 
 /* the scene into pixels (B8G8R8A8, W*H), drawn into `target` when given
  * (a swap chain's buffer) or a texture of its own; false when a step failed */
-static bool scene(ID3D11Device *dev, ID3D11DeviceContext *c, unsigned *px, ID3D11Texture2D *target = NULL)
+static bool scene(ID3D11Device *dev, ID3D11DeviceContext *c, unsigned *px, ID3D11Texture2D *target = NULL, bool sm41 = false)
 {
     bool ok = false;
-    ID3DBlob *vsb = compile("vs", "vs_4_0"), *psb = compile("ps", "ps_4_0");
+    ID3DBlob *vsb = compile("vs", sm41 ? "vs_4_1" : "vs_4_0"), *psb = compile(sm41 ? "ps41" : "ps", sm41 ? "ps_4_1" : "ps_4_0");
     ID3D11VertexShader *vs = NULL;
     ID3D11PixelShader *ps = NULL;
     ID3D11InputLayout *il = NULL;
@@ -258,6 +268,154 @@ static bool scene(ID3D11Device *dev, ID3D11DeviceContext *c, unsigned *px, ID3D1
     ok = true;
 done:
 #define R(p) if (p) p->Release()
+    R(vsb); R(psb); R(vs); R(ps); R(il); R(vb); R(ib); R(cb); R(rt); R(ds); R(tex); R(white); R(st);
+    R(rtv); R(dsv); R(srv); R(wsrv); R(smp); R(blend); R(dss);
+    return ok;
+}
+
+/* The same scene through Direct3D 10's API (d3d10.dll or d3d10_1.dll's
+ * device), with 10.0's blend state, into R8G8B8A8 */
+static bool scene10(ID3D10Device *dev, unsigned *px)
+{
+    bool ok = false;
+    ID3DBlob *vsb = compile("vs", "vs_4_0"), *psb = compile("ps", "ps_4_0");
+    ID3D10VertexShader *vs = NULL;
+    ID3D10PixelShader *ps = NULL;
+    ID3D10InputLayout *il = NULL;
+    ID3D10Buffer *vb = NULL, *ib = NULL, *cb = NULL;
+    ID3D10Texture2D *rt = NULL, *ds = NULL, *tex = NULL, *white = NULL, *st = NULL;
+    ID3D10RenderTargetView *rtv = NULL;
+    ID3D10DepthStencilView *dsv = NULL;
+    ID3D10ShaderResourceView *srv = NULL, *wsrv = NULL;
+    ID3D10SamplerState *smp = NULL;
+    ID3D10BlendState *blend = NULL;
+    ID3D10DepthStencilState *dss = NULL;
+    HRESULT hr;
+    if (!vsb || !psb) goto done;
+    CK(dev->CreateVertexShader(vsb->GetBufferPointer(), vsb->GetBufferSize(), &vs));
+    CK(dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), &ps));
+    {
+        D3D10_INPUT_ELEMENT_DESC el[] = {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D10_INPUT_PER_VERTEX_DATA, 0 },
+            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D10_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D10_INPUT_PER_VERTEX_DATA, 0 } };
+        CK(dev->CreateInputLayout(el, 3, vsb->GetBufferPointer(), vsb->GetBufferSize(), &il));
+    }
+    {
+        Vtx v[] = {
+            { -0.8f, -0.8f, 0.5f, 1, 1, 1, 1, 0, 4 }, { -0.8f, 0.8f, 0.5f, 1, 1, 1, 1, 0, 0 },
+            { 0.8f, 0.8f, 0.5f, 1, 1, 1, 1, 4, 0 }, { 0.8f, -0.8f, 0.5f, 1, 1, 1, 1, 4, 4 },
+            { -0.6f, -0.5f, 0.25f, 1, 0, 0, 0.5f, 0, 0 }, { 0.0f, 0.7f, 0.25f, 0, 1, 0, 0.5f, 0, 0 },
+            { 0.6f, -0.5f, 0.25f, 0, 0, 1, 0.5f, 0, 0 } };
+        unsigned short idx[] = { 0, 1, 2, 0, 2, 3 };
+        D3D10_BUFFER_DESC bd = { sizeof(v), D3D10_USAGE_IMMUTABLE, D3D10_BIND_VERTEX_BUFFER, 0, 0 };
+        D3D10_SUBRESOURCE_DATA sd = { v, 0, 0 };
+        CK(dev->CreateBuffer(&bd, &sd, &vb));
+        D3D10_BUFFER_DESC ibd = { sizeof(idx), D3D10_USAGE_DEFAULT, D3D10_BIND_INDEX_BUFFER, 0, 0 };
+        D3D10_SUBRESOURCE_DATA isd = { idx, 0, 0 };
+        CK(dev->CreateBuffer(&ibd, &isd, &ib));
+        D3D10_BUFFER_DESC cbd = { 80, D3D10_USAGE_DYNAMIC, D3D10_BIND_CONSTANT_BUFFER, D3D10_CPU_ACCESS_WRITE, 0 };
+        CK(dev->CreateBuffer(&cbd, NULL, &cb));
+    }
+    {
+        static unsigned checker[64 * 64];
+        for (int y = 0; y < 64; y++)
+            for (int x = 0; x < 64; x++) checker[y * 64 + x] = ((x / 8 + y / 8) & 1) ? 0xffffffffu : 0xff4080c0u;
+        D3D10_TEXTURE2D_DESC td = { 64, 64, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, { 1, 0 }, D3D10_USAGE_IMMUTABLE,
+                                    D3D10_BIND_SHADER_RESOURCE, 0, 0 };
+        D3D10_SUBRESOURCE_DATA sd = { checker, 64 * 4, 0 };
+        CK(dev->CreateTexture2D(&td, &sd, &tex));
+        CK(dev->CreateShaderResourceView(tex, NULL, &srv));
+        td.Width = td.Height = 1;
+        td.Usage = D3D10_USAGE_DEFAULT;
+        CK(dev->CreateTexture2D(&td, NULL, &white));
+        unsigned w1 = 0xffffffffu;
+        dev->UpdateSubresource(white, 0, NULL, &w1, 4, 0);
+        CK(dev->CreateShaderResourceView(white, NULL, &wsrv));
+    }
+    {
+        D3D10_TEXTURE2D_DESC td = { W, H, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, { 1, 0 }, D3D10_USAGE_DEFAULT, D3D10_BIND_RENDER_TARGET, 0, 0 };
+        CK(dev->CreateTexture2D(&td, NULL, &rt));
+        CK(dev->CreateRenderTargetView(rt, NULL, &rtv));
+        td.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        td.BindFlags = D3D10_BIND_DEPTH_STENCIL;
+        CK(dev->CreateTexture2D(&td, NULL, &ds));
+        CK(dev->CreateDepthStencilView(ds, NULL, &dsv));
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.BindFlags = 0;
+        td.Usage = D3D10_USAGE_STAGING;
+        td.CPUAccessFlags = D3D10_CPU_ACCESS_READ;
+        CK(dev->CreateTexture2D(&td, NULL, &st));
+    }
+    {
+        D3D10_SAMPLER_DESC s = {};
+        s.Filter = D3D10_FILTER_MIN_MAG_MIP_LINEAR;
+        s.AddressU = s.AddressV = s.AddressW = D3D10_TEXTURE_ADDRESS_WRAP;
+        s.MaxLOD = D3D10_FLOAT32_MAX;
+        CK(dev->CreateSamplerState(&s, &smp));
+        D3D10_BLEND_DESC b = {};
+        b.BlendEnable[0] = TRUE;
+        b.SrcBlend = D3D10_BLEND_SRC_ALPHA;
+        b.DestBlend = D3D10_BLEND_INV_SRC_ALPHA;
+        b.BlendOp = D3D10_BLEND_OP_ADD;
+        b.SrcBlendAlpha = D3D10_BLEND_ONE;
+        b.DestBlendAlpha = D3D10_BLEND_ZERO;
+        b.BlendOpAlpha = D3D10_BLEND_OP_ADD;
+        for (int i = 0; i < 8; i++) b.RenderTargetWriteMask[i] = D3D10_COLOR_WRITE_ENABLE_ALL;
+        CK(dev->CreateBlendState(&b, &blend));
+        D3D10_DEPTH_STENCIL_DESC d = {};
+        d.DepthEnable = TRUE;
+        d.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL;
+        d.DepthFunc = D3D10_COMPARISON_LESS;
+        CK(dev->CreateDepthStencilState(&d, &dss));
+    }
+    {
+        const float clear[4] = { 0.1f, 0.2f, 0.3f, 1.0f }, one[4] = { 1, 1, 1, 1 }, warm[4] = { 1, 0.9f, 0.8f, 1 };
+        D3D10_VIEWPORT vp = { 0, 0, W, H, 0, 1 };
+        UINT stride = sizeof(Vtx), off = 0;
+        float m[20] = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
+        void *p;
+        dev->OMSetRenderTargets(1, &rtv, dsv);
+        dev->RSSetViewports(1, &vp);
+        dev->ClearRenderTargetView(rtv, clear);
+        dev->ClearDepthStencilView(dsv, D3D10_CLEAR_DEPTH | D3D10_CLEAR_STENCIL, 1.0f, 0);
+        dev->IASetInputLayout(il);
+        dev->IASetVertexBuffers(0, 1, &vb, &stride, &off);
+        dev->IASetIndexBuffer(ib, DXGI_FORMAT_R16_UINT, 0);
+        dev->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        dev->VSSetShader(vs);
+        dev->PSSetShader(ps);
+        dev->VSSetConstantBuffers(0, 1, &cb);
+        dev->PSSetConstantBuffers(0, 1, &cb);
+        dev->PSSetSamplers(0, 1, &smp);
+        dev->OMSetDepthStencilState(dss, 0);
+        memcpy(m + 16, warm, 16);
+        CK(cb->Map(D3D10_MAP_WRITE_DISCARD, 0, &p));
+        memcpy(p, m, sizeof(m));
+        cb->Unmap();
+        dev->PSSetShaderResources(0, 1, &srv);
+        dev->DrawIndexed(6, 0, 0);
+        float m2[20] = { 1.1f, 0, 0, 0.05f,  0, 1.1f, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 };
+        memcpy(m2 + 16, one, 16);
+        CK(cb->Map(D3D10_MAP_WRITE_DISCARD, 0, &p));
+        memcpy(p, m2, sizeof(m2));
+        cb->Unmap();
+        dev->PSSetShaderResources(0, 1, &wsrv);
+        float factor[4] = { 0, 0, 0, 0 };
+        dev->OMSetBlendState(blend, factor, 0xffffffff);
+        dev->Draw(3, 4);
+        dev->CopyResource(st, rt);
+    }
+    {
+        D3D10_MAPPED_TEXTURE2D m;
+        CK(st->Map(0, D3D10_MAP_READ, 0, &m));
+        for (int y = 0; y < H; y++) memcpy(px + y * W, (const BYTE *)m.pData + y * m.RowPitch, W * 4);
+        for (int i = 0; i < W * H; i++)     /* R8G8B8A8 (d3d10.dll's 10.0 has no B8G8R8A8 target) to B8G8R8A8 */
+            px[i] = (px[i] & 0xff00ff00u) | (px[i] >> 16 & 0xffu) | (px[i] & 0xffu) << 16;
+        st->Unmap(0);
+    }
+    ok = true;
+done:
     R(vsb); R(psb); R(vs); R(ps); R(il); R(vb); R(ib); R(cb); R(rt); R(ds); R(tex); R(white); R(st);
     R(rtv); R(dsv); R(srv); R(wsrv); R(smp); R(blend); R(dss);
     return ok;
@@ -474,6 +632,58 @@ int main(int argc, char **argv)
         if (argc > 1) {
             ppm("d3d11-ours.ppm", ours);
             ppm("d3d11-warp.ppm", warp);
+        }
+        /* feature level 10_1: the scene with shader model 4.1 (Gather) */
+        {
+            static const D3D_FEATURE_LEVEL ten1[] = { D3D_FEATURE_LEVEL_10_1 };
+            static unsigned ours41[W * H], warp41[W * H];
+            ID3D11Device *d41 = NULL, *w41 = NULL;
+            ID3D11DeviceContext *c41 = NULL, *wc41 = NULL;
+            hr = D3D11CreateDevice(mine, D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, ten1, 1, D3D11_SDK_VERSION, &d41, NULL, &c41);
+            P("scene on ours (10_1, shader model 4.1): device 0x%08lx\n", (unsigned long)hr);
+            bool o41 = SUCCEEDED(hr) && scene(d41, c41, ours41, NULL, true);
+            hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0, ten1, 1, D3D11_SDK_VERSION, &w41, NULL, &wc41);
+            bool k41 = SUCCEEDED(hr) && scene(w41, wc41, warp41, NULL, true);
+            if (!o41 || !k41) {
+                P("scene 10_1: ours %s, WARP %s\n", o41 ? "drawn" : "failed", k41 ? "drawn" : "failed");
+                pass = false;
+            } else {
+                unsigned maxd, off = diff(ours41, warp41, &maxd);
+                P("scene 10_1: %u of %u pixels differ by more than 8 (largest %u)\n", off, W * H, maxd);
+                pass = pass && off < 200;
+            }
+            if (argc > 1) ppm("d3d11-ours-10_1.ppm", ours41);
+            R(c41); R(d41); R(wc41); R(w41);
+        }
+        /* Direct3D 10 programs: d3d10.dll's device, and d3d10_1.dll's at
+         * 10_1 and at 10_0, against the 10_0 scene on WARP */
+        if (b_ok) {
+            static unsigned ten_px[W * H];
+            static const struct { int lib; D3D10_FEATURE_LEVEL1 fl; const char *name, *file; } d10[] = {
+                { 0, D3D10_FEATURE_LEVEL_10_0, "d3d10.dll", "d3d10-ours.ppm" },
+                { 1, D3D10_FEATURE_LEVEL_10_1, "d3d10_1.dll at 10_1", "d3d10_1-ours.ppm" },
+                { 1, D3D10_FEATURE_LEVEL_10_0, "d3d10_1.dll at 10_0", "d3d10_1-ours-10_0.ppm" } };
+            for (int k = 0; k < 3; k++) {
+                ID3D10Device *d10dev = NULL;
+                ID3D10Device1 *d101 = NULL;
+                if (d10[k].lib == 0) {
+                    hr = D3D10CreateDevice(mine, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, D3D10_SDK_VERSION, &d10dev);
+                } else {
+                    hr = D3D10CreateDevice1(mine, D3D10_DRIVER_TYPE_HARDWARE, NULL, 0, d10[k].fl, D3D10_1_SDK_VERSION, &d101);
+                    d10dev = d101;
+                }
+                P("Direct3D 10, %s: device 0x%08lx\n", d10[k].name, (unsigned long)hr);
+                if (FAILED(hr) || !scene10(d10dev, ten_px)) {
+                    P("Direct3D 10, %s: failed\n", d10[k].name);
+                    pass = false;
+                } else {
+                    unsigned maxd, off = diff(ten_px, warp, &maxd);
+                    P("Direct3D 10, %s: %u of %u pixels differ by more than 8 (largest %u)\n", d10[k].name, off, W * H, maxd);
+                    pass = pass && off < 200;
+                    if (argc > 1) ppm(d10[k].file, ten_px);
+                }
+                R(d10dev);
+            }
         }
         /* "present": the scene through a swap chain and DWM, both models */
         if (argc > 3) hold_ms = (DWORD)atoi(argv[3]);

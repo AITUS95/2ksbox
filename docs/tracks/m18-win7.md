@@ -657,7 +657,11 @@ After Aero, not planned yet: 64-bit (test mode, or signing, which on
 signing), and Windows 10/11 (M20). Those keep the kernel driver's model,
 and DWM there should run on a Direct3D 9-class user-mode driver through
 `d3d10level9` (unchecked: whether Windows 11 still loads a WDDM 1.x
-kernel driver). A Direct3D 11 user-mode driver is its own project.
+kernel driver). A Direct3D 11 user-mode driver is its own project
+(track M25; since 2026-10-20 Windows 7 installs it too, and Direct3D 10
+and 11 programs run on it at 10_1, while DWM stays on Direct3D 9's
+driver: Windows 7 rates this kernel driver WDDM 1.0, M25's "Feature
+level 10_1, and Direct3D 10 programs").
 
 **Test loop.** `tools/win7-aero-test.sh <win7-x86.iso>` (finding 15), the
 `win7-aero` check of `scripts/test.sh` with `WIN7_ISO` set: Windows 7 from

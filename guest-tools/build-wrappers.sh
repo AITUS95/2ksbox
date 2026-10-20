@@ -369,7 +369,8 @@ while IFS= read -r f; do check_crt "$f"; check_isa "$f"; done \
 # has it (build-windows.sh's wddm stage: MSVC through the EWDK, so Windows
 # only; Linux and macOS fetch the PC's build for the same sources,
 # scripts/windows-drivers.sh), staged as WDDM\: the kernel driver, the Direct3D 9 user-mode
-# driver and the INF. Staged after the checks above, which are the mingw
+# driver, Direct3D 10 and 11's (d3dpt11.dll, track M25: Windows 7's DWM
+# composes through its 10.1 interface) and the INF. Staged after the checks above, which are the mingw
 # rules for Win9x / XP guest code: the user-mode DLL is MSVC with a static
 # C runtime, whose own SSE2 routines are picked by a CPU check at run time
 # (its code is /arch:IA32). SETUP installs it on 32-bit Windows 7 when the
@@ -379,6 +380,7 @@ WDDM_OUT="$ROOT/build/wddm/x86"
 if [ -f "$WDDM_OUT/d3dptkmd.sys" ] && [ -f "$WDDM_OUT/d3dptumd.dll" ] && [ -f "$WDDM_OUT/d3dptkmd.inf" ]; then
   mkdir -p "$OUT/iso/WDDM"
   cp "$WDDM_OUT/d3dptkmd.sys" "$WDDM_OUT/d3dptumd.dll" "$WDDM_OUT/d3dptkmd.inf" "$OUT/iso/WDDM/"
+  if [ -f "$WDDM_OUT/d3dpt11.dll" ]; then cp "$WDDM_OUT/d3dpt11.dll" "$OUT/iso/WDDM/"; fi
 else
   echo "note: the Windows 7 WDDM driver is not on this ISO (built on Windows only: build-windows.sh wddm; elsewhere scripts/windows-drivers.sh fetch wddm)" >&2
 fi

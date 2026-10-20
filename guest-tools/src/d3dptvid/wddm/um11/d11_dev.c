@@ -307,18 +307,47 @@ static HRESULT APIENTRY dxgi_reclaim(DXGI_DDI_ARG_RECLAIMRESOURCES *r)
 
 /* ---------------------------------------------------------------- device */
 
+/* the Windows 7 interface's table, which the others are made from (the
+ * 11.1 one on top of it below, Direct3D 10's and 10.1's in d10_dev.c) */
+void d11_device_funcs(D3D11DDI_DEVICEFUNCS *f)
+{
+    d11_res_funcs(f);
+    d11_pipe_funcs(f);
+    f->pfnFlush = d11_flush;
+    f->pfnDestroyDevice = d11_destroy_device;
+    f->pfnCheckFormatSupport = d11_check_format;
+    f->pfnCheckMultisampleQualityLevels = d11_check_ms;
+    f->pfnCheckCounterInfo = d11_counter_info;
+    f->pfnCheckCounter = d11_check_counter;
+    f->pfnSetTextFilterSize = d11_text_filter;
+    f->pfnRelocateDeviceFuncs = d11_relocate;
+    f->pfnCommandListExecute = d11_cl_execute;
+    f->pfnCheckDeferredContextHandleSizes = d11_dc_handle_sizes;
+    f->pfnCalcDeferredContextHandleSize = d11_dc_handle_size;
+    f->pfnCalcPrivateDeferredContextSize = d11_dc_size;
+    f->pfnCreateDeferredContext = d11_dc_create;
+    f->pfnAbandonCommandList = d11_cl_abandon;
+    f->pfnCalcPrivateCommandListSize = d11_cl_size;
+    f->pfnCreateCommandList = d11_cl_create;
+    f->pfnDestroyCommandList = d11_cl_destroy;
+    f->pfnRecycleCommandList = d11_cl_recycle;
+    f->pfnRecycleCreateCommandList = d11_cl_recycle_create;
+    f->pfnRecycleCreateDeferredContext = d11_dc_recycle_create;
+    f->pfnRecycleDestroyCommandList = d11_cl_destroy;
+}
+
 HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE *c)
 { D11_TRACE("d11_create_device");
     static LONG devices;
     D11_ADAPTER *a = (D11_ADAPTER *)h.pDrvPrivate;
     D11_DEV *d = DEV(c->hDrvDevice);
-    D3D11DDI_DEVICEFUNCS *f = c->p11DeviceFuncs;
     D3DDDICB_CREATECONTEXT cc;
     D3DPT_CTX_PRIV priv;
     HRESULT hr;
+    UINT ten = d10_interface(c->Interface);
 
     umd_log("d3d11: CreateDevice interface 0x%x version 0x%x flags 0x%x", c->Interface, c->Version, c->Flags);
-    if (c->Interface != D3D11_0_7_DDI_INTERFACE_VERSION && c->Interface != D3D11_1_DDI_INTERFACE_VERSION) {
+    if (c->Interface != D3D11_0_7_DDI_INTERFACE_VERSION && c->Interface != D3D11_1_DDI_INTERFACE_VERSION && !ten) {
         return E_INVALIDARG;
     }
     ZeroMemory(d, sizeof(*d));
@@ -327,6 +356,8 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     d->core = c->hRTCoreLayer;
     d->ad = a;
     d->kt = c->pKTCallbacks;
+    /* Direct3D 10's callbacks are the start of 11's, and the driver calls
+     * only the first (SetErrorCb) */
     d->um = c->p11UMCallbacks;
     d->dxgi = c->DXGIBaseDDI.pDXGIBaseCallbacks;
     /* the host's context: a Direct3D 11 one, apart from the Direct3D 9
@@ -353,29 +384,13 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     d->pl_size = cc.PatchLocationListSize;
     cmd_reset(d);
 
-    d11_res_funcs(f);
-    d11_pipe_funcs(f);
-    f->pfnFlush = d11_flush;
-    f->pfnDestroyDevice = d11_destroy_device;
-    f->pfnCheckFormatSupport = d11_check_format;
-    f->pfnCheckMultisampleQualityLevels = d11_check_ms;
-    f->pfnCheckCounterInfo = d11_counter_info;
-    f->pfnCheckCounter = d11_check_counter;
-    f->pfnSetTextFilterSize = d11_text_filter;
-    f->pfnRelocateDeviceFuncs = d11_relocate;
-    f->pfnCommandListExecute = d11_cl_execute;
-    f->pfnCheckDeferredContextHandleSizes = d11_dc_handle_sizes;
-    f->pfnCalcDeferredContextHandleSize = d11_dc_handle_size;
-    f->pfnCalcPrivateDeferredContextSize = d11_dc_size;
-    f->pfnCreateDeferredContext = d11_dc_create;
-    f->pfnAbandonCommandList = d11_cl_abandon;
-    f->pfnCalcPrivateCommandListSize = d11_cl_size;
-    f->pfnCreateCommandList = d11_cl_create;
-    f->pfnDestroyCommandList = d11_cl_destroy;
-    f->pfnRecycleCommandList = d11_cl_recycle;
-    f->pfnRecycleCreateCommandList = d11_cl_recycle_create;
-    f->pfnRecycleCreateDeferredContext = d11_dc_recycle_create;
-    f->pfnRecycleDestroyCommandList = d11_cl_destroy;
+    if (ten) {
+        /* Direct3D 10 and 10.1 (d3d10.dll, d3d10_1.dll): their own tables
+         * over the same entries */
+        d10_device_funcs(ten, c);
+    } else {
+        d11_device_funcs(c->p11DeviceFuncs);
+    }
     if (d->v11_1) {
         /* the 11.1 table is the 11.0 one entry for entry, then five more:
          * the entries whose arguments changed, and the new ones */

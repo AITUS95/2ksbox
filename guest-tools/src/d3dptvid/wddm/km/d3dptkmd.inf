@@ -3,7 +3,7 @@
 ; signed in the guest by wddm-install.ps1, which writes the catalog), and
 ; Windows 11 on Arm (track M25; its user-mode drivers ARM64X, which serve
 ; Arm processes and the x64 ones Windows emulates). Kernel-mode driver d3dptkmd.sys,
-; Direct3D 9's user-mode driver d3dptumd.dll (plan step 6); on x64 also Direct3D 10
+; Direct3D 9's user-mode driver d3dptumd.dll (plan step 6) and Direct3D 10
 ; and 11's, d3dpt11.dll (track M25, ADR-029). The XP-model driver
 ; (../../nt/d3dptvid.inf) matches the same device and stays the fallback:
 ; Device Manager > Update Driver > "Let me pick" brings it back.
@@ -63,8 +63,8 @@ AddReg=d3dpt_SoftwareDeviceSettings
 ; in a 32-bit process (WoW64) by UserModeDriverNameWow from SysWOW64;
 ; without them a 32-bit Direct3D program (most of the era's games) has no
 ; HAL device. And Direct3D 10 and 11's driver (track M25): the names after
-; the first are Direct3D 10's, 10.1's and 11's, which Windows 7's section
-; does not list yet (its Aero stays on Direct3D 9's driver).
+; the first are Direct3D 10's, 10.1's and 11's, in Windows 7's section too
+; (its DWM composes through Direct3D 10.1).
 [d3dpt_Install64]
 FeatureScore=F8
 CopyFiles=d3dpt.Miniport, d3dpt.UserMode64, d3dpt.UserModeWow
@@ -85,13 +85,14 @@ d3dptkmd.sys
 
 [d3dpt.UserMode]
 d3dptumd.dll
+d3dpt11.dll
 
 [d3dpt.UserMode64]
 d3dptumd.dll
 d3dpt11.dll
 
 [d3dpt_SoftwareDeviceSettings]
-HKR,,UserModeDriverName,%REG_MULTI_SZ%,d3dptumd.dll
+HKR,,UserModeDriverName,%REG_MULTI_SZ%,d3dptumd.dll,d3dpt11.dll,d3dpt11.dll,d3dpt11.dll
 
 [d3dpt_SoftwareDeviceSettings64]
 HKR,,UserModeDriverName,%REG_MULTI_SZ%,d3dptumd.dll,d3dpt11.dll,d3dpt11.dll,d3dpt11.dll

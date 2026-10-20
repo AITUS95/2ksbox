@@ -6,7 +6,9 @@
  * DDI, Windows 8's 11.1 interface (with its video functions, which a
  * device made with VIDEO_SUPPORT needs, DWM's among them; track M25 step
  * 4) or Windows 7's (D3D11_0_7), whose 3D pipeline level says which
- * feature levels the runtime offers (10_0 for now).
+ * feature levels the runtime offers (10_0 and 10_1 for now). d3d10.dll
+ * and d3d10_1.dll get Direct3D 10's and 10.1's interfaces over the same
+ * entries (d10_dev.c).
  *
  * The transport is the Direct3D 9 driver's (../um/d3dptumd.c): records in
  * the runtime's command buffer, allocations named through patch
@@ -19,8 +21,9 @@
  *
  * This file: the adapter, the formats and the command buffer. The rest:
  * d11_res.c (resources), d11_pipe.c (views, states, shaders, bindings,
- * the work), d11_dev.c (the device and DXGI's functions), d11_video.c
- * (the 11.1 interface's video functions).
+ * the work), d11_dev.c (the device and DXGI's functions), d10_dev.c
+ * (Direct3D 10's and 10.1's tables), d11_video.c (the 11.1 interface's
+ * video functions).
  *
  * Build: guest-tools/build-wddm.cmd (the EWDK's MSBuild, beside the
  * Direct3D 9 driver; docs/build-windows.md "The WDDM driver").
@@ -203,16 +206,19 @@ static HRESULT APIENTRY d11_close_adapter(D3D10DDI_HADAPTER h)
 }
 
 /* The interfaces of Direct3D 11's DDI this driver has: Windows 8's 11.1
- * and Windows 7's (ADR-029) */
+ * and Windows 7's (ADR-029); and Direct3D 10.1's and 10's, which d3d10.dll
+ * and d3d10_1.dll ask for (d10_dev.c) */
 static HRESULT APIENTRY d11_supported_versions(D3D10DDI_HADAPTER h, UINT32 *n, UINT64 *v)
 { D11_TRACE("d11_supported_versions");
     /* Windows 8's 11.1 interface first: its video functions are what a
      * device made with VIDEO_SUPPORT needs, DWM's among them (the runtime
      * takes it over this WDDM 1.1 kernel driver too); Windows 7's runtime
-     * knows only the second */
-    static const UINT64 ours[] = { D3D11_1_DDI_SUPPORTED, D3D11_0_7_DDI_SUPPORTED };
+     * knows only the second. Direct3D 10's: Windows 7's, and those of
+     * Vista's DXGI 1.1 update */
+    static const UINT64 ours[] = { D3D11_1_DDI_SUPPORTED, D3D11_0_7_DDI_SUPPORTED, D3D10_1_7_DDI_SUPPORTED, D3D10_1_x_DDI_SUPPORTED,
+                                   D3D10_0_7_DDI_SUPPORTED, D3D10_0_x_DDI_SUPPORTED };
     const UINT64 *list = g_d11_win7 ? ours + 1 : ours;
-    UINT32 count = g_d11_win7 ? 1 : ARRAYSIZE(ours);
+    UINT32 count = g_d11_win7 ? ARRAYSIZE(ours) - 1 : ARRAYSIZE(ours);
 
     (void)h;
     if (v) {
@@ -245,7 +251,9 @@ static HRESULT APIENTRY d11_adapter_caps(D3D10DDI_HADAPTER h, const D3D10_2DDIAR
         if (g->DataSize < sizeof(D3D11DDI_3DPIPELINESUPPORT_CAPS)) {
             return E_INVALIDARG;
         }
-        ((D3D11DDI_3DPIPELINESUPPORT_CAPS *)g->pData)->Caps = D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_0);
+        /* 10_1: shader model 4.1, cube arrays, a blend per target */
+        ((D3D11DDI_3DPIPELINESUPPORT_CAPS *)g->pData)->Caps = D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_0) |
+                                                               D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_1);
         return S_OK;
     default:
         return S_OK;

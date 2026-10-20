@@ -94,6 +94,7 @@
     <ClCompile Include="d11_res.c" />
     <ClCompile Include="d11_pipe.c" />
     <ClCompile Include="d11_dev.c" />
+    <ClCompile Include="d10_dev.c" />
     <ClCompile Include="d11_video.c" />
     <ClCompile Include="..\umd_log.c" />
   </ItemGroup>

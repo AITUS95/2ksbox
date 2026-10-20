@@ -64,6 +64,8 @@ last open bug (Explorer's XAML that never composes) also lives.
 4. **DWM on it**: the desktop composed through our 10_0 device instead
    of 10level9 (done 2026-10-17, below).
 5. **10_1, then 11_0**: compute, unordered access views, tessellation.
+   10_1 done 2026-10-20 (with Direct3D 10's own interfaces for Windows
+   7), below.
 
 ## Test loop
 
@@ -828,6 +830,52 @@ kernel driver's default is **off** (`GdiAcceleration` absent or 0; 1 turns
 it on, a restart applies it), as "Open" asked before the track merges;
 the host's GDI operations and `d3dpt-gdi` stay.
 
+**Feature level 10_1, and Direct3D 10 programs** (2026-10-20, user: "Do
+d3d10 and feature level 10_1"). `GetCaps`' 3D pipeline level claims 10_1
+beside 10_0: shader model 4.1, cube arrays and a blend state per target,
+which the driver already passed through (the host's DXVK device is 11_0;
+no wire change). On Windows 11, `D3D11CreateDevice` with every level now
+gives **10_1** on our adapter, and DWM's device is 10_1 with the desktop
+composing as before.
+
+Direct3D 10 programs on Windows 8 and later need nothing else:
+`d3d10.dll` and `d3d10_1.dll` run on Direct3D 11's runtime there, and
+every device the probe made through them reached the driver through the
+11.1 interface (`0xb000f`). (The "Open" note that `d3d10.dll` wanted the
+10 / 10.1 DDI versions was wrong for Windows 11.) Windows 7's runtime is
+another: it opens a driver's own Direct3D 10.0 and 10.1 interfaces. So
+`GetSupportedVersions` lists them (Windows 7's and those of Vista's DXGI
+1.1 update), and `d10_dev.c` gives each its device table: the 11
+entries, but for the dozen whose arguments are older (a resource without
+ByteStride, 10.0's cube view and blend state, a depth view without
+flags, stream output with one stride and no streams, render targets with
+no UAVs), which convert to 11's and call the 11 entry. 32-bit Windows 7
+gets `d3dpt11.dll` now too (the INF's x86 section, the guest disc's
+`WDDM\`).
+
+`d3d11-probe` grew the checks: the scene at 10_1 with shader model 4.1
+(a Gather) on ours and WARP, and through Direct3D 10's API (`d3d10.dll`,
+and `d3d10_1.dll` at 10_1 and 10_0, with 10.0's blend state and
+R8G8B8A8, since `d3d10.dll` has no B8G8R8A8 target) against WARP's 10_0
+frame. On the PC's Windows 11 all parts **PASS, 0 pixels off**, `present`
+too. On 32-bit Windows 7 (the M18 machine, the probe built x86 with the
+SDK's `d3dcompiler_47.dll` beside it, on a stick hot-plugged by QMP):
+**PASS, 0 pixels off** in every part, through Windows 7's 11.0 interface
+(`0xb000b`), 10.0 (`0xa0009`: `d3d10.dll`, and `d3d10_1.dll` at 10_0)
+and 10.1 (`0xa000a`), each converter called. Its "every level" line is
+`E_INVALIDARG` there: Windows 7's runtime refuses 11_1 in the list asked
+for.
+
+**Windows 7's DWM stays on Direct3D 9's driver** (through
+`d3d10level9`): it never opens `d3dpt11.dll`, while `dxdiag` does (DDI
+10.1, its device made through the 10.1 interface). `dxdiag` rates the
+32-bit kernel driver **WDDM 1.0**, and Windows 7's DWM puts a 1.0 driver
+on 10level9, as Windows 11's did at 1.1 (step 4). The likeliest reason
+for 1.0 is the missing GDI acceleration, which WDDM 1.1 requires (the
+x64 driver's RenderKm, off by default and not in the 32-bit build); not
+checked. `win7-aero-test.sh`'s `dwm` verdict accepts either DLL and says
+which.
+
 ## The packages, and the driver for Windows 11 on Arm
 
 **Every package carries DXVK's d3d11 and dxgi** beside its d3d9
@@ -952,8 +1000,10 @@ whose Direct3D 11 side has not run either.
   that is not a render target's, a blend state's logic op and a
   rasterizer state's forced sample count (DWM's make one, ignored) are
   logged and not done.
-- Direct3D 10 programs (`d3d10.dll` wants the Direct3D 10 / 10.1 DDI
-  versions, which `GetSupportedVersions` does not list yet).
+- ~~Direct3D 10 programs~~ (done 2026-10-20, "Feature level 10_1, and
+  Direct3D 10 programs": through the 11.1 interface on Windows 11, the
+  10.0 / 10.1 ones on Windows 7). Windows 7's DWM on `d3dpt11.dll`
+  waits for the 32-bit kernel driver to be WDDM 1.1 (same section).
 - **Depth textures on the Direct3D 9 driver** (2026-10-19, the user: a
   Direct3D 9 game on Windows 11 said "hardware shadows are not
   supported"). The WDDM Direct3D 9 driver claimed D16 / D24X8 / D24S8 as

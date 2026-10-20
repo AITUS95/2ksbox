@@ -17,7 +17,11 @@
 #
 #   setup    SETUP chose the WDDM driver (the adapter's interrupt found)
 #   driver   the kernel driver started (its StartDevice in the QEMU log)
-#   dwm      dwm.exe has d3dptumd.dll loaded: DWM composes on our driver
+#   dwm      dwm.exe has d3dptumd.dll (through d3d10level9) or d3dpt11.dll
+#            (Direct3D 10.1, track M25) loaded: DWM composes on our driver.
+#            It is d3dptumd.dll while Windows 7 rates the kernel driver
+#            WDDM 1.0 (dxdiag; most likely for its missing GDI
+#            acceleration, which 1.1 requires)
 #   cursor   the pointer was never hidden by a page flip: the driver owns
 #            its visibility (CURSOR_OWNED, register set v8), where DWM's
 #            flips at every composed frame used to hide it (doc 15)
@@ -173,7 +177,7 @@ gw_poke_until "$SOCK" xp 'cmd /c echo DESK2 > COM1' "${BOOT_WAIT:-900}" grep -q 
   || { Q screendump "$OUT/nodesk2.png" || true; power_off; echo "no desktop after the restart (OUT/nodesk2.png)"; exit 1; }
 say "the desktop, after the restart"
 sleep 60                                           # DWM's start
-run 'cmd /c (tasklist /m d3dptumd.dll & echo UMDDONE) > COM1'
+run 'cmd /c (tasklist /m d3dptumd.dll & tasklist /m d3dpt11.dll & echo UMDDONE) > COM1'
 gw_wait_log "$SER" UMDDONE 120 || true
 Q keys meta_l; sleep 10
 Q screendump "$OUT/startmenu.png" > /dev/null || true
@@ -194,8 +198,9 @@ no() { echo "-- $1: FAIL ($2)"; fail=1; }
 if grep -aq "Windows 7: the WDDM driver" "$SER"; then ok setup "the WDDM driver, $(tr -d '\r' < "$SER" | grep -o "the adapter's interrupt: .*")"
 else no setup "SETUP did not choose the WDDM driver"; fi
 if grep -aq "d3dptkmd: StartDevice" "$LOG"; then ok driver "StartDevice"; else no driver "no StartDevice in $LOG"; fi
-if tr -d '\r' < "$SER" | grep -q "^dwm.exe .*d3dptumd.dll"; then ok dwm "dwm.exe has d3dptumd.dll loaded"
-else no dwm "no dwm.exe with d3dptumd.dll"; fi
+if tr -d '\r' < "$SER" | grep -q "^dwm.exe .*d3dpt11.dll"; then ok dwm "dwm.exe has d3dpt11.dll loaded: Direct3D 10.1"
+elif tr -d '\r' < "$SER" | grep -q "^dwm.exe .*d3dptumd.dll"; then ok dwm "dwm.exe has d3dptumd.dll loaded (d3d10level9)"
+else no dwm "no dwm.exe with d3dptumd.dll or d3dpt11.dll"; fi
 flips=$(grep -ac "a flip chain has the screen, the cursor hides" "$LOG" || true)
 if ! grep -aq "d3dpt-vga: cursor shown" "$LOG"; then no cursor "the pointer was never shown"
 elif [ "$flips" != 0 ]; then no cursor "hidden by page flips $flips times"

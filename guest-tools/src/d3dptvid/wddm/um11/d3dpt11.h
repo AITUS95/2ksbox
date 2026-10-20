@@ -2,8 +2,9 @@
  * d3dpt11.h: what the Direct3D 11 user-mode driver's files share
  * (d3dpt11.c: the adapter, formats and the command buffer; d11_res.c:
  * resources; d11_pipe.c: views, states, shaders, bindings and work;
- * d11_dev.c: the device and DXGI's functions; d11_video.c: the 11.1
- * interface's video functions).
+ * d11_dev.c: the device and DXGI's functions; d10_dev.c: Direct3D 10's
+ * and 10.1's interfaces; d11_video.c: the 11.1 interface's video
+ * functions).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -140,6 +141,13 @@ void d11_pipe_funcs(D3D11DDI_DEVICEFUNCS *f);
 void d11_pipe_funcs11_1(D3D11_1DDI_DEVICEFUNCS *f);
 void d11_pipe_destroy(D11_DEV *d);
 void d11_views_rotated(D11_DEV *d, D11_RES *const *res, UINT n);
+
+/* d11_dev.c */
+void d11_device_funcs(D3D11DDI_DEVICEFUNCS *f);
+
+/* d10_dev.c */
+UINT d10_interface(UINT iface);
+void d10_device_funcs(UINT ten, D3D10DDIARG_CREATEDEVICE *c);
 
 /* d11_video.c */
 void d11_video_funcs(D3D11_1DDI_VIDEODEVICEFUNCS *f);
