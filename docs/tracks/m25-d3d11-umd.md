@@ -895,7 +895,10 @@ tree's `src/d3d11/` and `src/dxgi/` when the d3d9 is in its `src/d3d9/`.
 enabled afresh. The executor (`d3dpt_exec_d11.cpp` with the rest) compiles
 for Linux with g++ against DXVK's native headers, warning-free and with no
 unresolved symbol (checked in WSL's Ubuntu on the PC), and its Wine build
-with mingw; **the macOS build and every run off Windows are untested**.
+with mingw. **On a Linux host Windows 11 on the driver works as on the
+Windows one** (the user, by hand, 2026-10-20: under KVM, `d3dgame8`,
+`d3dgame9` and `d3dgame11` run as on the Windows host); the macOS build and a run
+there are untested.
 
 **The driver builds for Windows 11 on Arm** into `build/wddm/arm64`
 (`build-wddm.cmd`, the `wddm` stage), and the guest-tools ISO carries it
@@ -990,8 +993,8 @@ whose Direct3D 11 side has not run either.
   DWM composed on before.
 - Multisampling (above).
 - ~~The packages~~ (done 2026-10-19, "The packages, and the driver for
-  Windows 11 on Arm"); the Mac build of the executor and a run of the
-  Direct3D 11 side on a Linux or Mac host remain.
+  Windows 11 on Arm"); a Linux host runs it (KVM, `d3dgame8` / `9` / `11`; the user, 2026-10-20); the
+  Mac build of the executor and a run there remain.
 - **Windows 11 on Arm**: the driver builds, the aarch64 QEMU has the
   device and the launcher offers it (same section); the Mac's build and
   a run there remain.
