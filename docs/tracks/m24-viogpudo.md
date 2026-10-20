@@ -424,7 +424,9 @@ Windows 11 test here.
   26300 on the Air with the launcher (2026-10-09): every setup page as
   before but the account, which asked for a local one; the agent
   installed at the first logon; the clipboard shared. x64's disc carries
-  the same file (amd64), not yet installed with.
+  the same file (amd64): the user installed x64 Windows 11 fresh with
+  it on a Windows and a Linux host (by 2026-10-20), and installed and
+  tested our drivers there.
 - `viogpudo-install.ps1` (2026-10-09, after the Air): it now reads the
   running kernel's code integrity options before touching the installed
   driver. Without `TESTSIGN` it only turns test mode on and stops, naming
@@ -465,8 +467,9 @@ a console that cannot ask, cancels with nothing changed. Once ours is in
 it sets `HKLM\SOFTWARE\2ksbox` `ExperimentalDisplay` = 1, and
 `2ksbox\install.ps1` then adds every `$WinPEDriver$` folder but
 viogpudo's, since upstream's would otherwise take the device back
-(Windows ranks Microsoft's signature above ours). Not yet run in a guest
-from the disc. The published build's hash covers all of
+(Windows ranks Microsoft's signature above ours). Run from the disc by
+the user on fresh x64 installs on a Windows and a Linux host (by
+2026-10-20), beside M25's WDDM driver, both installed and tested. The published build's hash covers all of
 `patches/viogpudo/`, its README too: an edit there, even to the README,
 leaves no build to fetch until the PC publishes again (and `fetch`
 removes the one it had).

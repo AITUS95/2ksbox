@@ -299,8 +299,9 @@ macOS's client the same, now in the `smb` host check.
   disc carries `guest-agent/autounattend.xml`, so a machine installed
   with the disc in runs `2ksbox\install.ps1` at its first logon (and
   setup asks for a local account); `install.cmd` stays for a machine
-  installed without it. Checked by a fresh install on the Air; x64's
-  disc carries the same file, not yet installed with. Since 2026-10-15
+  installed without it. Checked by a fresh install on the Air, and on x64
+  by the user's fresh installs on a Windows and a Linux host (by
+  2026-10-20). Since 2026-10-15
   the file holds a product key of none, so Windows 10's setup takes it
   too. Doc 24 §4.
 - **The installer updates a running agent** (2026-10-09): it stops both
