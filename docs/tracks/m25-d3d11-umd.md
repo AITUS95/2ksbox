@@ -1027,11 +1027,12 @@ whose Direct3D 11 side has not run either.
   event 219 with `0xC000036B` (`STATUS_DRIVER_BLOCKED_CRITICAL`) at
   every start, with test signing on, memory integrity off and no
   Code Integrity event naming it, and the ARM64 image's header matches
-  the x64 one's. Suspected, not confirmed: dxgkrnl on Arm refuses a
-  driver below WDDM 2.0 (ours registers the Windows 8 interface, 1.2),
-  as Windows on Arm may not carry `dxgmms1.sys`, the memory manager of
-  drivers before 2.0. The driver with the new `find_bars` is not yet
-  built (the PC).
+  the x64 one's. Not a missing `dxgmms1.sys` (the memory manager of
+  drivers before WDDM 2.0): Windows on Arm carries it. Next: the driver
+  writes `InitStatus` in its service key (0xffffffff on entry, then
+  `DxgkInitialize`'s status), which tells the kernel refusing the image
+  from dxgkrnl refusing the driver; with the new `find_bars`, it is not
+  yet built (the PC).
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a

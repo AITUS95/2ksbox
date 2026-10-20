@@ -4376,6 +4376,24 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
 
 /* ------------------------------------------------------------- entry */
 
+/* The service key's InitStatus (REG_DWORD): 0xffffffff once DriverEntry
+ * runs, then what DxgkInitialize returned. On Arm the debug lines before
+ * StartDevice go nowhere (dbg_puts), and a load Windows refuses
+ * (Code 48, track M25) is told apart by it: no value, the image never
+ * ran; a status, dxgkrnl refused it. */
+static void note_init_status(PUNICODE_STRING reg, ULONG st)
+{
+    WCHAR path[260];
+    ULONG n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
+
+    if (!n || n >= RTL_NUMBER_OF(path)) {
+        return;
+    }
+    RtlCopyMemory(path, reg->Buffer, n * sizeof(WCHAR));
+    path[n] = 0;
+    RtlWriteRegistryValue(RTL_REGISTRY_ABSOLUTE, path, L"InitStatus", REG_DWORD, &st, sizeof(st));
+}
+
 /* The service key's GdiAcceleration (default 0), GdiCpuVisible and Cached
  * (default 1) (REG_DWORD, 0: off), read once */
 static void read_settings(PUNICODE_STRING reg)
@@ -4416,6 +4434,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
     DRIVER_INITIALIZATION_DATA init;
     NTSTATUS st;
 
+    note_init_status(reg, 0xffffffffu);
     read_settings(reg);
     RtlZeroMemory(&init, sizeof(init));
     init.Version = DXGKDDI_INTERFACE_VERSION;
@@ -4503,6 +4522,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT drv, PUNICODE_STRING reg)
     init.DxgkDdiSystemDisplayWrite = d3dpt_system_display_write;
 #endif
     st = DxgkInitialize(drv, reg, &init);
+    note_init_status(reg, (ULONG)st);
     dbg_hex("d3dptkmd: DriverEntry: DxgkInitialize ", st);
     dbg_puts("\n");
     return st;
