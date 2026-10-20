@@ -1039,8 +1039,14 @@ whose Direct3D 11 side has not run either.
   Visual Studio 2022's 14.44 on NuGet's WDK 10.0.26100) and a version
   resource; nothing Microsoft publishes names either. So the Arm kernel
   driver is now built as viogpudo is (`build-windows.sh`,
-  `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"); not
-  yet built on the PC.
+  `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver").
+  **But neither new build had run**: the guest's `d3dptkmd.sys` was
+  still the first one (52,624 bytes: the EWDK's 50,176 and the test
+  signature), because the INF's `DriverVer` is the same for every build
+  and Windows keeps a device on the package it has over one of the same
+  version. So the "no value" above says nothing yet. `wddm-install.ps1`
+  now stamps `DriverVer` with the install's date and minute (major and
+  minor the INF's), as `m25-test.sh` does on the PC.
 - A scaled DXGI Blt, a Blt1 of part of its source, a Blt into a surface
   only Direct3D 9 knows, the video processor's Blt, ClearView of a view
   that is not a render target's, a blend state's logic op and a
