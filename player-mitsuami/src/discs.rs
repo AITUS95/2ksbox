@@ -4,18 +4,25 @@
 //! at once. The model is `launcher_core::shelf`, the launcher's shelf
 //! window's, opened for the bundle the launcher named (`--machine`): an
 //! insert swaps the tray through the machine's monitor (the `-qmp` socket
-//! the launcher started it with) and sets the disc it boots with. The
-//! guest changes the drive too (`CDSHELF`) and the launcher the shelf, so
-//! both are read again every two seconds. Everything that asks the monitor
-//! runs on a thread of its own: QEMU answers from its main loop, which a
-//! snapshot can hold for seconds, and the window must not wait for it.
+//! the launcher started it with) and sets the disc it boots with.
+//!
+//! The menu follows changes as they happen, never on a timer (user,
+//! 2026-10-19): the launcher writing the shelf or the bundle (`watch.rs`),
+//! and the tray moving, whoever moved it (the guest's own eject, its
+//! `CDSHELF`, the launcher's Insert), which QEMU says on the player's own
+//! monitor (`DEVICE_TRAY_MOVED`, hooked up in `main.rs`). Everything that
+//! asks the monitor runs on a thread of its own: QEMU answers from its
+//! main loop, which a snapshot can hold for seconds, and the window must
+//! not wait for it.
 
+use crate::wake::Wake;
+use crate::watch;
 use launcher_core::browse;
 use launcher_core::disc_library::{self, DISC_FILTER};
 use launcher_core::shelf::Shelf;
 use mitsuami::prelude::*;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::Arc;
 
 #[derive(Clone, Copy)]
 pub struct Discs {
@@ -31,22 +38,29 @@ fn load(bundle: &Path) -> Shelf {
 }
 
 impl Discs {
-    /// The shelf for `bundle`, followed for as long as the window is up.
-    pub fn open(bundle: PathBuf) -> Discs {
-        let discs = Discs { model: signal(Shelf::default()), bundle: signal(bundle) };
-        spawn_local(discs.poll());
-        discs
+    /// The shelf for `bundle`, followed for as long as the window is up,
+    /// and what to call when the tray moves.
+    pub fn open(bundle: PathBuf) -> (Discs, Arc<dyn Fn() + Send + Sync>) {
+        let discs = Discs { model: signal(Shelf::default()), bundle: signal(bundle.clone()) };
+        let changed = Arc::new(Wake::default());
+        let watch = watch::watch(&[bundle, disc_library::default_path()], &[], &changed);
+        let tray = changed.notifier();
+        spawn_local(async move {
+            let _watch = watch;
+            loop {
+                discs.reload().await;
+                changed.next().await;
+            }
+        });
+        (discs, tray)
     }
 
     /// The menu changes only when what it lists does.
-    async fn poll(self) {
-        loop {
-            let bundle = self.bundle.get_untracked();
-            let fresh = spawn_blocking(move || load(&bundle)).await;
-            if fresh.menu_discs() != self.model.with_untracked(Shelf::menu_discs) {
-                self.model.set(fresh);
-            }
-            sleep(Duration::from_secs(2)).await;
+    async fn reload(self) {
+        let bundle = self.bundle.get_untracked();
+        let fresh = spawn_blocking(move || load(&bundle)).await;
+        if fresh.menu_discs() != self.model.with_untracked(Shelf::menu_discs) {
+            self.model.set(fresh);
         }
     }
 

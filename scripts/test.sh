@@ -960,15 +960,23 @@ shaderdefaults_check() { # the first-run shader offer and its starter profiles (
   # The player's Shader menu (M22): the picker's rows, the machine's
   # checked; a row chosen is saved and is what the player swaps to.
   o="$($LAUNCHERX --shader-menu "$bundle")" || { echo "--shader-menu failed"; return 1; }
-  [ "$(cut -f1,2 <<<"$o" | tr '\t\n' ': ')" = "checked:(default) CRT Aperture -:Apple II -:CRT Aperture -:CRT Royale " ] \
+  [ "$(cut -f1,2 <<<"$o" | tr '\t\n' ': ')" = "checked:(default) CRT Aperture -:Off -:Apple II -:CRT Aperture -:CRT Royale " ] \
     || { echo "the Shader menu: $o"; rc=1; }
+  # Off is no shader whatever the default, and its own bundle field.
+  o="$($LAUNCHERX --shader-menu "$bundle" choose Off)" || { echo "--shader-menu choose Off failed: $o"; rc=1; }
+  [ "$(head -1 <<<"$o")" = $'plays\tnone' ] || { echo "Off plays: $(head -1 <<<"$o")"; rc=1; }
+  grep -qx $'checked\tOff\t(off)' <<<"$o" || { echo "Off is not checked after choosing it: $o"; rc=1; }
+  grep -qx 'shader_off = true' "$bundle" || { echo "Off is not shader_off in the bundle"; rc=1; }
+  [ -z "$($LAUNCHERX --print-shader-args "$bundle")" ] || { echo "a machine on Off still gets a shader"; rc=1; }
+  o="$(LAUNCHER_LIBRARY_DIR="$dir/library" $LAUNCHERX --machine-details "$bundle")"
+  grep -qx $'Display\tShader profile\tOff' <<<"$o" || { echo "the machine's details do not say Off: $o"; rc=1; }
   o="$($LAUNCHERX --shader-menu "$bundle" choose "CRT Royale")" || { echo "--shader-menu choose failed: $o"; rc=1; }
   case "$(head -1 <<<"$o")" in plays*crt-royale.slangp) ;; *) echo "the menu's swap plays: $(head -1 <<<"$o")"; rc=1;; esac
   grep -qx $'checked\tCRT Royale\tcrt-royale' <<<"$o" || { echo "CRT Royale is not checked after choosing it: $o"; rc=1; }
   case "$($LAUNCHERX --print-shader-args "$bundle")" in *crt-royale.slangp) ;; *) echo "the menu's choice was not saved"; rc=1;; esac
   o="$($LAUNCHERX --shader-menu "$bundle" choose "(default) CRT Aperture")"
   case "$(head -1 <<<"$o")" in plays*crt-aperture.slangp) ;; *) echo "back to the default plays: $(head -1 <<<"$o")"; rc=1;; esac
-  if grep -q '^shader_profile = ' "$bundle"; then echo "the default row left a profile in the bundle"; rc=1; fi
+  if grep -q '^shader_profile = \|^shader_off = ' "$bundle"; then echo "the default row left a profile or Off in the bundle"; rc=1; fi
   # Moving the default moves every machine on it; clearing it is the
   # unshaded app default again, and the picker's first row says which.
   o="$($LAUNCHERX --default-shader-profile crt-royale)"

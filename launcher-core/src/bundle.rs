@@ -1261,6 +1261,12 @@ pub struct Machine {
     /// `shader` when both are set.
     #[serde(default)]
     pub shader_profile: Option<String>,
+    /// No shader at all, whatever the app default is: the pickers' Off
+    /// row (user, 2026-10-19). A field of its own rather than a reserved
+    /// `shader_profile` id, since any word is a profile's possible id.
+    /// Wins over `shader_profile` and `shader`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shader_off: bool,
     /// Raw shader preset override, bypassing the profile manager (doc 07
     /// settings taxonomy: the hand-written-bundle escape hatch).
     /// `None` uses the app default.
@@ -1610,6 +1616,7 @@ impl Machine {
             disc: None,
             discs: Vec::new(),
             shader_profile: None,
+            shader_off: false,
             shader: None,
             floppy: None,
             boot: None,

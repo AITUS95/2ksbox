@@ -481,9 +481,15 @@ The fields, and why each is what it is:
   checked, one off the shelf first), with Eject, Insert Disc Image… and
   Insert Folder as Disc… (`add_and_insert`: on the shelf and in the
   drive at once, the shelf republished to the drive). It reaches the
-  tray through the launcher's monitor socket, as the window does, and
-  reads the shelf and the drive again every two seconds, because the
-  launcher and `CDSHELF` change them too. `launcherx --disc-menu`
+  tray through the launcher's monitor socket, as the window does. It
+  follows changes as they happen, never on a timer (user, 2026-10-19):
+  the launcher writing `discs.toml` or the bundle (file notifications,
+  `player-mitsuami/src/watch.rs`, the `notify` crate), and the tray
+  moving, whoever moved it (the guest's eject, `CDSHELF`, the
+  launcher's Insert), which QEMU reports as `DEVICE_TRAY_MOVED` on the
+  player's own in-process monitor (`Qmp::on_event`). Not on the
+  launcher's `-qmp` socket: QEMU serves that to one client at a time,
+  and a listener there would lock the launcher's window out. `launcherx --disc-menu`
   prints its rows; the `drive` check covers it. The player links
   `launcher-core` without its `download` feature, so no TLS stack
   (ADR-009, ADR-010).
@@ -611,10 +617,17 @@ and runs without live control.
   spawn, and the player skips an unknown parameter with a log line.
 - **The form's picker has the same shape as every other picker.**
   `Form::shader_profile_labels` gives its rows (the app default,
-  `SHADER_DEFAULT_LABEL`, then the library by name),
+  `SHADER_DEFAULT_LABEL`, then Off, then the library by name),
   `shader_profile_index` the current row (0 for a profile that no
   longer exists, which is what the machine plays with), and
   `choose_shader_profile` / `reset_shader_profile` are the verbs.
+- **Off** (2026-10-19, user: "there needs to be the Off option, like no
+  shaders applied") is no shader whatever the default, in the form's
+  picker and the player's menu alike: `shader_library::OFF_LABEL`, the
+  bundle's `shader_off = true`. A field of its own, not a reserved
+  `shader_profile` id, since any word can be a profile's id (`slug`).
+  `player::resolve_shader` checks it before everything else; the
+  library's Shader column says Off; `--assign-shader <bundle> (off)`.
 - **The player's View > Shader menu** (2026-10-19, track M22 step 5) is
   that picker for the machine the player runs (the bundle from
   `--machine`), and only a swap (user: "no editing or creating, just
@@ -623,7 +636,8 @@ and runs without live control.
   bundle and returns what the machine now plays
   (`player::resolve_shader`), which the player swaps to at once
   (`Gpu::set_shader`; a preset that will not load keeps the old chain
-  and says so in an alert). The rows are read again every two seconds.
+  and says so in an alert). The rows follow the bundle and the profile
+  folder through file notifications (`watch.rs`), never a timer.
   `launcherx --shader-menu` prints and chooses them; the
   `shader-defaults` check covers it.
 - **The library has a default profile** (user decision 2026-09-24): one

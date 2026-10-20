@@ -904,11 +904,13 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             }
         }
         "--assign-shader" => {
-            let usage = "usage: --assign-shader <machine.toml> <profile-id-or-(none)>";
+            // `(none)` is the app default, `(off)` no shader at all.
+            let usage = "usage: --assign-shader <machine.toml> <profile-id|(none)|(off)>";
             let path: PathBuf = args.next().expect(usage).into();
             let id = args.next().expect(usage);
             let mut machine = Machine::load(&path).expect("load bundle");
-            machine.shader_profile = if id == "(none)" { None } else { Some(id) };
+            machine.shader_off = id == "(off)";
+            machine.shader_profile = if id == "(none)" || id == "(off)" { None } else { Some(id) };
             machine.save(&path).expect("save bundle");
         }
         "--shader-menu" => {
@@ -925,7 +927,7 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
                         eprintln!("[shader-menu] no row {label}");
                         return Some(1);
                     };
-                    match shader_library::choose_for(&path, row.id) {
+                    match shader_library::choose_for(&path, row.choice) {
                         Ok(Some(profile)) => println!("plays\t{}", profile.preset.display()),
                         Ok(None) => println!("plays\tnone"),
                         Err(e) => {
@@ -939,7 +941,12 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             }
             for row in shader_library::menu_profiles(&path, &dir) {
                 let mark = if row.chosen { "checked" } else { "-" };
-                println!("{mark}\t{}\t{}", row.label, row.id.as_deref().unwrap_or("(default)"));
+                let id = match &row.choice {
+                    shader_library::ShaderChoice::Default => "(default)",
+                    shader_library::ShaderChoice::Off => "(off)",
+                    shader_library::ShaderChoice::Profile(id) => id,
+                };
+                println!("{mark}\t{}\t{id}", row.label);
             }
         }
         "--preview-shader" => {

@@ -1235,13 +1235,17 @@ pub unsafe extern "C" fn lc_wizard_set(w: *mut LcWizard, field: *const c_char, v
         "soundfont" => f.soundfont = value,
         "mt32_roms" => f.mt32_roms = value,
         "extra_qemu_args" => f.extra_qemu_args = value,
-        "shader_profile" => f.shader_profile = Some(value).filter(|v| !v.is_empty()),
+        "shader_profile" => {
+            f.shader_profile = Some(value).filter(|v| !v.is_empty());
+            f.shader_off = false;
+        }
         _ => return false,
     }
     true
 }
 
-/// The one boolean, by name: "existing_disk".
+/// The booleans, by name: "existing_disk", "shader_off" (the shader
+/// picker's Off row; setting it clears "shader_profile").
 ///
 /// # Safety
 /// `w` must be a live handle; `field` NUL-terminated.
@@ -1250,6 +1254,7 @@ pub unsafe extern "C" fn lc_wizard_get_flag(w: *const LcWizard, field: *const c_
     let f = &handle!(w, false).0;
     match unsafe { borrow(field) } {
         "existing_disk" => f.existing_disk,
+        "shader_off" => f.shader_off,
         _ => false,
     }
 }
@@ -1261,6 +1266,12 @@ pub unsafe extern "C" fn lc_wizard_set_flag(w: *mut LcWizard, field: *const c_ch
     let f = &mut handle_mut!(w, false).0;
     match unsafe { borrow(field) } {
         "existing_disk" => f.existing_disk = value,
+        "shader_off" => {
+            f.shader_off = value;
+            if value {
+                f.shader_profile = None;
+            }
+        }
         _ => return false,
     }
     true

@@ -148,8 +148,12 @@ pub fn pc_bios_dir() -> PathBuf {
 /// skips the library's default (ADR-024): a CRT over Windows 11 is
 /// something to pick, not something to get. A `shader_profile`
 /// naming a deleted profile falls through the same way rather than
-/// failing the machine (see `shader_library::find`).
+/// failing the machine (see `shader_library::find`). Off
+/// (`shader_off`) is no shader before all of them.
 pub fn resolve_shader(machine: &Machine) -> Option<ShaderProfile> {
+    if machine.shader_off {
+        return None;
+    }
     let dir = shader_library::default_dir();
     if let Some(id) = &machine.shader_profile {
         if let Some(profile) = shader_library::find(&dir, id) {

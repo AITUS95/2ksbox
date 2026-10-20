@@ -27,6 +27,7 @@ mod discs;
 mod render;
 mod shaders;
 mod wake;
+mod watch;
 
 use mitsuami::core::{CurrentWindow, Ui};
 use mitsuami::prelude::*;
@@ -271,7 +272,7 @@ fn content(w: Window_) -> impl View {
     // the machine's drive and shader profile, when the launcher named the
     // machine
     let machine = with(|p| p.args.machine.clone()).flatten();
-    let discs = machine.clone().map(discs::Discs::open);
+    let (discs, tray) = machine.clone().map(discs::Discs::open).unzip();
     let shaders = machine.map(shaders::Shaders::open);
     set_menu(menus(w, discs, shaders));
     // The wake: everything that follows a publish, on the UI thread.
@@ -321,6 +322,14 @@ fn content(w: Window_) -> impl View {
                 .then(|| Duration::from_millis(if session.offscreen() { 1 } else { 16 }));
             session.tell_window_size(&gpu, (size.width, size.height), p.scale as f64);
             p.vm = session.vm();
+            // the Disc menu follows the tray, whoever moved it
+            if let (Some(qmp), Some(tray)) = (session.qmp(), tray.clone()) {
+                qmp.on_event(move |event| {
+                    if event["event"] == "DEVICE_TRAY_MOVED" {
+                        tray();
+                    }
+                });
+            }
             let session = Arc::new(Mutex::new(session));
             let render = Render::start(shared, gpu, session.clone(), period);
             // what the scale's and the lock's effects set before there was

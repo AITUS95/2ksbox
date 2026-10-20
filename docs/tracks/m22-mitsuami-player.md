@@ -284,6 +284,20 @@ embed library, as for the winit player, into a target dir of its own:
    UI Automation: CRT Royale and then the default row each loaded live
    (`[shader] loaded` in `player.log`) and were saved to the bundle. Not
    yet: by hand on GTK, Kirigami and macOS.
+   **Off, and no timers (2026-10-19, user):** both shader pickers have an
+   Off row (no shader whatever the default, the bundle's `shader_off`).
+   The two menus no longer read their files every two seconds: they
+   follow file notifications (`watch.rs`, the `notify` crate) and, for
+   the drive, QEMU's `DEVICE_TRAY_MOVED` on the player's own monitor
+   (`Qmp::on_event`). A `Menu::on_open` in mitsuami was looked at first
+   and left: WinUI 3's `MenuBarItem` and GTK 4's `PopoverMenuBar` give no
+   per-menu opening event. Checked on Windows on a scratch machine through
+   UI Automation: Off from the menu dropped the chain live (`[shader]
+   none`) and wrote `shader_off`; `launcherx --assign-shader` from outside
+   moved the menu's check with no click; `launcherx --insert-disc` (the
+   live tray only, not the bundle) moved the Disc menu's check through
+   the tray event alone. `packaging/flatpak/cargo-sources.json` still
+   needs regenerating for `notify` (no `uv` on the PC).
 6. **The launcher's player, packaging, the flip:** a build stage, the
    packagers' run, `player-mitsuami` shipped as `2ksbox-player` (and the
    per-target players), and `player/`'s winit front end deleted.

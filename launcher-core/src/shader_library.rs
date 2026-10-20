@@ -85,6 +85,10 @@ pub fn default_label_for(family: crate::bundle::Family, profiles: &[ProfileEntry
 /// What a modern machine's default runs: nothing.
 pub const NO_SHADER_LABEL: &str = "None";
 
+/// The pickers' row for no shader at all, whatever the default
+/// (`Machine::shader_off`; user, 2026-10-19).
+pub const OFF_LABEL: &str = "Off";
+
 /// The profile id a machine's `shader_profile` field stores: a `.toml`
 /// file's bare stem (e.g. `trinitron-warm`), matching `path`'s own name so
 /// looking one up by id (`find`, below) is a plain filename join.
@@ -226,17 +230,27 @@ pub fn delete(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// One profile of the player's Shader menu (`menu_profiles`): `id` `None`
-/// is the app default.
+/// What a machine's shader picker can be set to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ShaderChoice {
+    /// The app default (`shader_profile` and `shader_off` unset).
+    Default,
+    /// No shader (`shader_off`).
+    Off,
+    /// A profile, by id.
+    Profile(String),
+}
+
+/// One row of the player's Shader menu (`menu_profiles`).
 #[derive(Clone, PartialEq)]
 pub struct MenuProfile {
     pub label: String,
-    pub id: Option<String>,
+    pub choice: ShaderChoice,
     pub chosen: bool,
 }
 
-/// The player's Shader menu for `machine` (track M22): the settings
-/// window's picker as a menu, the same rows in the same order
+/// The player's Shader menu for the machine in `bundle` (track M22): the
+/// settings window's picker as a menu, the same rows in the same order
 /// (`wizard::Form::shader_profile_labels`), the machine's checked. Only
 /// a swap: the profiles are made and edited in the launcher. Empty for a
 /// bundle that will not load.
@@ -251,19 +265,26 @@ pub fn menu_profiles(bundle: &Path, dir: &Path) -> Vec<MenuProfile> {
         .enumerate()
         .map(|(row, label)| MenuProfile {
             label,
-            id: row.checked_sub(1).map(|i| id_of(&profiles[i].path)),
+            choice: match row {
+                0 => ShaderChoice::Default,
+                1 => ShaderChoice::Off,
+                _ => ShaderChoice::Profile(id_of(&profiles[row - 2].path)),
+            },
             chosen: row == chosen,
         })
         .collect()
 }
 
-/// Give the machine in `bundle` the profile `id` (`None`: the app
-/// default), as the settings window's Shader picker does, and return what
-/// it now plays with (`player::resolve_shader`), for the player to swap
-/// to at once.
-pub fn choose_for(bundle: &Path, id: Option<String>) -> Result<Option<ShaderProfile>, String> {
+/// Give the machine in `bundle` the shader `choice`, as the settings
+/// window's Shader picker does, and return what it now plays with
+/// (`player::resolve_shader`), for the player to swap to at once.
+pub fn choose_for(bundle: &Path, choice: ShaderChoice) -> Result<Option<ShaderProfile>, String> {
     let mut machine = crate::bundle::Machine::load(bundle).map_err(|e| format!("{}: {e}", bundle.display()))?;
-    machine.shader_profile = id;
+    (machine.shader_profile, machine.shader_off) = match choice {
+        ShaderChoice::Default => (None, false),
+        ShaderChoice::Off => (None, true),
+        ShaderChoice::Profile(id) => (Some(id), false),
+    };
     machine.save(bundle).map_err(|e| format!("{}: {e}", bundle.display()))?;
     Ok(crate::player::resolve_shader(&machine))
 }
