@@ -1070,7 +1070,13 @@ whose Direct3D 11 side has not run either.
   (allocations, VidPn negotiation, adapter queries, the user-mode
   drivers' 4000 lines a process) slowed it (user): the kernel driver's
   per-event lines now log their first 8 to 32 (`log_few`), and the
-  user-mode drivers 400 lines a process (`D3D11Trace` still lifts it). The Arm kernel
+  user-mode drivers 400 lines a process (`D3D11Trace` still lifts it).
+  Unigine Heaven runs there in Direct3D 9; in Direct3D 11 it stops on its
+  loading screen (user, 2026-10-20), every GetData of one of its queries
+  answered `E_INVALIDARG` by the host (token 57). DXVK's immediate
+  context refuses a size other than the query type's own, and the query
+  exists (no creation failure was logged); the executor now names the
+  query's type and both sizes when GetData fails. The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and

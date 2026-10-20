@@ -1383,6 +1383,15 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
         HRESULT hr = ctx->GetData(q, a->b ? r.ret.data() : nullptr, a->b, 0);
         r.ret.resize(a->b);
         r.get = true;
+        if (FAILED(hr)) {
+            /* which query, and the size the guest named against the one
+             * this host's Direct3D 11 takes (DXVK refuses any other) */
+            D3D11_QUERY_DESC qd = {};
+            q->GetDesc(&qd);
+            if (d.warn(0x50000000u | ((uint32_t)qd.Query << 16) | (uint32_t)(hr & 0xffff)))
+                r.x.log("d11: GetData of a query of type %u, %u bytes (the query's %u): 0x%08x",
+                        (unsigned)qd.Query, a->b, q->GetDataSize(), (unsigned)hr);
+        }
         if (hr != S_OK) r.fail(hr == S_FALSE ? S_FALSE : hr);
         return;
     }
