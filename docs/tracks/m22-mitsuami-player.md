@@ -260,7 +260,8 @@ embed library, as for the winit player, into a target dir of its own:
    **The disc shelf done (2026-10-19, user: "machine disc shelf from the
    player"):** the launcher passes the bundle (`--machine`, after
    `--window-state`), and `player-mitsuami/src/discs.rs` makes it a Disc
-   menu over `launcher_core::shelf` (doc 07, "The player's Disc menu"):
+   menu over `launcher_core::shelf` (doc 07, "The player's Disc menu";
+   Machine > Disc since 2026-10-20, user):
    the shelf's discs with the drive's checked, Eject, Insert Disc Image…
    and Insert Folder as Disc…, a failure in the platform's alert. The
    player links `launcher-core` with `default-features = false`, which

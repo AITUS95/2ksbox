@@ -398,7 +398,18 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    637772f's `on_hover`, with the row's context menu, Rename, Insert,
    Remove from shelf, as the keyboard's way in; clicked through on
    Broadway) that turns it into a field, focused with the label selected
-   (written on Enter or focus leaving), the
+   (written on Enter or focus leaving; Escape drops the edit, taken by
+   a container's `on_key` round the field ahead of the dialog's
+   Escape-closes, so only a second Escape closes the window, user
+   2026-10-19). On Windows the field opened from the pencil or the
+   menu's Rename closed at once (user 2026-10-19, 20): XAML's late
+   `GotFocus` for a move it made itself (the clicked pencil going away,
+   the menu giving focus back as it closed) read as the new field's
+   blur, which wrote the label. Fixed in mitsuami (`da71060`, after
+   1.3.5: its late `GotFocus` reports what has focus then); until a
+   release with it is pinned here, the bug stays on Windows (user's
+   choice, 2026-10-20). Checked against that checkout with real clicks
+   through UI Automation, three runs each way. After the label come the
    core's "Disc image · ~/path" line, ▶ (Insert) or "In drive", and the
    trash button. The rules are doc 07's "One drive": Insert sets the boot
    disc, and on a running machine swaps the disc now too; the card polls
