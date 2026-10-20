@@ -911,6 +911,37 @@ pub fn run(verb: &str, args: &mut impl Iterator<Item = String>) -> Option<i32> {
             machine.shader_profile = if id == "(none)" { None } else { Some(id) };
             machine.save(&path).expect("save bundle");
         }
+        "--shader-menu" => {
+            // Headless equivalent of the player's Shader menu (M22): each
+            // row, checked when it is the machine's. `choose <label>` is a
+            // click on a row, which saves the bundle and prints what the
+            // player then swaps to (`plays <preset>`, or `plays none`).
+            let usage = "usage: --shader-menu <machine.toml> [choose <label>]";
+            let path: PathBuf = args.next().expect(usage).into();
+            let dir = shader_library::default_dir();
+            match (args.next().as_deref(), args.next()) {
+                (Some("choose"), Some(label)) => {
+                    let Some(row) = shader_library::menu_profiles(&path, &dir).into_iter().find(|r| r.label == label) else {
+                        eprintln!("[shader-menu] no row {label}");
+                        return Some(1);
+                    };
+                    match shader_library::choose_for(&path, row.id) {
+                        Ok(Some(profile)) => println!("plays\t{}", profile.preset.display()),
+                        Ok(None) => println!("plays\tnone"),
+                        Err(e) => {
+                            eprintln!("[shader-menu] {e}");
+                            return Some(1);
+                        }
+                    }
+                }
+                (None, _) => {}
+                _ => panic!("{usage}"),
+            }
+            for row in shader_library::menu_profiles(&path, &dir) {
+                let mark = if row.chosen { "checked" } else { "-" };
+                println!("{mark}\t{}\t{}", row.label, row.id.as_deref().unwrap_or("(default)"));
+            }
+        }
         "--preview-shader" => {
             // Headless equivalent of the profile editor's live preview
             // pane: the real `preview::Preview`, on a real (if

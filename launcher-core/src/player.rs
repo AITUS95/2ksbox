@@ -149,7 +149,7 @@ pub fn pc_bios_dir() -> PathBuf {
 /// something to pick, not something to get. A `shader_profile`
 /// naming a deleted profile falls through the same way rather than
 /// failing the machine (see `shader_library::find`).
-fn resolve_shader(machine: &Machine) -> Option<ShaderProfile> {
+pub fn resolve_shader(machine: &Machine) -> Option<ShaderProfile> {
     let dir = shader_library::default_dir();
     if let Some(id) = &machine.shader_profile {
         if let Some(profile) = shader_library::find(&dir, id) {

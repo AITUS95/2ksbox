@@ -15,6 +15,7 @@
 //! (`SurfaceHandle`).
 
 use player_core::{Gpu, GpuView, MinSize, Session};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
@@ -31,6 +32,8 @@ struct Asks {
     scale: Option<Option<u32>>,
     shot: bool,
     window_shot: bool,
+    /// the Shader menu's choice: a preset and its parameters, or none
+    shader: Option<Option<(PathBuf, Vec<(String, f32)>)>>,
     quit: bool,
     /// asks made, and how many of them the last finished draw had taken
     made: u64,
@@ -39,7 +42,7 @@ struct Asks {
 
 impl Asks {
     fn any(&self) -> bool {
-        self.wake || self.draw || self.resize.is_some() || self.scale.is_some() || self.shot || self.window_shot || self.quit
+        self.wake || self.draw || self.resize.is_some() || self.scale.is_some() || self.shot || self.window_shot || self.shader.is_some() || self.quit
     }
 }
 
@@ -51,6 +54,9 @@ struct Told {
     min: Option<MinSize>,
     /// QEMU's main loop returned (`Session::wake`)
     stopped: bool,
+    /// why the last shader asked for did not load, until the UI thread
+    /// takes it
+    shader_error: Option<String>,
 }
 
 pub struct Shared {
@@ -136,6 +142,16 @@ impl Render {
         self.shared.ask(|a| a.window_shot = true);
     }
 
+    /// Swap the CRT chain (`Gpu::set_shader`); a failure comes back
+    /// through `take_shader_error` after the draw.
+    pub fn set_shader(&self, shader: Option<(PathBuf, Vec<(String, f32)>)>) {
+        self.shared.ask(|a| a.shader = Some(shader));
+    }
+
+    pub fn take_shader_error(&self) -> Option<String> {
+        self.shared.told.lock().unwrap().shader_error.take()
+    }
+
     /// Whether the pointer is locked (the frame then carries the guest's
     /// cursor).
     pub fn set_locked(&self, locked: bool) {
@@ -216,6 +232,10 @@ fn run(shared: &Shared, mut gpu: Gpu, session: &Mutex<Session>, period: Option<D
                 s.headless_tick(&mut gpu);
             }
         }
+        let mut shader_error = None;
+        if let Some(shader) = asks.shader {
+            shader_error = gpu.set_shader(shader.as_ref().map(|(p, v)| (p.as_path(), v.as_slice()))).err();
+        }
         if asks.shot {
             gpu.screenshot();
         }
@@ -232,6 +252,9 @@ fn run(shared: &Shared, mut gpu: Gpu, session: &Mutex<Session>, period: Option<D
                 told.min = Some(min);
             }
             told.stopped = stopped;
+            if shader_error.is_some() {
+                told.shader_error = shader_error;
+            }
         }
         shared.asks.lock().unwrap().done = taken;
         shared.drawn.notify_all();

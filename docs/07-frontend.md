@@ -615,6 +615,17 @@ and runs without live control.
   `shader_profile_index` the current row (0 for a profile that no
   longer exists, which is what the machine plays with), and
   `choose_shader_profile` / `reset_shader_profile` are the verbs.
+- **The player's View > Shader menu** (2026-10-19, track M22 step 5) is
+  that picker for the machine the player runs (the bundle from
+  `--machine`), and only a swap (user: "no editing or creating, just
+  swapping"): `shader_library::menu_profiles` gives the picker's rows
+  with the machine's checked, and `choose_for` saves the choice to the
+  bundle and returns what the machine now plays
+  (`player::resolve_shader`), which the player swaps to at once
+  (`Gpu::set_shader`; a preset that will not load keeps the old chain
+  and says so in an alert). The rows are read again every two seconds.
+  `launcherx --shader-menu` prints and chooses them; the
+  `shader-defaults` check covers it.
 - **The library has a default profile** (user decision 2026-09-24): one
   file beside the profiles, `default-profile.txt`, naming a profile id
   (`shader_library::default_id` / `set_default`; one file rather than a

@@ -957,6 +957,18 @@ shaderdefaults_check() { # the first-run shader offer and its starter profiles (
   o="$($LAUNCHERX --print-shader-args "$bundle")"
   case "$o" in *apple-monitor-II.slangp) ;; *) echo "a machine naming Apple II plays something else: $o"; rc=1;; esac
   $LAUNCHERX --assign-shader "$bundle" "(none)"
+  # The player's Shader menu (M22): the picker's rows, the machine's
+  # checked; a row chosen is saved and is what the player swaps to.
+  o="$($LAUNCHERX --shader-menu "$bundle")" || { echo "--shader-menu failed"; return 1; }
+  [ "$(cut -f1,2 <<<"$o" | tr '\t\n' ': ')" = "checked:(default) CRT Aperture -:Apple II -:CRT Aperture -:CRT Royale " ] \
+    || { echo "the Shader menu: $o"; rc=1; }
+  o="$($LAUNCHERX --shader-menu "$bundle" choose "CRT Royale")" || { echo "--shader-menu choose failed: $o"; rc=1; }
+  case "$(head -1 <<<"$o")" in plays*crt-royale.slangp) ;; *) echo "the menu's swap plays: $(head -1 <<<"$o")"; rc=1;; esac
+  grep -qx $'checked\tCRT Royale\tcrt-royale' <<<"$o" || { echo "CRT Royale is not checked after choosing it: $o"; rc=1; }
+  case "$($LAUNCHERX --print-shader-args "$bundle")" in *crt-royale.slangp) ;; *) echo "the menu's choice was not saved"; rc=1;; esac
+  o="$($LAUNCHERX --shader-menu "$bundle" choose "(default) CRT Aperture")"
+  case "$(head -1 <<<"$o")" in plays*crt-aperture.slangp) ;; *) echo "back to the default plays: $(head -1 <<<"$o")"; rc=1;; esac
+  if grep -q '^shader_profile = ' "$bundle"; then echo "the default row left a profile in the bundle"; rc=1; fi
   # Moving the default moves every machine on it; clearing it is the
   # unshaded app default again, and the picker's first row says which.
   o="$($LAUNCHERX --default-shader-profile crt-royale)"

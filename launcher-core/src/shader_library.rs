@@ -225,3 +225,45 @@ pub fn delete(path: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// One profile of the player's Shader menu (`menu_profiles`): `id` `None`
+/// is the app default.
+#[derive(Clone, PartialEq)]
+pub struct MenuProfile {
+    pub label: String,
+    pub id: Option<String>,
+    pub chosen: bool,
+}
+
+/// The player's Shader menu for `machine` (track M22): the settings
+/// window's picker as a menu, the same rows in the same order
+/// (`wizard::Form::shader_profile_labels`), the machine's checked. Only
+/// a swap: the profiles are made and edited in the launcher. Empty for a
+/// bundle that will not load.
+pub fn menu_profiles(bundle: &Path, dir: &Path) -> Vec<MenuProfile> {
+    let Ok(machine) = crate::bundle::Machine::load(bundle) else { return Vec::new() };
+    let profiles = scan(dir);
+    let mut form = crate::wizard::Form::default();
+    form.open_edit(&machine, bundle.to_path_buf());
+    let chosen = form.shader_profile_index(&profiles);
+    form.shader_profile_labels(&profiles)
+        .into_iter()
+        .enumerate()
+        .map(|(row, label)| MenuProfile {
+            label,
+            id: row.checked_sub(1).map(|i| id_of(&profiles[i].path)),
+            chosen: row == chosen,
+        })
+        .collect()
+}
+
+/// Give the machine in `bundle` the profile `id` (`None`: the app
+/// default), as the settings window's Shader picker does, and return what
+/// it now plays with (`player::resolve_shader`), for the player to swap
+/// to at once.
+pub fn choose_for(bundle: &Path, id: Option<String>) -> Result<Option<ShaderProfile>, String> {
+    let mut machine = crate::bundle::Machine::load(bundle).map_err(|e| format!("{}: {e}", bundle.display()))?;
+    machine.shader_profile = id;
+    machine.save(bundle).map_err(|e| format!("{}: {e}", bundle.display()))?;
+    Ok(crate::player::resolve_shader(&machine))
+}

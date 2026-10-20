@@ -1,7 +1,7 @@
 //! The player (doc 02) in a mitsuami window (track M22): one running
 //! machine per process, its picture on a `GpuSurface`, and the platform's
-//! own menus over it (with the machine's CD drive, `discs.rs`, when the
-//! launcher names the machine). Everything but the window is `player-core`'s, shared
+//! own menus over it (with the machine's CD drive, `discs.rs`, and its
+//! shader profile, `shaders.rs`, when the launcher names the machine). Everything but the window is `player-core`'s, shared
 //! with the winit player (`player/`): the QEMU thread, the picture and its
 //! CRT chain, audio, gamepads, the keys the guest holds, the command line.
 //!
@@ -25,6 +25,7 @@
 
 mod discs;
 mod render;
+mod shaders;
 mod wake;
 
 use mitsuami::core::{CurrentWindow, Ui};
@@ -267,9 +268,12 @@ fn content(w: Window_) -> impl View {
     if let Some(CurrentWindow(id)) = inject::<CurrentWindow>() {
         with(|p| p.window = Some((ui.clone(), id)));
     }
-    // the machine's drive, when the launcher named the machine
-    let discs = with(|p| p.args.machine.clone()).flatten().map(discs::Discs::open);
-    set_menu(menus(w, discs));
+    // the machine's drive and shader profile, when the launcher named the
+    // machine
+    let machine = with(|p| p.args.machine.clone()).flatten();
+    let discs = machine.clone().map(discs::Discs::open);
+    let shaders = machine.map(shaders::Shaders::open);
+    set_menu(menus(w, discs, shaders));
     // The wake: everything that follows a publish, on the UI thread.
     let wake = Arc::new(wake::Wake::default());
     {
@@ -399,7 +403,7 @@ fn remember_size(p: &mut Player, size: (f32, f32), full: bool) {
 /// The menu bar. The chords are the winit player's: the window takes them
 /// first, and while the keyboard is grabbed they reach the surface, which
 /// answers the same ones (`chord`).
-fn menus(w: Window_, discs: Option<discs::Discs>) -> MenuBar {
+fn menus(w: Window_, discs: Option<discs::Discs>, shaders: Option<shaders::Shaders>) -> MenuBar {
     let primary_alt = |c: char| Shortcut::primary(Key::Char(c)).alt();
     // AppKit puts its own Enter Full Screen (Ctrl+Cmd+F) in a menu named
     // View, and mitsuami keeps `w.full` in step with it, so a second item
@@ -442,6 +446,8 @@ fn menus(w: Window_, discs: Option<discs::Discs>) -> MenuBar {
     });
     view = view
         .submenu(scale)
+        // the machine's shader profile, a swap (`shaders.rs`)
+        .children(shaders.map(shaders::Shaders::menu))
         .item(
             MenuItem::new("Fit Window to Picture")
                 .enabled(sized)
@@ -596,6 +602,12 @@ fn close_request(w: Window_) {
     });
 }
 
+/// The Shader menu's choice on the picture: a preset and its parameters,
+/// or none.
+fn set_shader(shader: Option<(std::path::PathBuf, Vec<(String, f32)>)>) {
+    with(|p| p.render.as_ref().map(|r| r.set_shader(shader)));
+}
+
 /// Something the user asked for that did not happen (a disc that would
 /// not go in): the platform's alert over the window.
 fn report(title: &str, detail: String) {
@@ -648,6 +660,9 @@ fn on_wake(w: Window_) {
         with(|p| p.vm = None);
         leave(w);
         return;
+    }
+    if let Some(e) = with(|p| p.render.as_ref().and_then(Render::take_shader_error)).flatten() {
+        report("The shader did not load", e);
     }
     update_guest_cursor(w);
     let fits = !view.follows_window;
