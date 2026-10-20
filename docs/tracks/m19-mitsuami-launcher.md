@@ -413,7 +413,8 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    the menu giving focus back as it closed) read as the new field's
    blur, which wrote the label. Fixed in mitsuami (`da71060`, in
    1.3.6: its late `GotFocus` reports what has focus then), pinned here
-   2026-10-20; the release itself not yet clicked through on the PC. Checked against that checkout with real clicks
+   2026-10-20; the rename works on Windows with it (the user on the PC,
+   same day). Checked against that checkout with real clicks
    through UI Automation, three runs each way. After the label come the
    core's "Disc image · ~/path" line, ▶ (Insert) or "In drive", and the
    trash button. The rules are doc 07's "One drive": Insert sets the boot
@@ -586,8 +587,8 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
   system's d3d9), the macOS ones (App Store, community and Intel,
   2026-10-04, M21's Mac step) and the Flatpak (below).
 - ~~Pin mitsuami's next release, which carries `da71060`~~ (1.3.6,
-  2026-10-20). Left: the disc shelf's rename field on Windows clicked
-  through with it on the PC.
+  2026-10-20; the disc shelf's rename works on Windows with it, the user
+  on the PC).
 - ~~Regenerate `packaging/flatpak/cargo-sources.json`~~ (done
   2026-10-04: the generator's merge had refused mitsuami's git crates).
 - **The Flatpak (2026-10-04).** The packager ran with this launcher on
