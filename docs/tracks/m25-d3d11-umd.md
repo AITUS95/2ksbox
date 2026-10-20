@@ -1038,7 +1038,15 @@ whose Direct3D 11 side has not run either.
   with the same status and no debug line: so `BarDiag` is now written
   every time, and `StartStage` (1 entered, 2 after
   `DxgkCbGetDeviceInformation`, 3 after `find_bars`, 4 after the
-  register BAR's length check, 5 mapped) says where the start stops. The Arm kernel
+  register BAR's length check, 5 mapped) says where the start stops.
+  It stopped at 5 with the resources right (BAR 0 a plain memory
+  resource, 512 MiB at 0x7_e000_0000; BAR 2, 4 KiB at 0x3efe_b000) and
+  still no debug line: the register set read back as none of ours, as
+  if memory decoding were off during the start (the command register
+  read 0x0004 every time it was looked at from the host). `StartRegs`
+  (32-bit words: the command register, MAGIC and VERSION as read, then
+  the same after the driver turns memory decoding on if it was off)
+  checks it, and the turning on is the fix if it was. The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and

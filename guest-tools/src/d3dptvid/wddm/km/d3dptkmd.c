@@ -517,6 +517,36 @@ static NTSTATUS d3dpt_start_device(IN_CONST_PVOID ctx, IN_PDXGK_START_INFO start
 
     magic = a->regs[D3DPT_FB_REG_MAGIC / 4];
     version = a->regs[D3DPT_FB_REG_VERSION / 4];
+    {
+        /* StartRegs (REG_BINARY, 32-bit words): the command register, MAGIC
+         * and VERSION as first read, then the same after memory decoding
+         * was turned on here if it was off. On Windows 11 on Arm the start
+         * read no register set and no debug line reached the host (track
+         * M25): decoding off would do both. */
+        ULONG regs_seen[6] = { 0 }, got = 0;
+        USHORT cmd = 0;
+
+        if (NT_SUCCESS(a->dxgk.DxgkCbReadDeviceSpace(a->dxgk.DeviceHandle, DXGK_WHICHSPACE_CONFIG,
+                                                     &cmd, 0x04, sizeof(cmd), &got))) {
+            regs_seen[0] = cmd;
+        }
+        regs_seen[1] = magic;
+        regs_seen[2] = version;
+        if (got == sizeof(cmd) && !(cmd & 0x2)) {
+            cmd |= 0x2;                         /* PCI_ENABLE_MEMORY_SPACE */
+            a->dxgk.DxgkCbWriteDeviceSpace(a->dxgk.DeviceHandle, DXGK_WHICHSPACE_CONFIG,
+                                           &cmd, 0x04, sizeof(cmd), &got);
+            cmd = 0;
+            a->dxgk.DxgkCbReadDeviceSpace(a->dxgk.DeviceHandle, DXGK_WHICHSPACE_CONFIG,
+                                          &cmd, 0x04, sizeof(cmd), &got);
+            magic = a->regs[D3DPT_FB_REG_MAGIC / 4];
+            version = a->regs[D3DPT_FB_REG_VERSION / 4];
+            regs_seen[3] = cmd;
+            regs_seen[4] = magic;
+            regs_seen[5] = version;
+        }
+        note_value(L"StartRegs", REG_BINARY, regs_seen, sizeof(regs_seen));
+    }
     dbg_puts("d3dptkmd: StartDevice");
     dbg_hex(" magic=", magic);
     dbg_hex(" version=", version);
