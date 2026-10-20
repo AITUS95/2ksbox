@@ -1046,7 +1046,16 @@ whose Direct3D 11 side has not run either.
   read 0x0004 every time it was looked at from the host). `StartRegs`
   (32-bit words: the command register, MAGIC and VERSION as read, then
   the same after the driver turns memory decoding on if it was off)
-  checks it, and the turning on is the fix if it was. The Arm kernel
+  checks it, and the turning on is the fix if it was. **With it the
+  driver starts on Arm** (2026-10-20): `StartDevice` reads register set
+  v11, the Direct3D window at 448 MiB, the interrupt for the vertical
+  blank and fences, Windows commits 1024x768 on our adapter, and
+  TextInputHost, Explorer and DWM open Direct3D 11 devices on DXVK's
+  d3d11 on KosmicKrisp and render. Then DWM's first present moved the
+  scanout to VRAM offset 0x565000 and the player aborted in HVF
+  (`do_hv_vm_protect`: a 4 KiB-aligned range where Apple Silicon's host
+  page is 16 KiB); QEMU patch 98 rounds HVF's dirty-log ranges to whole
+  host pages. The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and

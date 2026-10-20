@@ -1197,6 +1197,21 @@ the user's Windows 11 on Arm machine boots on it with the BAR on the bus
 (EDK2 maps AHCI; with a 32-bit 512 MiB BAR it lost it). **Drop:**
 upstream places the high regions for a small IPA.
 
+### 98-hvf-log-host-pages
+HVF's dirty-log callbacks (`log_start`, `log_stop`, `log_clear`) protect
+a section's range with `hv_vm_protect()`, which takes only whole host
+pages, 16 KiB on Apple Silicon, and asserted on a section that started
+inside one (track M25): d3dpt-vga clears the dirty bits of its scanout
+window, at a 4 KiB-aligned VRAM offset (0x565000), and Windows 11 on Arm
+on our WDDM driver aborted the player as DWM's first present moved the
+scanout there. The range now grows to whole host pages, clamped to the
+section's memory region (shrunk at the region's own unaligned edges),
+so a protected page's write fault is always one the region's dirty log
+takes (`hvf.c` marks it dirty and lifts the protection); an extra page
+is reported dirty once. Applies after patch 82, the other `hvf-all.c`
+one. **Test:** the user's Windows 11 on Arm machine on our adapter.
+**Drop:** upstream aligns dirty-log ranges to the host page.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

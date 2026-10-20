@@ -1,0 +1,104 @@
+HVF's dirty-log listener callbacks protect a section's range with
+hv_vm_protect(), which takes only whole host pages (16 KiB on Apple
+Silicon), and asserted when a section did not start on one: d3dpt-vga
+clearing the dirty bits of its scanout window at a 4 KiB-aligned VRAM
+offset (Windows 11 on Arm on 2ksbox's WDDM driver, track M25) aborted
+the process. log_start, log_stop and log_clear now round the range out
+to whole host pages, clamped to the section's memory region (rounded in
+at the region's own unaligned edges), so a protected page's write fault
+is always one the region's dirty log takes; an extra page is reported
+dirty once. Applies after patch 82.
+Drop when upstream aligns dirty-log ranges to the host page.
+
+diff --git a/accel/hvf/hvf-all.c b/accel/hvf/hvf-all.c
+index 2fcf625..0ca67a2 100644
+--- a/accel/hvf/hvf-all.c
++++ b/accel/hvf/hvf-all.c
+@@ -139,36 +139,79 @@ static void hvf_set_phys_mem(MemoryRegionSection *section, bool add)
+     assert_hvf_ok(ret);
+ }
+ 
++/*
++ * 2ksbox: the host pages a section's dirty logging covers. A section
++ * need not start or end on a host page (16 KiB on Apple Silicon), and
++ * hv_vm_protect() takes only whole ones: a device clearing the dirty
++ * bits of a 4 KiB-aligned window of its RAM (d3dpt-vga's scanout)
++ * aborted. The range grows to whole pages, but not past the region the
++ * section is in, so the write fault that follows a protected page is
++ * always one the region's dirty log takes (an extra page is reported
++ * dirty once); at the region's own unaligned edges it shrinks instead.
++ */
++static bool hvf_section_host_pages(MemoryRegionSection *section,
++                                   hwaddr *start, size_t *size)
++{
++    uint64_t page = qemu_real_host_page_size();
++    hwaddr s = section->offset_within_address_space;
++    hwaddr e = s + int128_get64(section->size);
++    hwaddr rs = s - section->offset_within_region;
++    hwaddr re = rs + memory_region_size(section->mr);
++
++    s = QEMU_ALIGN_DOWN(s, page);
++    if (s < rs) {
++        s = QEMU_ALIGN_UP(rs, page);
++    }
++    e = QEMU_ALIGN_UP(e, page);
++    if (e > re) {
++        e = QEMU_ALIGN_DOWN(re, page);
++    }
++    if (e <= s) {
++        return false;
++    }
++    *start = s;
++    *size = e - s;
++    return true;
++}
++
+ static void hvf_log_start(MemoryListener *listener,
+                           MemoryRegionSection *section, int old, int new)
+ {
++    hwaddr start;
++    size_t size;
++
+     assert(new != 0);
+-    if (old == 0) {
+-        hvf_protect_clean_range(section->offset_within_address_space,
+-                                int128_get64(section->size));
++    if (old == 0 && hvf_section_host_pages(section, &start, &size)) {
++        hvf_protect_clean_range(start, size);
+     }
+ }
+ 
+ static void hvf_log_stop(MemoryListener *listener,
+                          MemoryRegionSection *section, int old, int new)
+ {
++    hwaddr start;
++    size_t size;
++
+     assert(old != 0);
+-    if (new == 0) {
+-        hvf_unprotect_dirty_range(section->offset_within_address_space,
+-                                  int128_get64(section->size));
++    if (new == 0 && hvf_section_host_pages(section, &start, &size)) {
++        hvf_unprotect_dirty_range(start, size);
+     }
+ }
+ 
+ static void hvf_log_clear(MemoryListener *listener,
+                           MemoryRegionSection *section)
+ {
++    hwaddr start;
++    size_t size;
++
+     /*
+      * The dirty page bits within section are being cleared.
+      * Some number of those pages may have been dirtied and
+      * the write permission enabled.  Reset the range read-only.
+      */
+-    hvf_protect_clean_range(section->offset_within_address_space,
+-                            int128_get64(section->size));
++    if (hvf_section_host_pages(section, &start, &size)) {
++        hvf_protect_clean_range(start, size);
++    }
+ }
+ 
+ static void hvf_region_add(MemoryListener *listener,
