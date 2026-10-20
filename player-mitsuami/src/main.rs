@@ -464,26 +464,31 @@ fn menus(w: Window_, discs: Option<discs::Discs>, shaders: Option<shaders::Shade
                 .on_select(move || fit_window(w)),
         )
         .separator();
+    let mut machine = Menu::new("Machine")
+        // Its chord (`chord`) holds Ctrl+Alt+Del for as long as D is; the
+        // menu's shortcut, which the window takes first while the keyboard
+        // isn't grabbed, taps it, as the item does (user, 2026-10-08).
+        .item(
+            MenuItem::new("Send Ctrl+Alt+Del")
+                .shortcut(primary_alt('d').shift())
+                .on_select(send_ctrl_alt_del),
+        )
+        .item(MenuItem::new("Send Shortcuts to Guest").bind(w.want_grab).shortcut(primary_alt('k')))
+        .item(
+            MenuItem::new("Release Mouse")
+                .enabled(move || w.locked.get())
+                .shortcut(primary_alt('g'))
+                .on_select(move || w.locked.set(false)),
+        )
+        .separator();
+    // Machine > Disc, the machine's drive (user, 2026-10-20); none for a
+    // player run with no machine.
+    if let Some(discs) = discs {
+        machine = machine.submenu(discs.menu()).separator();
+    }
     MenuBar::new()
         .menu(
-            Menu::new("Machine")
-                // Its chord (`chord`) holds Ctrl+Alt+Del for as long as D
-                // is; the menu's shortcut, which the window takes first
-                // while the keyboard isn't grabbed, taps it, as the item
-                // does (user, 2026-10-08).
-                .item(
-                    MenuItem::new("Send Ctrl+Alt+Del")
-                        .shortcut(primary_alt('d').shift())
-                        .on_select(send_ctrl_alt_del),
-                )
-                .item(MenuItem::new("Send Shortcuts to Guest").bind(w.want_grab).shortcut(primary_alt('k')))
-                .item(
-                    MenuItem::new("Release Mouse")
-                        .enabled(move || w.locked.get())
-                        .shortcut(primary_alt('g'))
-                        .on_select(move || w.locked.set(false)),
-                )
-                .separator()
+            machine
                 .item(
                     MenuItem::new("Pause")
                         .checked(move || w.paused.get())
@@ -510,7 +515,6 @@ fn menus(w: Window_, discs: Option<discs::Discs>, shaders: Option<shaders::Shade
                         .on_select(move || close_request(w)),
                 ),
         )
-        .children(discs.map(discs::Discs::menu))
         .menu(
             view.item(MenuItem::new("Save Screenshot").shortcut(primary_alt('s')).on_select(|| {
                     with(|p| p.render.as_ref().map(Render::screenshot));

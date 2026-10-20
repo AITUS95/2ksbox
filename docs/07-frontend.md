@@ -476,7 +476,8 @@ The fields, and why each is what it is:
   check runs it against a paused QEMU.
 - **The player's Disc menu** (2026-10-19, track M22 step 5) is the same
   model for the machine the player runs: the launcher names the bundle
-  (`--machine`, `player::machine_args`), and the menu lists
+  (`--machine`, `player::machine_args`), and the menu (Machine > Disc
+  since 2026-10-20, user; a menu of its own in the bar before) lists
   `Shelf::menu_discs` (the shelf in its order, the disc in the drive
   checked, one off the shelf first), with Eject, Insert Disc Image… and
   Insert Folder as Disc… (`add_and_insert`: on the shelf and in the
