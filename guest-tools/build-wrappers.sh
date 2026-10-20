@@ -182,6 +182,11 @@ i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pe
 # D3D9 smoke test (guest-tools/src/d3d9test.c): adapter string, HAL caps,
 # x87 control word after CreateDevice, spinning triangle with fps.
 i686-w64-mingw32-gcc -O2 -o "$T/d3d9test.exe" "$ROOT/guest-tools/src/d3d9test.c" -ld3d9 -lgdi32 -luser32
+# D3D9MEM.EXE: how many 4 MiB textures a Direct3D 9 device takes before
+# CreateTexture fails, with the HRESULT, the runtime's texture budget and
+# the process's address space (guest-tools/src/d3d9mem.c, track M25).
+i686-w64-mingw32-gcc -O2 -D__MSVCRT_VERSION__=0x700 -mcrtdll=msvcrt-os -march=pentium3 \
+  -o "$T/d3d9mem.exe" "$ROOT/guest-tools/src/d3d9mem.c" -ld3d9 -luser32
 # DDVMTEST.EXE prints what a launcher's video-memory check sees (Vice
 # City's: DirectDraw's free video memory, which the display driver answers).
 i686-w64-mingw32-gcc -O2 -o "$T/ddvmtest.exe" "$ROOT/guest-tools/src/ddvmtest.c" -lddraw -ldxguid

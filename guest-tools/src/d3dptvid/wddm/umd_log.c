@@ -10,9 +10,44 @@
 #include <winternl.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 #include <d3dkmthk.h>
 #include "d3dpt_wddm.h"
 #include "umd_log.h"
+
+/* this process in a list of executable names under HKLM\SOFTWARE\2ksbox
+ * (REG_MULTI_SZ; "*" for every process): D3D11Exclude keeps a process on
+ * Direct3D 9's driver (d3d10level9), D3D11Trace logs every call,
+ * D3D9Trace lifts the Direct3D 9 driver's line cap,
+ * D3D11Win7 offers only the Windows 7 interface (an A/B for the 11.1 one) */
+#ifndef RRF_SUBKEY_WOW6464KEY
+#define RRF_SUBKEY_WOW6464KEY 0x00010000          /* winreg.h after the EWDK's 10.0.19041 */
+#endif
+
+BOOL umd_listed(const char *value)
+{
+    char names[1024], exe[MAX_PATH], *base;
+    DWORD size = sizeof(names) - 2;
+    const char *n;
+
+    ZeroMemory(names, sizeof(names));
+    /* the 64-bit view in a WoW64 process too, not WOW6432Node */
+    if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\2ksbox", value, RRF_RT_REG_MULTI_SZ | RRF_SUBKEY_WOW6464KEY, NULL, names,
+                     &size) != ERROR_SUCCESS) {
+        return FALSE;
+    }
+    if (!GetModuleFileNameA(NULL, exe, sizeof(exe))) {
+        return FALSE;
+    }
+    base = strrchr(exe, '\\');
+    base = base ? base + 1 : exe;
+    for (n = names; *n; n += strlen(n) + 1) {
+        if (!strcmp(n, "*") || !_stricmp(n, base)) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
 
 static D3DKMT_HANDLE g_kmt_adapter;
 static ULONG g_log_lines;

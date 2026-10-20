@@ -968,3 +968,22 @@ whose Direct3D 11 side has not run either.
   depth surface. No new wire: the host reads the caps it already had.
   Built, not yet run in a guest; open: the vendors' raw-depth FOURCCs
   (INTZ, DF24, DF16; not Direct3D 9's own formats), a probe of our own.
+- **Unigine Heaven in Direct3D 9** (2026-10-19, on an overlay of the
+  user's machine, High, 1920x1200 full screen). With the depth textures
+  above it loaded and crashed before its first frame (an access violation
+  in `Unigine_x86.dll`); its log said every texture after a point failed
+  "out of video memory", and none of those calls reached the user-mode
+  driver. `D3D9MEM.EXE` showed why: Direct3D 9 counts its textures
+  against the dedicated memory plus the shared system memory the
+  adapter reports, and refuses past that itself; at a 64 MiB aperture
+  that was 512 MiB (127 default-pool textures of 4 MiB). The x64 kernel
+  driver's aperture is 1 GiB now: the budget is 1472 MiB, 367 such
+  textures are made (three times the VRAM segment; the memory manager
+  evicts them to system memory), and Heaven runs with its shadows, at 1
+  to 3 frames a second (the executor busy 28% of the time; open).
+  Also open: each texture still takes its size of the process's address
+  space (CPU-visible allocations), so a 32-bit game has ~1.9 GiB for
+  textures and its own memory together; and the XP and 9x drivers'
+  memory has no paging at all.
+- `HKLM\SOFTWARE\2ksbox` `D3D9Trace` (executables, as `D3D11Trace`)
+  lifts the Direct3D 9 driver's 4000-line log cap for those processes.

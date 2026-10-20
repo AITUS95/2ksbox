@@ -38,6 +38,7 @@
 #include "../../../../../d3dpt/d3dpt_proto.h"
 #include "../d3dpt_wddm.h"
 #include "umd_core.h"
+#include "../umd_log.h"
 
 /* -------------------------------------------------------------- adapter */
 
@@ -120,6 +121,9 @@ HRESULT APIENTRY OpenAdapter(D3DDDIARG_OPENADAPTER *o)
     name = strrchr(exe, '\\');
     umd_log("OpenAdapter interface 0x%x version 0x%x, process %lu %s", o->Interface, o->Version,
             GetCurrentProcessId(), name ? name + 1 : exe);
+    if (umd_listed("D3D9Trace")) {
+        umd_log_traced();
+    }
     a = (UMD_ADAPTER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*a));
     if (!a) {
         return E_OUTOFMEMORY;

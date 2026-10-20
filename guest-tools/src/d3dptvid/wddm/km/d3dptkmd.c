@@ -63,9 +63,22 @@
  * table dxgkrnl fills (MAP_APERTURE_SEGMENT), here kernel mappings of the
  * pages. GDI's shadow surface lives there, locked for the CPU all along,
  * so it can never move to VRAM. Its GPU addresses start at a base no VRAM
- * address reaches, which keeps the two apart in a trace. */
+ * address reaches, which keeps the two apart in a trace.
+ *
+ * Its size is also the shared system memory the adapter reports, and
+ * Direct3D 9 refuses a texture, with no call to the user-mode driver,
+ * once its own count of them passes the dedicated memory plus that: at
+ * 64 MiB the budget was 512 MiB, and Unigine Heaven's textures failed
+ * "out of video memory" while loading (track M25, 2026-10-19). A Direct3D
+ * allocation still lives in VRAM only and is evicted to system memory
+ * when the segment is full; 1 GiB (x64; 8 MiB of tables) lets the
+ * runtime ask. */
 #define D3DPT_AP_BASE 0x80000000u
+#ifdef _WIN64
+#define D3DPT_AP_PAGES ((1024u * 1024 * 1024) / PAGE_SIZE)
+#else
 #define D3DPT_AP_PAGES ((64u * 1024 * 1024) / PAGE_SIZE)
+#endif
 #define D3DPT_COPY_PAGES 65536u   /* the copy list: a transfer of up to 256 MiB the device makes (CAP_COPY) */
 
 /* One adapter: the device has no multi-head and the INF installs one. */

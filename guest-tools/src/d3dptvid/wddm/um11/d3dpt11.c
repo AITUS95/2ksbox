@@ -137,39 +137,6 @@ UINT fmt_support(UINT f)
 BOOL g_d11_verbose;
 static BOOL g_d11_win7;                     /* D3D11Win7: only the Windows 7 interface */
 
-/* this process in a list of executable names under HKLM\SOFTWARE\2ksbox
- * (REG_MULTI_SZ; "*" for every process): D3D11Exclude keeps a process on
- * Direct3D 9's driver (d3d10level9), D3D11Trace logs every call,
- * D3D11Win7 offers only the Windows 7 interface (an A/B for the 11.1 one) */
-#ifndef RRF_SUBKEY_WOW6464KEY
-#define RRF_SUBKEY_WOW6464KEY 0x00010000          /* winreg.h after the EWDK's 10.0.19041 */
-#endif
-
-static BOOL listed(const char *value)
-{
-    char names[1024], exe[MAX_PATH], *base;
-    DWORD size = sizeof(names) - 2;
-    const char *n;
-
-    ZeroMemory(names, sizeof(names));
-    /* the 64-bit view in a WoW64 process too, not WOW6432Node */
-    if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\2ksbox", value, RRF_RT_REG_MULTI_SZ | RRF_SUBKEY_WOW6464KEY, NULL, names,
-                     &size) != ERROR_SUCCESS) {
-        return FALSE;
-    }
-    if (!GetModuleFileNameA(NULL, exe, sizeof(exe))) {
-        return FALSE;
-    }
-    base = strrchr(exe, '\\');
-    base = base ? base + 1 : exe;
-    for (n = names; *n; n += strlen(n) + 1) {
-        if (!strcmp(n, "*") || !_stricmp(n, base)) {
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
 SIZE_T APIENTRY d11_calc_device_size(D3D10DDI_HADAPTER h, const D3D10DDIARG_CALCPRIVATEDEVICESIZE *a);
 HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE *c);
 static HRESULT APIENTRY d11_close_adapter(D3D10DDI_HADAPTER h);
@@ -192,15 +159,15 @@ HRESULT APIENTRY OpenAdapter10_2(D3D10DDIARG_OPENADAPTER *o)
     name = strrchr(exe, '\\');
     umd_log("d3d11: OpenAdapter10_2 interface 0x%x version 0x%x, process %lu %s", o->Interface, o->Version,
             GetCurrentProcessId(), name ? name + 1 : exe);
-    if (listed("D3D11Exclude")) {
+    if (umd_listed("D3D11Exclude")) {
         umd_log("d3d11: this process is in D3D11Exclude: refused");
         return E_FAIL;
     }
-    g_d11_verbose = listed("D3D11Trace");
+    g_d11_verbose = umd_listed("D3D11Trace");
     if (g_d11_verbose) {
         umd_log_traced();
     }
-    g_d11_win7 = listed("D3D11Win7");
+    g_d11_win7 = umd_listed("D3D11Win7");
     a = (D11_ADAPTER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*a));
     if (!a) {
         return E_OUTOFMEMORY;
