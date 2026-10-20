@@ -27,7 +27,7 @@ cargo build --no-default-features --features kde # Kirigami
 ```
 
 mitsuami comes from crates.io, its release pinned exact
-(`version = "=1.3.5"` in `Cargo.toml`; ADR-023's 2026-10-16
+(`version = "=1.3.6"` in `Cargo.toml`; ADR-023's 2026-10-16
 amendment, before that a git `rev`). To work on both
 repositories at once, override it in an uncommitted
 `launcher-mitsuami/.cargo/config.toml`:
@@ -42,7 +42,7 @@ committing here (the launcher and the player together). A dependency
 change, a new mitsuami version included, means regenerating
 `packaging/flatpak/cargo-sources.json`
 with `scripts/gen-flatpak-cargo-sources.sh` (it runs on macOS too).
-The pin is mitsuami 1.3.5 from crates.io since 2026-10-18 (below): 1.0.0 (`0e21f20`, pinned
+The pin is mitsuami 1.3.6 from crates.io since 2026-10-20 (below): 1.0.0 (`0e21f20`, pinned
 2026-10-04, 53 commits past `48e4801`: 1.0.0 and three security and
 performance passes) plus three, of which one is code: an AppKit surface
 that grabs the keyboard turns the system's shortcuts off for the grab
@@ -126,6 +126,12 @@ alert or file panel asked for on a window not yet shown waits for the
 window to be shown. The machines folder question, asked as the launcher
 starts, had ordered the window in at the screen's bottom-left corner,
 which it went back to once answered (user report from TestFlight).
+Then 1.3.6 (2026-10-20, `4b13971`): WinUI's late `GotFocus` reports
+what has focus then (`da71060`, the disc shelf's rename field below),
+and on AppKit Escape closes a dialog when nothing has focus or a
+field's `on_key` takes it (`13c1767`). The Flatpak's sources were
+regenerated with it, which also brought in the player's `notify`
+(track M22).
 
 Windows builds natively with MSVC (WinUI 3) and needs the Windows App
 Runtime 2.4+, so the launcher is built only on a PC:
@@ -405,10 +411,9 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    menu's Rename closed at once (user 2026-10-19, 20): XAML's late
    `GotFocus` for a move it made itself (the clicked pencil going away,
    the menu giving focus back as it closed) read as the new field's
-   blur, which wrote the label. Fixed in mitsuami (`da71060`, after
-   1.3.5: its late `GotFocus` reports what has focus then); until a
-   release with it is pinned here, the bug stays on Windows (user's
-   choice, 2026-10-20). Checked against that checkout with real clicks
+   blur, which wrote the label. Fixed in mitsuami (`da71060`, in
+   1.3.6: its late `GotFocus` reports what has focus then), pinned here
+   2026-10-20; the release itself not yet clicked through on the PC. Checked against that checkout with real clicks
    through UI Automation, three runs each way. After the label come the
    core's "Disc image · ~/path" line, ▶ (Insert) or "In drive", and the
    trash button. The rules are doc 07's "One drive": Insert sets the boot
@@ -580,9 +585,9 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
   it passed except for a pre-existing bug in the executor on the
   system's d3d9), the macOS ones (App Store, community and Intel,
   2026-10-04, M21's Mac step) and the Flatpak (below).
-- Pin mitsuami's next release, which carries `da71060` (the disc shelf's
-  rename field on Windows, step 3's shelf; user's choice 2026-10-20 to
-  wait for it).
+- ~~Pin mitsuami's next release, which carries `da71060`~~ (1.3.6,
+  2026-10-20). Left: the disc shelf's rename field on Windows clicked
+  through with it on the PC.
 - ~~Regenerate `packaging/flatpak/cargo-sources.json`~~ (done
   2026-10-04: the generator's merge had refused mitsuami's git crates).
 - **The Flatpak (2026-10-04).** The packager ran with this launcher on

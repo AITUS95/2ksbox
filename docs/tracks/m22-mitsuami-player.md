@@ -297,8 +297,8 @@ embed library, as for the winit player, into a target dir of its own:
    none`) and wrote `shader_off`; `launcherx --assign-shader` from outside
    moved the menu's check with no click; `launcherx --insert-disc` (the
    live tray only, not the bundle) moved the Disc menu's check through
-   the tray event alone. `packaging/flatpak/cargo-sources.json` still
-   needs regenerating for `notify` (no `uv` on the PC).
+   the tray event alone. `packaging/flatpak/cargo-sources.json` has
+   `notify` since 2026-10-20 (regenerated with mitsuami 1.3.6).
 6. **The launcher's player, packaging, the flip:** a build stage, the
    packagers' run, `player-mitsuami` shipped as `2ksbox-player` (and the
    per-target players), and `player/`'s winit front end deleted.
