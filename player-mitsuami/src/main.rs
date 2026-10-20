@@ -62,7 +62,7 @@ struct Player {
     guest_shape: Option<Arc<CursorImage>>,
     guest_cursor_seq: u64,
     guest_cursor: Option<Cursor>,
-    guest_cursor_fit: (u32, f32),
+    guest_cursor_fit: (f32, f32),
     /// What the surface's cursor was last set to.
     cursor_applied: HostCursor,
     /// Raw moves have come while locked: `Motion` is then ignored, or the
@@ -98,7 +98,7 @@ enum HostCursor {
     Hidden,
     /// the guest's shape of this sequence number, at this zoom and
     /// surface scale
-    Guest(u64, (u32, f32)),
+    Guest(u64, (f32, f32)),
 }
 
 thread_local! {
@@ -163,7 +163,7 @@ fn main() {
             guest_shape: None,
             guest_cursor_seq: 0,
             guest_cursor: None,
-            guest_cursor_fit: (0, 0.0),
+            guest_cursor_fit: (0.0, 0.0),
             cursor_applied: HostCursor::Default,
             raw_motion: false,
             motion_rest: (0.0, 0.0),
@@ -779,38 +779,78 @@ fn update_guest_cursor(w: Window_) {
     }
 }
 
-/// Screen pixels per guest pixel in the picture on show, whole (the
-/// picture's scale is whole but for a free fit under 1x): a guest cursor
-/// the host has none for is drawn at it, as big as it is in the picture.
-fn cursor_zoom(p: &Player) -> u32 {
-    let Some(view) = p.render.as_ref().map(Render::view) else { return 1 };
-    let Some((_, rows)) = view.shown else { return 1 };
+/// Screen pixels per guest pixel a guest cursor the host has none for is
+/// drawn at. Over a picture of the guest's own mode, the picture's zoom,
+/// whole (it is but for a free fit under 1x), so the cursor is as big as
+/// it is in the picture. While the guest takes the window's size
+/// (Windows 11), the surface's scale: its picture is the screen's
+/// physical pixels, and the cursor goes by the host's scale, each of its
+/// pixels a point, not by Windows' (user, 2026-10-20). The shape comes
+/// with no DPI, so a Windows scaled above 100 % still hands over a bigger
+/// one.
+fn cursor_zoom(p: &Player) -> f32 {
+    let Some(view) = p.render.as_ref().map(Render::view) else { return 1.0 };
+    if view.follows_window {
+        return p.scale.clamp(1.0, 8.0);
+    }
+    let Some((_, rows)) = view.shown else { return 1.0 };
     let (_, _, _, vh) = view.viewport;
     // a 32x32 shape at 8x is 256 pixels, the most X11 and Windows take
-    ((vh / rows.max(1) as f32).round() as u32).clamp(1, 8)
+    (vh / rows.max(1) as f32).round().clamp(1.0, 8.0)
 }
 
 /// The guest's cursor as the surface's: the host's own where it is one of
 /// the guest's standard cursors (`player_core::cursor_shape`; user,
 /// 2026-10-12: the guest's, scaled, looked worse), else the guest's with
-/// each pixel `zoom` of the screen's, repeated rather than filtered, as the
-/// picture is.
-fn host_cursor(c: &CursorImage, zoom: u32, scale: f32) -> Cursor {
+/// each pixel `zoom` of the screen's: repeated rather than filtered at a
+/// whole zoom, as the picture is, and filtered at a fractional one (a
+/// host at 125 % or 150 %), where repeating would make uneven pixels.
+fn host_cursor(c: &CursorImage, zoom: f32, scale: f32) -> Cursor {
     if let Some(kind) = cursor_shape::recognise(c) {
         return system_cursor(kind);
     }
-    let (width, height) = (c.width * zoom, c.height * zoom);
+    let width = ((c.width as f32 * zoom).round() as u32).max(1);
+    let height = ((c.height as f32 * zoom).round() as u32).max(1);
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
     for y in 0..height {
         for x in 0..width {
-            let px = c.argb[((y / zoom) * c.width + x / zoom) as usize];
+            let px = if zoom.fract() == 0.0 {
+                let z = zoom as u32;
+                c.argb[((y / z) * c.width + x / z) as usize]
+            } else {
+                bilinear(c, (x as f32 + 0.5) / zoom - 0.5, (y as f32 + 0.5) / zoom - 0.5)
+            };
             rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, px as u8, (px >> 24) as u8]);
         }
     }
     Cursor::Image {
         pixels: Pixels::new(width, height, rgba).scale(scale),
-        hotspot: Point::new((c.hot_x * zoom) as f32 / scale, (c.hot_y * zoom) as f32 / scale),
+        hotspot: Point::new(c.hot_x as f32 * zoom / scale, c.hot_y as f32 * zoom / scale),
     }
+}
+
+/// The shape at a point between its pixels, its four neighbours weighed
+/// by their alpha (straight alpha in and out), so a transparent
+/// neighbour's colour does not bleed into the edge.
+fn bilinear(c: &CursorImage, x: f32, y: f32) -> u32 {
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let mut sum = [0f32; 4]; // alpha-weighed b, g, r, then alpha
+    for (dx, dy, w) in [(0, 0, (1.0 - fx) * (1.0 - fy)), (1, 0, fx * (1.0 - fy)), (0, 1, (1.0 - fx) * fy), (1, 1, fx * fy)] {
+        let sx = (x0 as i64 + dx).clamp(0, c.width as i64 - 1) as u32;
+        let sy = (y0 as i64 + dy).clamp(0, c.height as i64 - 1) as u32;
+        let px = c.argb[(sy * c.width + sx) as usize];
+        let a = (px >> 24) as f32 * w;
+        for (i, shift) in [0, 8, 16].into_iter().enumerate() {
+            sum[i] += ((px >> shift) & 0xff) as f32 * a;
+        }
+        sum[3] += a;
+    }
+    if sum[3] < 0.5 {
+        return 0;
+    }
+    let ch = |i: usize| ((sum[i] / sum[3]).round() as u32).min(255);
+    ((sum[3].round() as u32).min(255) << 24) | (ch(2) << 16) | (ch(1) << 8) | ch(0)
 }
 
 /// The host's cursor for one of the guest's standard ones.
