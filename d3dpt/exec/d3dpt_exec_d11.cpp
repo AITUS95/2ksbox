@@ -1380,7 +1380,14 @@ void run_tok(Run &r, const d3dpt_d11_tok *t)
          * largest, D3D11_QUERY_DATA_PIPELINE_STATISTICS, is 88 bytes); the
          * guest gets the size it asked for */
         r.ret.assign(std::max<uint32_t>(a->b, 256), 0);
-        HRESULT hr = ctx->GetData(q, a->b ? r.ret.data() : nullptr, a->b, 0);
+        /* asked of the host at the query's own size, which DXVK insists
+         * on, and the guest gets the first bytes it named: a runtime at
+         * feature level 10_x reads PIPELINE_STATISTICS as Direct3D 10's
+         * 64 bytes, the first eight of Direct3D 11's 88 (Unigine Heaven's
+         * loading screen waited on it forever, track M25) */
+        UINT own = a->b ? q->GetDataSize() : 0;
+        if (own > r.ret.size()) own = 0;
+        HRESULT hr = ctx->GetData(q, own ? r.ret.data() : nullptr, own, 0);
         r.ret.resize(a->b);
         r.get = true;
         if (FAILED(hr)) {

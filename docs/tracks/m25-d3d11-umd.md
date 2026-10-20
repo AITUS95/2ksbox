@@ -1076,7 +1076,12 @@ whose Direct3D 11 side has not run either.
   answered `E_INVALIDARG` by the host (token 57). DXVK's immediate
   context refuses a size other than the query type's own, and the query
   exists (no creation failure was logged); the executor now names the
-  query's type and both sizes when GetData fails. The Arm kernel
+  query's type and both sizes when GetData fails. It was
+  `PIPELINE_STATISTICS` asked for 64 bytes, Direct3D 10's eight counters,
+  where DXVK takes only Direct3D 11's 88 (the same eight, then hull,
+  domain and compute): a runtime at feature level 10_x reads the 10
+  layout. The executor now asks the host at the query's own size and
+  gives the guest the bytes it named. The Arm kernel
   driver is built as our viogpudo is (`build-windows.sh`,
   `scripts/nuget-wdk.sh`; docs/build-windows.md "The WDDM driver"), and
   `wddm-install.ps1` stamps `DriverVer` with the install's date and
