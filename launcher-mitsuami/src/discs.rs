@@ -351,9 +351,17 @@ fn DiscRow(path: PathBuf) -> impl View {
         move || discs.read(|s| row(&path).is_some_and(|r| s.row_in_drive(r)))
     };
     let menu = (
+        // Opened a moment after the menu closes: WinUI's menu gives focus
+        // back to what had it before, in a step queued after the choice, and
+        // that took it from a field opened at once, which then closed
+        // (user). 16 ms is enough on the PC; 50 leaves room.
         MenuItem::new("Rename").on_select(move || {
-            discs.start_rename(&m1);
-            field_ref.select_text(0..usize::MAX);
+            let path = m1.clone();
+            spawn_local(async move {
+                sleep(Duration::from_millis(50)).await;
+                discs.start_rename(&path);
+                field_ref.select_text(0..usize::MAX);
+            });
         }),
         MenuItem::new("Insert")
             .enabled({

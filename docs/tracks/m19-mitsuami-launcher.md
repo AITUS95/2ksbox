@@ -405,7 +405,10 @@ macOS and KDE (user, 2026-10-01; 1060, 920 and 820 wide before). The debug verbs
    focused it, the field replaced it, and XAML's late `GotFocus` for it
    read as the new field's blur, which wrote the label and closed the
    field at once (user 2026-10-19; reproduced and checked by a real
-   click through UI Automation), the
+   click through UI Automation). The menu's Rename opens the field 50 ms
+   after the choice: WinUI's menu gives focus back to what had it before
+   in a step queued after the choice, and took it from a field opened at
+   once (user 2026-10-20; 0 ms fails, 16 ms is enough on the PC), the
    core's "Disc image · ~/path" line, ▶ (Insert) or "In drive", and the
    trash button. The rules are doc 07's "One drive": Insert sets the boot
    disc, and on a running machine swaps the disc now too; the card polls
