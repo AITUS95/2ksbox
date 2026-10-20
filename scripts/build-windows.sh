@@ -390,9 +390,9 @@ if want wddm; then
         "$vs/MSBuild/Current/Bin/amd64/MSBuild.exe" \
           "$(cygpath -w guest-tools/src/d3dptvid/wddm/km/d3dptkmd.vcxproj)" -nologo -v:minimal \
           -p:Configuration=Release -p:Platform=ARM64 \
-          "-p:D3DPT_OUT=$(cygpath -w build/wddm/arm64)" \
-          "-p:IntDir=$(cygpath -w build/wddm/arm64/obj-km)\\" \
-          "-p:D3DPT_WDK_PROPS=$(cygpath -w build/wddm/arm64/wdk.props)" )
+          "-p:D3DPT_OUT=$(cygpath -w "$ROOT/build/wddm/arm64")" \
+          "-p:IntDir=$(cygpath -w "$ROOT/build/wddm/arm64/obj-km")\\" \
+          "-p:D3DPT_WDK_PROPS=$(cygpath -w "$ROOT/build/wddm/arm64/wdk.props")" )
     fi
     # the sources it was built from, which a publish checks
     scripts/windows-drivers.sh key wddm > build/wddm/.key
