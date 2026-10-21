@@ -1,8 +1,27 @@
 diff --git a/src/d3d9/d3d9_device.cpp b/src/d3d9/d3d9_device.cpp
-index 9b72bb2..946b374 100644
 --- a/src/d3d9/d3d9_device.cpp
 +++ b/src/d3d9/d3d9_device.cpp
-@@ -6615,17 +6615,18 @@ namespace dxvk {
+@@ -2314,6 +2314,19 @@
+   HRESULT STDMETHODCALLTYPE D3D9DeviceEx::SetRenderState(D3DRENDERSTATETYPE State, DWORD Value) {
+     D3D9DeviceLock lock = LockDevice();
+ 
++    // 2ksbox: a driver-level caller's W range (D3DDP2OP_WINFO), a float's
++    // bits each; past 255, so no application ever sets them. Not part of
++    // any state block. 0 / 0 is none (UpdateFog)
++    if (unlikely(State == D3DRS_2KSBOX_WNEAR || State == D3DRS_2KSBOX_WFAR)) {
++      float& w = State == D3DRS_2KSBOX_WNEAR ? m_driverWNear : m_driverWFar;
++      float v = bit::cast<float>(Value);
++      if (v != w) {
++        w = v;
++        m_dirty.set(D3D9DeviceDirtyFlag::Fog);
++      }
++      return D3D_OK;
++    }
++
+     // D3D9 only allows reading for values 0 and 7-255 so we don't need to do anything but return OK
+     if (unlikely(State > 255 || (State < D3DRS_ZENABLE && State != 0))) {
+       return D3D_OK;
+@@ -6615,17 +6628,27 @@
      bool fogEnabled = bool(rs[D3DRS_FOGENABLE]);
      bool fogUseZ = false;
  
@@ -24,16 +43,61 @@ index 9b72bb2..946b374 100644
 -        auto [wNear, wFar] = ComputeWNearFar();
 -        fogUseZ = wNear == 1.0f && wFar == 1.0f;
 -      }
-+      auto [wNear, wFar] = ComputeWNearFar();
++      // 2ksbox: pre-transformed vertices from a driver-level caller go by
++      // the W range it was given instead, as a driver does: the runtime
++      // above it that transformed them kept the projection to itself and
++      // sent only the range (Gothic: identity projection, W 10..11565)
++      bool hasPositionT = m_state.vertexDecl != nullptr
++        && m_state.vertexDecl->TestFlag(D3D9VertexDeclFlag::HasPositionT);
++      bool driverW = hasPositionT && (m_driverWNear != 0.0f || m_driverWFar != 0.0f);
++      auto [wNear, wFar] = driverW
++        ? std::make_pair(m_driverWNear, m_driverWFar)
++        : ComputeWNearFar();
 +      fogUseZ = wNear == 1.0f && wFar == 1.0f;
      }
  
      // Only set up vertex frog if pixel fog is not used
+@@ -8633,6 +8656,8 @@
+   void D3D9DeviceEx::ResetState(D3DPRESENT_PARAMETERS* pPresentationParameters) {
+     SetDepthStencilSurface(nullptr);
+ 
++    m_driverWNear = m_driverWFar = 0.0f;
++
+     for (uint32_t i = 0; i < caps::MaxSimultaneousRenderTargets; i++)
+       SetRenderTargetInternal(i, nullptr);
+ 
+diff --git a/src/d3d9/d3d9_device.h b/src/d3d9/d3d9_device.h
+--- a/src/d3d9/d3d9_device.h
++++ b/src/d3d9/d3d9_device.h
+@@ -38,6 +38,12 @@
+ 
+ namespace dxvk {
+ 
++  // 2ksbox: private render states for a driver-level caller (the paravirtual
++  // device's executor): the W range of D3DDP2OP_WINFO, near and far, each a
++  // float's bits. The executor names the same numbers (d3dpt_exec_ddi.cpp)
++  constexpr D3DRENDERSTATETYPE D3DRS_2KSBOX_WNEAR = D3DRENDERSTATETYPE(0x324b5301);
++  constexpr D3DRENDERSTATETYPE D3DRS_2KSBOX_WFAR  = D3DRENDERSTATETYPE(0x324b5302);
++
+   class D3D9InterfaceEx;
+   class D3D9SwapChainEx;
+   class D3D9CommonTexture;
+@@ -1691,6 +1697,11 @@
+     D3D9PushData                    m_pushData = {};
+     D3D9SpecData                    m_specData = {};
+ 
++    // 2ksbox: the W range a driver-level caller saw (D3DDP2OP_WINFO), set
++    // through D3DRS_2KSBOX_WNEAR / WFAR; 0 / 0 is none (UpdateFog)
++    float                           m_driverWNear = 0.0f;
++    float                           m_driverWFar  = 0.0f;
++
+     D3D9VkInteropDevice             m_d3d9Interop;
+     D3D9ON12_ARGS                   m_d3d9On12Args = { };
+     D3D9On12                        m_d3d9On12;
 diff --git a/src/d3d9/shaders/d3d9_fixed_function_vert.vert b/src/d3d9/shaders/d3d9_fixed_function_vert.vert
-index d28b967..13f576b 100644
 --- a/src/d3d9/shaders/d3d9_fixed_function_vert.vert
 +++ b/src/d3d9/shaders/d3d9_fixed_function_vert.vert
-@@ -302,6 +302,11 @@ float calculateFog(vec4 vPos) {
+@@ -302,6 +302,11 @@
                  fogFactor = fogEnd - depth;
                  fogFactor = fogFactor * fogScale;
                  fogFactor = spvNClamp(fogFactor, 0.0, 1.0);

@@ -178,7 +178,8 @@ fi
 git submodule --quiet foreach --recursive 'echo "$displaypath"' | while read -r s; do
   git -C "$s" ls-files --eol | grep -q '^i/lf[[:space:]]*w/crlf' || continue
   echo "    $s: checked out with CRLF line endings; checking it out again"
-  (cd "$s" && git ls-files -z | xargs -0 rm -f && git checkout -- .)
+  # files only: a nested submodule (mode 160000, DXVK's) is a directory
+  (cd "$s" && git ls-files -z --stage | grep -zv '^160000' | cut -z -f2- | xargs -0 rm -f && git checkout -- .)
 done
 
 # The patch queue is applied to the one qemu/ tree both builds compile

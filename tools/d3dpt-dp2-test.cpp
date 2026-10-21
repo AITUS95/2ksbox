@@ -45,7 +45,13 @@ static uint8_t *vram;
 static uint32_t dirty_calls, dirty_bytes;
 static int failures;
 
-static void cb_log(void *, const char *m) { printf("exec: %s\n", m); }
+/* the executor runs on a D3D9 that is not our DXVK (D3DPT_D3D9=system, the
+ * Wine executor): what only our DXVK is told (WINFO's W range) is not checked */
+static bool native_d3d9;
+static void cb_log(void *, const char *m) {
+    if (strstr(m, "this host's own Direct3D 9")) native_d3d9 = true;
+    printf("exec: %s\n", m);
+}
 static void cb_active(void *, int on) { printf("exec: 3D %s\n", on ? "on" : "off"); }
 static void cb_dirty(void *, uint32_t off, uint32_t bytes) { dirty_calls++; dirty_bytes += bytes; printf("vram dirty: %u +%u\n", off, bytes); }
 static void doorbell(d3dpt_enc *e) { p_submit(X, e->shm, D3DPT_SHM_SIZE); }
@@ -84,6 +90,7 @@ struct Dp2Buf {
     void tss(uint16_t stage, uint16_t st, uint32_t v) { cmd(25, 1); u16(stage); u16(st); u32(v); }
     void viewport(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { cmd(28, 1); u32(x); u32(y); u32(w); u32(h); }
     void zrange(float a, float z) { cmd(32, 1); f32(a); f32(z); }
+    void winfo(float wnear, float wfar) { cmd(29, 1); f32(wnear); f32(wfar); }
     void clear(uint32_t flags, uint32_t color, float z) { cmd(42, 0); u32(flags); u32(color); f32(z); u32(0); }
     void trilist(uint16_t start, uint16_t count) { cmd(18, count); u16(start); }
     void trifan(uint16_t start, uint16_t count) { cmd(21, count); u16(start); }
@@ -1563,6 +1570,51 @@ int main(int argc, char **argv) {
         hr = send_dp2(&enc, z3, green);
         hr |= readback(&enc, H_RT);
         CHECK(hr == 0 && near_(px(220, 220), 0x00ff00, 2), "with ZBIAS 8 it wins: 0x%06x", px(220, 220));
+    }
+
+    /* --- table fog on pre-transformed vertices follows WINFO: the runtime
+     * that transformed them sends the W range, not the projection (Gothic:
+     * an identity projection, W 10..11565, linear fog from ~2000; DXVK patch
+     * 11). A white quad at W 150 (z 0.5) under green linear fog 100..200 is
+     * half fogged by W, and unfogged by Z --- */
+    {
+        const char *d3d9 = getenv("D3DPT_D3D9");
+        if ((d3d9 && !strcmp(d3d9, "system")) || strstr(lib, "remote")) native_d3d9 = true;
+        const float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+        const float w = 150.0f;
+        std::vector<tlv> fq = {
+            { 200, 150, 0.5f, 1 / w, 0xffffffff, 0xff000000u, 0, 0 }, { 440, 150, 0.5f, 1 / w, 0xffffffff, 0xff000000u, 0, 0 },
+            { 200, 330, 0.5f, 1 / w, 0xffffffff, 0xff000000u, 0, 0 }, { 200, 330, 0.5f, 1 / w, 0xffffffff, 0xff000000u, 0, 0 },
+            { 440, 150, 0.5f, 1 / w, 0xffffffff, 0xff000000u, 0, 0 }, { 440, 330, 0.5f, 1 / w, 0xffffffff, 0xff000000u, 0, 0 },
+        };
+        auto fogged = [&](bool send_winfo, float wnear, float wfar) {
+            Dp2Buf f;
+            f.clear(D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, CLEAR_COLOR, 1.0f);
+            f.transform(3, ident);
+            if (send_winfo) f.winfo(wnear, wfar);
+            f.rs(D3DRS_ZENABLE, 0); f.rs(D3DRS_ALPHABLENDENABLE, 0);
+            f.tss(0, 0, 0); f.tss(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2); f.tss(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+            f.rs(D3DRS_FOGENABLE, 1); f.rs(D3DRS_FOGCOLOR, 0x0000ff00);
+            f.rs(D3DRS_FOGVERTEXMODE, D3DFOG_NONE); f.rs(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
+            float s = 100.0f, e = 200.0f; uint32_t sv, ev; memcpy(&sv, &s, 4); memcpy(&ev, &e, 4);
+            f.rs(D3DRS_FOGSTART, sv); f.rs(D3DRS_FOGEND, ev);
+            f.trilist(0, 2);
+            f.rs(D3DRS_FOGENABLE, 0); f.rs(D3DRS_ZENABLE, 1);
+            uint32_t r = send_dp2(&enc, f, fq);
+            r |= readback(&enc, H_RT);
+            return r ? 0xffffffffu : px(320, 240);
+        };
+        uint32_t none = fogged(false, 0, 0), wf = fogged(true, 10.0f, 1000.0f), zf = fogged(true, 1.0f, 1.0f);
+        if (native_d3d9) {
+            CHECK(none != 0xffffffffu && wf != 0xffffffffu && zf != 0xffffffffu,
+                  "table fog on pre-transformed vertices draws (0x%06x 0x%06x 0x%06x; WINFO reaches only our DXVK, not checked)", none, wf, zf);
+        } else {
+            CHECK(near_(none, 0xffffff, 3), "no WINFO, identity projection: Z fog, unfogged (0x%06x)", none);
+            CHECK(near_(wf, 0x80ff80, 6), "WINFO 10..1000: W fog, half fogged (0x%06x)", wf);
+            CHECK(near_(zf, 0xffffff, 3), "WINFO 1..1: Z fog again, unfogged (0x%06x)", zf);
+        }
+        Dp2Buf off; off.winfo(0, 0);                                /* none again for the cases after */
+        send_dp2(&enc, off, fq);
     }
 
     /* --- hostile records --- */

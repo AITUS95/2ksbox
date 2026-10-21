@@ -55,6 +55,14 @@ namespace d3dpt {
 
 namespace {
 
+/* The W range of the guest's WINFO token, for our DXVK as two private
+ * render states past d3d9's 255 (each a float's bits; 0 / 0 is none). It
+ * decides the table fog of pre-transformed vertices, whose projection the
+ * guest's runtime kept to itself (patches/dxvk/11). Any other D3D9
+ * ignores them, so only DXVK is sent them (send_winfo) */
+const D3DRENDERSTATETYPE RS_2KSBOX_WNEAR = (D3DRENDERSTATETYPE)0x324b5301;
+const D3DRENDERSTATETYPE RS_2KSBOX_WFAR = (D3DRENDERSTATETYPE)0x324b5302;
+
 /* DP2 tokens (D3DHAL_DP2OPERATION of the DDK's d3dhal.h) */
 enum {
     DP2_POINTS = 1, DP2_INDEXEDLINELIST = 2, DP2_INDEXEDTRIANGLELIST = 3, DP2_RENDERSTATE = 8,
@@ -212,6 +220,7 @@ struct Ctx {
         bool ckey_forced = false, ckey_alpha_ovr = false, legacy_cop = false, legacy_aop = false;
         bool clip_tl = false;
         uint32_t clip_host = ~0u;
+        float winfo_near = 0.0f, winfo_far = 0.0f;
     } shadow;
     void release_shaders() {
         for (auto &kv : vshaders) kv.second.release();
@@ -304,6 +313,8 @@ struct Ddi {
      * the host has (~0 = not set since the device was fresh; Dp2::apply_clip) */
     bool clip_tl = false;
     uint32_t clip_host = ~0u;
+    /* the last WINFO's W range (0 / 0: none since the device was fresh; send_winfo) */
+    float winfo_near = 0.0f, winfo_far = 0.0f;
     /* D3DPT_DDI_NOFOG=1: FOGENABLE forced off (an experiment switch) */
     bool nofog = env("D3DPT_DDI_NOFOG") && atoi(env("D3DPT_DDI_NOFOG")) != 0;
     /* D3DPT_DDI_REREAD=1: every texture is re-read from VRAM at every bind
@@ -326,6 +337,7 @@ struct Ddi {
         s.ckey_forced = ckey_forced; s.ckey_alpha_ovr = ckey_alpha_ovr;
         s.legacy_cop = legacy_cop; s.legacy_aop = legacy_aop;
         s.clip_tl = clip_tl; s.clip_host = clip_host;
+        s.winfo_near = winfo_near; s.winfo_far = winfo_far;
     }
     void load_shadow(const Ctx::Shadow &s) {
         lights_on = s.lights_on;
@@ -335,6 +347,7 @@ struct Ddi {
         ckey_forced = s.ckey_forced; ckey_alpha_ovr = s.ckey_alpha_ovr;
         legacy_cop = s.legacy_cop; legacy_aop = s.legacy_aop;
         clip_tl = s.clip_tl; clip_host = s.clip_host;
+        winfo_near = s.winfo_near; winfo_far = s.winfo_far;
     }
     bool warn_once(uint32_t key) {
         for (uint32_t k : warned) if (k == key) return false;
@@ -402,6 +415,16 @@ static void save_ctx(Exec &x, Ddi &d) {
     d.save_shadow(c.shadow);
 }
 
+/* DXVK takes the W range the device's context had last (RS_2KSBOX_WNEAR):
+ * no state block carries it */
+static void send_winfo(Exec &x, Ddi &d) {
+    if (x.native || !x.dev) return;
+    DWORD n, f;
+    memcpy(&n, &d.winfo_near, 4); memcpy(&f, &d.winfo_far, 4);
+    x.dev->SetRenderState(RS_2KSBOX_WNEAR, n);
+    x.dev->SetRenderState(RS_2KSBOX_WFAR, f);
+}
+
 /* The device takes context h's state, when another context's is there. */
 static void use_ctx(Exec &x, Ddi &d, uint32_t h, Ctx &c) {
     if (d.cur_ctx == h || !x.dev) return;
@@ -411,6 +434,7 @@ static void use_ctx(Exec &x, Ddi &d, uint32_t h, Ctx &c) {
         for (uint32_t i = 0; i < d.lights_on.size(); i++) if (d.lights_on[i] && !c.shadow.lights_on[i]) x.dev->LightEnable(i, FALSE);
         c.sb->Apply();
         d.load_shadow(c.shadow);
+        send_winfo(x, d);
     }
     d.cur_ctx = h;
 }
@@ -2548,7 +2572,15 @@ struct Dp2 {
             case DP2_WINFO:
                 need = count * 8u;
                 if (need > left) return fail("truncated WINFO");
-                break;                                          /* w-buffer range: no d3d9 equivalent */
+                if (count) {
+                    /* the W range: no d3d9 state, but the fog of
+                     * pre-transformed vertices follows it (RS_2KSBOX_WNEAR) */
+                    memcpy(&d.winfo_near, q + 8 * (count - 1), 4);
+                    memcpy(&d.winfo_far, q + 8 * (count - 1) + 4, 4);
+                    tr("winfo %g..%g", d.winfo_near, d.winfo_far);
+                    send_winfo(x, d);
+                }
+                break;
             case DP2_SETPALETTE:
                 /* palette handle, flags (DDRAWIPAL_ALPHA 0x2000: the entries' peFlags are alpha), surface handle */
                 need = count * 12u;
@@ -3216,6 +3248,7 @@ void exec_ddi_device_reset(Exec &x)
     memset(x.ddi->stage_tex, 0, sizeof x.ddi->stage_tex);
     x.ddi->reset_addr();
     x.ddi->clip_tl = false; x.ddi->clip_host = ~0u;
+    x.ddi->winfo_near = x.ddi->winfo_far = 0.0f;    /* DXVK's Reset drops its own copy */
     x.log("ddi: %zu surfaces dropped for the device reset; each is re-read from VRAM", x.ddi->surfs.size());
 }
 
@@ -3562,6 +3595,8 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
                 memset(d.stage_tex, 0, sizeof d.stage_tex);
                 d.reset_addr();
                 d.clip_tl = false; d.clip_host = ~0u;
+                d.winfo_near = d.winfo_far = 0.0f;
+                send_winfo(x, d);
                 d.bound_rt = d.bound_z = 0;
                 memset(d.bound_mrt, 0, sizeof d.bound_mrt);
             }

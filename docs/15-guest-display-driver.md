@@ -704,6 +704,15 @@ guest (XP)                                      host
     filter / LOD states → sampler states);
   - VIEWPORTINFO + ZRANGE, re-applied after every target change because
     d3d9 resets them;
+  - WINFO, the W range the runtime took from the app's projection: d3d9
+    has no such state, but it decides whether table fog on
+    pre-transformed vertices reads W or Z, so the executor hands it to
+    our DXVK as two private render states (`RS_2KSBOX_WNEAR` / `WFAR`,
+    past d3d9's 255; `patches/dxvk/11`). A runtime that transformed the
+    vertices itself never sends the projection: Gothic's arrives as an
+    identity matrix with W 10 to 11565, so Z fog (0 to 1) against a fog
+    start of ~2000 left the world unfogged (2026-10-20). Only DXVK is
+    told; on the system's or Wine's d3d9 such fog stays Z;
   - SETRENDERTARGET and CLEAR;
   - the draw tokens → `DrawPrimitiveUP` / `DrawIndexedPrimitiveUP` over
     the touched range;
