@@ -1554,7 +1554,9 @@ layer since M16 step 5, doc 19).
   buffers.
 - **Samplers.** A DX9 stage past the fixed function's eight is a sampler
   only: 8..15 for ps 2.0's sixteen, and **257..260 for the vertex
-  samplers** (D3DVERTEXTEXTURESAMPLER0..3, seen in a trace). The
+  samplers** (D3DVERTEXTEXTURESAMPLER0..3, seen in a trace; D3DFEAT9's
+  row F draws through sampler 257 on XP byte for byte as natively,
+  2026-10-21, M16's track doc). The
   sampler states arrive as texture stage states: DX7's 12..21, DX8's
   ADDRESSW 25, and 29..31 for sRGB read, element index and displacement
   offset (the host's `sampler_state`). ADDRESSW went to

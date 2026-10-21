@@ -37,6 +37,20 @@ it a `D3DUSAGE_DEPTHSTENCIL` texture. The user ran a game's hardware
 shadows on XP with it (2026-10-20); not yet run on Win98
 (`tracks/m25-d3d11-umd.md`).
 
+On 2026-10-21 vertex texture fetch got its first check: D3DFEAT9's row
+F, a vs_3_0 grid lifted and coloured by an R32F heightmap it
+point-samples through `D3DVERTEXTEXTURESAMPLER0` (with a ps_3_0), is
+byte-identical through XP's own `d3d9.dll` to the native DXVK frame
+(`xp-driver-test.sh d3dfeat9` on the Air, TCG). The runtime's answer
+to `CheckDeviceFormat(D3DUSAGE_QUERY_VERTEXTEXTURE)` follows the format
+list: S_OK for R16F, A16B16G16R16F, R32F, A32B32G32R32F, NOTAVAILABLE
+for A8R8G8B8 as on the rig (DX9CAPS logs them). One trap on the way:
+Microsoft's validator refuses a vertex shader instruction that reads
+two different constant registers, vs_3_0 included
+(`CreateVertexShader` D3DERR_INVALIDCALL), and DXVK accepts it, so
+hand-assembled vs code is only proved through the guest. Not yet run on
+Win98 (`win98-dx9`, Linux or the PC); a title using it is still open.
+
 Opened 2026-09-25. Step 0 is built and run on today's driver; the rig's
 two baselines are the part left (they are the user's runs). Step 1 is
 done: XP's `d3d9.dll` takes the driver as a DirectX 9 device with vs /
@@ -55,7 +69,7 @@ formats", "Samplers"), and mip generation (protocol v15, doc 15 "Mip
 generation") with a managed texture's SetLOD, instancing (v16, doc 15
 "Instancing") and four render targets (v17); the 2.0-cap flag is
 `DDF_SM2` (step 1). What step 3 has left: a vertex texture fetch checked
-by a title.
+by a title (D3DFEAT9's row F checks the path on XP since 2026-10-21, "State").
 
 - **D3DGAME9 through XP's own `d3d9.dll`** (2026-09-25,
   `xp-driver-test.sh d3dgame9`): 600 frames on a hardware-vertex-processing

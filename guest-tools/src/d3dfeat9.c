@@ -19,6 +19,11 @@
  * quad C) and a GetRenderTargetData from a 64-bit render target, the last
  * three read back in the "getters 2" line.
  *
+ * Row F (above row E) is shader model 3's vertex texture fetch: a vs_3_0
+ * grid lifted and coloured by an R32F heightmap it point-samples through
+ * D3DVERTEXTEXTURESAMPLER0, with a ps_3_0. "getters 4" says whether the
+ * device let it be drawn.
+ *
  * Deterministic: -frames N -dump N file.bmp like D3DGAME9. The same source
  * builds natively over DXVK (tools/d3dfeat9-native.cpp); the guest frame
  * through the device must be byte-identical to the native frame, and the
@@ -66,6 +71,47 @@ static const DWORD ps_cube_code[] = {
     0x0000FFFF
 };
 
+/* row F: vertex texture fetch (SM3). The vertex shader point-samples an
+ * R32F heightmap through D3DVERTEXTEXTURESAMPLER0 at each vertex's texel
+ * centre, lifts the vertex by it and colours it with it; vs_3_0 must pair
+ * with ps_3_0, which passes the colour through */
+static const DWORD vs3_vtf_code[] = {
+    0xFFFE0300,                                  /* vs_3_0 */
+    0x0200001F, 0x80000000, 0x900F0000,          /* dcl_position v0 */
+    0x0200001F, 0x80000005, 0x900F0001,          /* dcl_texcoord v1 */
+    0x0200001F, 0x80000000, 0xE00F0000,          /* dcl_position o0 */
+    0x0200001F, 0x8000000A, 0xE00F0001,          /* dcl_color o1 */
+    0x0200001F, 0x90000000, 0xA00F0800,          /* dcl_2d s0 */
+    0x05000051, 0xA00F0008, 0x3E800000, 0x00000000, 0x00000000, 0x3F800000, /* def c8, 0.25, 0, 0, 1 */
+    0x05000051, 0xA00F0009, 0x3F800000, 0x3F800000, 0x00000000, 0x00000000, /* def c9, 1, 1, 0, 0 */
+    0x05000051, 0xA00F000A, 0x3F4CCCCD, 0x3F19999A, 0xBF000000, 0x00000000, /* def c10, 0.8, 0.6, -0.5, 0 */
+    0x05000051, 0xA00F000B, 0x3E4CCCCD, 0x3E99999A, 0x3F333333, 0x3F800000, /* def c11, 0.2, 0.3, 0.7, 1 */
+    0x03000005, 0x800F0001, 0x90E40001, 0xA0E40009, /* mul r1, v1, c9 (uv, lod 0) */
+    0x0300005F, 0x800F0000, 0x80E40001, 0xA0E40800, /* texldl r0, r1, s0 */
+    0x02000001, 0x800F0002, 0x90E40000,          /* mov r2, v0 */
+    0x04000004, 0x80020002, 0x80000000, 0xA0000008, 0x90550000, /* mad r2.y, r0.x, c8.x, v0.y */
+    0x03000014, 0xE00F0000, 0x80E40002, 0xA0E40000, /* m4x4 o0, r2, c0 */
+    /* one constant register an instruction, vs_3_0 too: Microsoft's
+     * runtime refuses mad o1, r0.x, c10, c11 (DXVK takes it) */
+    0x02000001, 0x800F0003, 0xA0E4000B,          /* mov r3, c11 */
+    0x04000004, 0xE00F0001, 0x80000000, 0xA0E4000A, 0x80E40003, /* mad o1, r0.x, c10, r3 */
+    0x0000FFFF
+};
+static const DWORD ps3_color_code[] = {
+    0xFFFF0300,                                  /* ps_3_0 */
+    0x0200001F, 0x8000000A, 0x900F0000,          /* dcl_color v0 */
+    0x02000001, 0x800F0800, 0x90E40000,          /* mov oC0, v0 */
+    0x0000FFFF
+};
+#define VTF_W 16
+#define VTF_H 4
+struct vtx_vtf { float x, y, z, u, v; };
+static const D3DVERTEXELEMENT9 vtf_elems[] = {
+    { 0, 0,  D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
+    { 0, 12, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0 },
+    D3DDECL_END()
+};
+
 struct vtx_decl { float x, y, z, nx, ny, nz; DWORD color; float u, v; };
 static const D3DVERTEXELEMENT9 decl_elems[] = {
     { 0, 0,  D3DDECLTYPE_FLOAT3,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
@@ -96,6 +142,15 @@ struct gfx {
     DWORD off_px, fill_after_rec;
     int stage2_after_rec;
     BYTE rt16[8];
+    /* row F and the "getters 4" line */
+    IDirect3DTexture9 *vtf_tex;
+    IDirect3DVertexDeclaration9 *vtf_decl;
+    IDirect3DVertexShader9 *vs3;
+    IDirect3DPixelShader9 *ps3;
+    HRESULT vtf_hr;
+    const char *vtf_step;   /* the last call make_vtf made, the one vtf_hr is from */
+    struct vtx_vtf vtf_v[VTF_W * VTF_H];
+    WORD vtf_i[(VTF_W - 1) * (VTF_H - 1) * 6];
     /* the loader thread */
     HANDLE loader;
     volatile LONG loader_stop;
@@ -296,6 +351,46 @@ static int make_resources(void)
     return 1;
 }
 
+/* Row F's resources, when the device has vs 3.0 and vertex textures in
+ * R32F; otherwise the row is left out and "getters 4" says why. Every
+ * coordinate is a sum of powers of two, so the guest's x87 build and the
+ * native SSE one make the same floats */
+static void make_vtf(const D3DCAPS9 *caps)
+{
+    D3DLOCKED_RECT lr;
+    int i, j;
+    WORD *ix = X.vtf_i;
+    X.vtf_step = "vs 3.0";
+    if (caps->VertexShaderVersion < D3DVS_VERSION(3, 0)) { X.vtf_hr = D3DERR_NOTAVAILABLE; return; }
+    X.vtf_step = "CheckDeviceFormat";
+    X.vtf_hr = IDirect3D9_CheckDeviceFormat(X.d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, X.pp.BackBufferFormat,
+                                            D3DUSAGE_QUERY_VERTEXTEXTURE, D3DRTYPE_TEXTURE, D3DFMT_R32F);
+    if (FAILED(X.vtf_hr)) return;
+    X.vtf_step = "the heightmap";
+    if (FAILED(X.vtf_hr = IDirect3DDevice9_CreateTexture(X.dev, VTF_W, VTF_H, 1, 0, D3DFMT_R32F, D3DPOOL_MANAGED, &X.vtf_tex, NULL))
+        || FAILED(X.vtf_hr = IDirect3DTexture9_LockRect(X.vtf_tex, 0, &lr, NULL, 0))) return;
+    /* a triangle wave from 0 to 1 in eighths */
+    for (j = 0; j < VTF_H; j++) for (i = 0; i < VTF_W; i++)
+        ((float *)((char *)lr.pBits + j * lr.Pitch))[i] = (float)abs((i * 2 + j * 3) % 16 - 8) / 8.0f;
+    IDirect3DTexture9_UnlockRect(X.vtf_tex, 0);
+    for (j = 0; j < VTF_H; j++) for (i = 0; i < VTF_W; i++) {
+        struct vtx_vtf *v = &X.vtf_v[j * VTF_W + i];
+        v->x = (i - 7.5f) * 0.125f; v->y = -1.125f + j * 0.1875f; v->z = 0.0f;
+        v->u = (i + 0.5f) / VTF_W; v->v = (j + 0.5f) / VTF_H;
+    }
+    for (j = 0; j < VTF_H - 1; j++) for (i = 0; i < VTF_W - 1; i++) {
+        WORD a = (WORD)(j * VTF_W + i);
+        *ix++ = a; *ix++ = a + VTF_W; *ix++ = a + 1;
+        *ix++ = a + 1; *ix++ = a + VTF_W; *ix++ = a + VTF_W + 1;
+    }
+    X.vtf_step = "CreateVertexDeclaration";
+    if (FAILED(X.vtf_hr = IDirect3DDevice9_CreateVertexDeclaration(X.dev, vtf_elems, &X.vtf_decl))) return;
+    X.vtf_step = "CreatePixelShader";
+    if (FAILED(X.vtf_hr = IDirect3DDevice9_CreatePixelShader(X.dev, ps3_color_code, &X.ps3))) return;
+    X.vtf_step = "CreateVertexShader";
+    X.vtf_hr = IDirect3DDevice9_CreateVertexShader(X.dev, vs3_vtf_code, &X.vs3);
+}
+
 static int set_states(void)
 {
     static const float tint[4] = { 1.0f, 0.9f, 0.8f, 1.0f };
@@ -439,6 +534,24 @@ static int render(void)
     IDirect3DDevice9_DrawPrimitive(X.dev, D3DPT_TRIANGLEFAN, 0, 2);
     IDirect3DDevice9_DrawPrimitive(X.dev, D3DPT_TRIANGLEFAN, 8, 2);
     IDirect3DDevice9_SetStreamSource(X.dev, 0, NULL, 0, 0);
+    /* row F: the heightmap strip between rows C-D and E, through the vertex
+     * sampler (point, as the caps claim; sb_all resets its states each frame) */
+    if (X.vs3) {
+        IDirect3DDevice9_SetVertexDeclaration(X.dev, X.vtf_decl);
+        IDirect3DDevice9_SetVertexShader(X.dev, X.vs3);
+        IDirect3DDevice9_SetPixelShader(X.dev, X.ps3);
+        IDirect3DDevice9_SetTexture(X.dev, D3DVERTEXTEXTURESAMPLER0, (IDirect3DBaseTexture9 *)X.vtf_tex);
+        IDirect3DDevice9_SetSamplerState(X.dev, D3DVERTEXTEXTURESAMPLER0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        IDirect3DDevice9_SetSamplerState(X.dev, D3DVERTEXTEXTURESAMPLER0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+        IDirect3DDevice9_SetSamplerState(X.dev, D3DVERTEXTEXTURESAMPLER0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        IDirect3DDevice9_SetSamplerState(X.dev, D3DVERTEXTEXTURESAMPLER0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        IDirect3DDevice9_SetSamplerState(X.dev, D3DVERTEXTEXTURESAMPLER0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        IDirect3DDevice9_DrawIndexedPrimitiveUP(X.dev, D3DPT_TRIANGLELIST, 0, VTF_W * VTF_H, (VTF_W - 1) * (VTF_H - 1) * 2,
+                                                X.vtf_i, D3DFMT_INDEX16, X.vtf_v, sizeof(X.vtf_v[0]));
+        IDirect3DDevice9_SetTexture(X.dev, D3DVERTEXTEXTURESAMPLER0, NULL);
+        IDirect3DDevice9_SetVertexShader(X.dev, NULL);
+        IDirect3DDevice9_SetPixelShader(X.dev, NULL);
+    }
     IDirect3DDevice9_EndScene(X.dev);
 
     if (G.o.dump_frame >= 0 && (int)G.frame == G.o.dump_frame) {
@@ -511,6 +624,7 @@ int main(int argc, char **argv)
     if (FAILED(hr)) { game_log("d3dfeat9: CreateDevice failed %s", hr_str(hr)); return 1; }
     game_log("d3dfeat9: device %dx%d %s", G.o.w, G.o.h, G.o.fullscreen ? "fullscreen" : "windowed");
     if (!make_resources() || !set_states()) return 1;
+    make_vtf(&caps);
     /* shadowed getters must return what was set */
     IDirect3DDevice9_GetVertexShaderConstantI(X.dev, 0, ic, 1);
     IDirect3DDevice9_GetVertexShaderConstantB(X.dev, 0, bc, 1);
@@ -521,6 +635,8 @@ int main(int argc, char **argv)
              "A16B16G16R16F readback 0x%08lx %02x%02x%02x%02x%02x%02x%02x%02x",
              (unsigned long)X.fill_after_rec, X.stage2_after_rec ? "bound" : "empty", (unsigned long)X.off_hr, (unsigned long)X.off_px,
              (unsigned long)X.rt16_hr, X.rt16[0], X.rt16[1], X.rt16[2], X.rt16[3], X.rt16[4], X.rt16[5], X.rt16[6], X.rt16[7]);
+    game_log("d3dfeat9: getters 4: vs_3_0 vertex texture fetch from R32F: %s 0x%08lx, row F %s",
+             X.vtf_step, (unsigned long)X.vtf_hr, X.vs3 ? "drawn" : "left out");
     X.loader = CreateThread(NULL, 0, loader_main, NULL, 0, NULL);
 
     while (!G.quit && game_pump()) {

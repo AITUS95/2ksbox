@@ -7,7 +7,9 @@
  * they draw anything, one line each, with the HRESULT:
  *   the adapter identifier and display mode,
  *   CheckDeviceType windowed and full screen for X8R8G8B8 / A8R8G8B8 /
- *   R5G6B5 back buffers, CheckDeviceFormat for the depth formats,
+ *   R5G6B5 back buffers, CheckDeviceFormat for the depth formats (and,
+ *   over d3d9.dll, for A8R8G8B8 and the float textures: plain, as vertex
+ *   textures, filtered),
  *   CheckDepthStencilMatch, then CreateDevice with the tests' parameters
  *   (640x480 windowed, D3DFMT_A8R8G8B8, D24S8 then D16, hardware then
  *   software vertex processing),
@@ -198,6 +200,19 @@ int main(void)
         hr = D3D_(CheckDepthStencilMatch)(d3d, 0, D3DDEVTYPE_HAL, mode.Format, D3DFMT_A8R8G8B8, ds[k]);
         say(", match with A8R8G8B8: 0x%08lx\n", hr);
     }
+#if DXVER == 9
+    {   /* the texture formats a vs 3.0 game asks about: plain, as a vertex texture, filtered */
+        static const D3DFORMAT tf[] = { D3DFMT_A8R8G8B8, D3DFMT_R16F, D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DFMT_A32B32G32R32F };
+        static const DWORD tu[] = { 0, D3DUSAGE_QUERY_VERTEXTEXTURE, D3DUSAGE_QUERY_FILTER };
+        for (k = 0; k < sizeof tf / sizeof tf[0]; k++) {
+            say("CheckDeviceFormat texture %s:", fmtname(tf[k]));
+            for (j = 0; j < sizeof tu / sizeof tu[0]; j++)
+                say(" usage 0x%08lx 0x%08lx", tu[j],
+                    D3D_(CheckDeviceFormat)(d3d, 0, D3DDEVTYPE_HAL, mode.Format, tu[j], D3DRTYPE_TEXTURE, tf[k]));
+            say("\n");
+        }
+    }
+#endif
     hr = D3D_(GetDeviceCaps)(d3d, 0, D3DDEVTYPE_HAL, &caps);
     say("GetDeviceCaps: 0x%08lx\n", hr);
     if (SUCCEEDED(hr))
