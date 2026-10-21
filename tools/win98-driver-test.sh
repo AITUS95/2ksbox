@@ -250,14 +250,17 @@ PYINI
   # last loaded. MSDOS.SYS is read-only/hidden/system, so the attributes come
   # off and go back on; and it must keep its trailing block of `x` padding
   # comment lines, which is why this rewrites lines rather than the file.
-  echo "==> MSDOS.SYS: Logo=0, BootLog=1"
+  # `AutoScan=0` because a copy of a machine last shut down dirty (the PC's
+  # base98-br, 2026-10-21) otherwise boots into ScanDisk's surface scan,
+  # which never ends under TCG, and every boot of the copy stops there.
+  echo "==> MSDOS.SYS: Logo=0, BootLog=1, AutoScan=0"
   mattrib -i "$RAW@@$OFF" -a -r -s -h ::/MSDOS.SYS 2>/dev/null || true
   mcopy -i "$RAW@@$OFF" -n ::/MSDOS.SYS "$OUT/msdos.sys"
   python3 - "$OUT/msdos.sys" <<'PYMS'
 import re, sys
 p = sys.argv[1]
 b = open(p, 'rb').read()
-for name, val in ((b'Logo', b'0'), (b'BootLog', b'1')):
+for name, val in ((b'Logo', b'0'), (b'BootLog', b'1'), (b'AutoScan', b'0')):
     m = re.search(br'^' + name + br'=[^\r\n]*', b, re.M | re.I)
     if m:
         b = b[:m.start()] + name + b'=' + val + b[m.end():]

@@ -248,8 +248,8 @@ v21). Step 7 retired the Direct3D DLLs and the SysBus `-device d3dpt`.
 Closed 2026-09-27 (user).
 
 **Left:** the OpenGL ICD (step 8; `OPENGL32.DLL` stays per game),
-vertex texture fetch in a title (the path is checked on XP by D3DFEAT9's
-row F, 2026-10-21).
+vertex texture fetch in a title (the path is checked on XP and Win98 by
+D3DFEAT9's row F, 2026-10-21).
 
 ## M17: The driver's speed, on Max Payne 2
 

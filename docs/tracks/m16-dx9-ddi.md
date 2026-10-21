@@ -48,8 +48,15 @@ for A8R8G8B8 as on the rig (DX9CAPS logs them). One trap on the way:
 Microsoft's validator refuses a vertex shader instruction that reads
 two different constant registers, vs_3_0 included
 (`CreateVertexShader` D3DERR_INVALIDCALL), and DXVK accepts it, so
-hand-assembled vs code is only proved through the guest. Not yet run on
-Win98 (`win98-dx9`, Linux or the PC); a title using it is still open.
+hand-assembled vs code is only proved through the guest. On Win98 the
+same day (`tools/win98-dx9-test.sh` on the PC, `base98-br`, TCG) row F
+draws through Win98's own `d3d9.dll` and the 9x HAL: F9 byte-identical
+to the native frame, "getters 4" equal, and the run's other 17 checks
+pass. A title using it is still open. Two harness fixes came out of that
+run: the install's copy gets `AutoScan=0` (a machine last shut down
+dirty booted every copy into a ScanDisk surface scan that never ends
+under TCG), and `FRESH=1` no longer makes the run's second raw copy over
+the one the install has just made.
 
 Opened 2026-09-25. Step 0 is built and run on today's driver; the rig's
 two baselines are the part left (they are the user's runs). Step 1 is

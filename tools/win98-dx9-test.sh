@@ -69,7 +69,8 @@ for p in $PROBES; do
 done
 CMD+=$'\nC:\\DDTEST.EXE 640 480 32 200 -windowed\necho W98DONE > COM1'
 rm -rf "$OUT"
-STAGE="$STAGE" PULL="$PULL" GUEST_CMD="$CMD" UNTIL=W98DONE RUN_SECS="${RUN_SECS:-600}" SHOTS=0 \
+# FRESH= so a FRESH=1 run keeps the copy the install above just made
+FRESH= STAGE="$STAGE" PULL="$PULL" GUEST_CMD="$CMD" UNTIL=W98DONE RUN_SECS="${RUN_SECS:-600}" SHOTS=0 \
   "$ROOT/tools/win98-game-test.sh" "$IMG" w98dx9 > "$T/w98-run.log" 2>&1
 
 rc=0
