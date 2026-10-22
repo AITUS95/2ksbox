@@ -75,6 +75,13 @@ struct D3dptVgaState {
                                    XP, 9x and snapshots unchanged */
     uint32_t irq_enable;        /* IRQ_ENABLE (register set v6) */
     uint32_t irq_status;        /* IRQ_STATUS: raised while enabled, not yet acknowledged */
+    /* register set v12 (CAP_FOLLOW, track M20): the desktop follows the
+     * window. follow is the property; follow_on what the driver wrote to
+     * FOLLOW, while which the console takes UI info (d3dpt_vga_follow_ops);
+     * pref_w / pref_h the window's size from it */
+    bool follow;
+    bool follow_on;
+    uint32_t pref_w, pref_h;
     QEMUTimer *vbl_timer;       /* the vertical blank interrupt's, while IRQ_VBLANK is enabled */
     int64_t vbl_next_ns;        /* its next deadline (QEMU_CLOCK_VIRTUAL) */
     bool host_vblank;           /* property: IRQ_VBLANK on the host screen's blank */
@@ -533,7 +540,7 @@ static void fb_irq_enable(D3dptVgaState *s, uint32_t val)
 {
     uint32_t was = s->irq_enable;
 
-    s->irq_enable = s->irq ? val & (D3DPT_FB_IRQ_VBLANK | D3DPT_FB_IRQ_DMA) : 0;
+    s->irq_enable = s->irq ? val & (D3DPT_FB_IRQ_VBLANK | D3DPT_FB_IRQ_DMA | (s->follow ? D3DPT_FB_IRQ_DISPLAY : 0)) : 0;
     s->irq_status &= s->irq_enable;         /* nothing stays pending that is off */
     if ((s->irq_enable & D3DPT_FB_IRQ_VBLANK) && !(was & D3DPT_FB_IRQ_VBLANK)) {
         s->vbl_next_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
@@ -765,6 +772,52 @@ static const GraphicHwOps d3dpt_vga_gfx_ops = {
     .gfx_update  = d3dpt_vga_gfx_update,
     .text_update = d3dpt_vga_text_update,
 };
+
+/* The window's size, while the driver follows it (FOLLOW, register set
+ * v12): QEMU's console calls this once a resize has settled (a second
+ * after the last), and the driver hears IRQ_DISPLAY. The refresh rate in
+ * the same info is HOST_MHZ's business (patch 96), not a change here. */
+static void d3dpt_vga_ui_info(void *opaque, uint32_t head, QemuUIInfo *info)
+{
+    D3dptVgaState *s = opaque;
+
+    if (!info->width || !info->height || (info->width == s->pref_w && info->height == s->pref_h)) {
+        return;
+    }
+    s->pref_w = info->width;
+    s->pref_h = info->height;
+    info_report("d3dpt-vga: the window is %ux%u", s->pref_w, s->pref_h);
+    if (s->follow_on && (s->irq_enable & D3DPT_FB_IRQ_DISPLAY)) {
+        s->irq_status |= D3DPT_FB_IRQ_DISPLAY;
+        fb_irq_update(s);
+    }
+}
+
+/* The same with UI info: the console a front end makes follow its window
+ * (qemu_console_ui_info_supported). Only while the driver says it applies
+ * the size, so a 98 / XP / 7 guest's screen keeps its own */
+static const GraphicHwOps d3dpt_vga_follow_ops = {
+    .invalidate  = d3dpt_vga_invalidate,
+    .gfx_update  = d3dpt_vga_gfx_update,
+    .text_update = d3dpt_vga_text_update,
+    .ui_info     = d3dpt_vga_ui_info,
+};
+
+static void fb_follow(D3dptVgaState *s, bool on)
+{
+    on = on && s->follow && s->irq;
+    if (on != s->follow_on) {
+        s->follow_on = on;
+        qemu_graphic_console_set_hwops(s->vga.con, on ? &d3dpt_vga_follow_ops : &d3dpt_vga_gfx_ops, s);
+        info_report("d3dpt-vga: the desktop %s the window", on ? "follows" : "no longer follows");
+        /* a size heard before (a rebooted guest): the console's UI info is
+         * the same, so QEMU calls d3dpt_vga_ui_info no more; say it now */
+        if (on && s->pref_w && (s->irq_enable & D3DPT_FB_IRQ_DISPLAY)) {
+            s->irq_status |= D3DPT_FB_IRQ_DISPLAY;
+            fb_irq_update(s);
+        }
+    }
+}
 
 /* ------------------------------------------------------------- Direct3D */
 
@@ -1110,7 +1163,7 @@ static uint64_t d3dpt_vga_regs_read(void *opaque, hwaddr addr, unsigned size)
         return D3DPT_FB_CAP_BPP8 | D3DPT_FB_CAP_BPP16 | D3DPT_FB_CAP_BPP32 |
                D3DPT_FB_CAP_CURSOR | D3DPT_FB_CAP_GAMMA | (s->cmd_offset ? D3DPT_FB_CAP_D3D : 0) |
                (s->irq ? D3DPT_FB_CAP_IRQ : 0) | (s->cmd_offset ? D3DPT_FB_CAP_DMA : 0) | D3DPT_FB_CAP_FILL | D3DPT_FB_CAP_COPY |
-               (s->d3d11 ? D3DPT_FB_CAP_D3D11 : 0);
+               (s->d3d11 ? D3DPT_FB_CAP_D3D11 : 0) | (s->follow && s->irq ? D3DPT_FB_CAP_FOLLOW : 0);
     case D3DPT_FB_REG_IRQ_ENABLE:
         return s->irq_enable;
     case D3DPT_FB_REG_IRQ_STATUS:
@@ -1177,6 +1230,12 @@ static uint64_t d3dpt_vga_regs_read(void *opaque, hwaddr addr, unsigned size)
         /* the rate the front end's blanks come at (QEMU patch 96): the
          * guest's modes say it, so its DXGI times frames by it */
         return qemu_host_refresh_mhz();
+    case D3DPT_FB_REG_FOLLOW:
+        return s->follow_on;
+    case D3DPT_FB_REG_PREF_W:
+        return s->follow_on ? s->pref_w : 0;
+    case D3DPT_FB_REG_PREF_H:
+        return s->follow_on ? s->pref_h : 0;
     case D3DPT_FB_REG_GAMMA_ENABLE:
         return s->gamma_on;
     case D3DPT_FB_REG_MODE_COUNT:
@@ -1427,6 +1486,9 @@ static void d3dpt_vga_regs_write(void *opaque, hwaddr addr, uint64_t val,
     case D3DPT_FB_REG_COPY_LIST_COUNT:
         s->copy_count = val;
         break;
+    case D3DPT_FB_REG_FOLLOW:
+        fb_follow(s, val == 1);
+        break;
     case D3DPT_FB_REG_FENCE:
         s->fence_done = val;
         if (s->irq_enable & D3DPT_FB_IRQ_DMA) {
@@ -1563,6 +1625,7 @@ static void d3dpt_vga_reset(DeviceState *dev)
     fb_gamma_apply(s);     /* no ramp after a reset: a RAMDAC comes up linear */
     s->irq_status = 0;
     fb_irq_enable(s, 0);   /* no interrupt until the driver asks again */
+    fb_follow(s, false);   /* a rebooted guest's screen is its own until its driver follows */
     s->dma_lo = s->dma_hi = s->dma_bytes = s->dma_status = 0;
     s->fence_done = 0;
     d3d_reset(s);
@@ -1613,6 +1676,9 @@ static const Property d3dpt_vga_properties[] = {
     /* with irq: IRQ_VBLANK on the host screen's blank when the player gives
      * one (fb_host_vblank); off, the guest's clock alone, the A/B */
     DEFINE_PROP_BOOL("host-vblank", D3dptVgaState, host_vblank, true),
+    /* with irq: CAP_FOLLOW, the desktop following the front end's window
+     * once the driver writes FOLLOW (register set v12); off, the A/B */
+    DEFINE_PROP_BOOL("follow", D3dptVgaState, follow, true),
     /* bar64=on: VRAM is a 64-bit BAR 0 (slots 0 and 1) and the registers
      * BAR 2, so the firmware may place VRAM above 4 GiB. Windows 11 on
      * Arm (track M25): the virt board's 32-bit window cannot hold 512 MiB

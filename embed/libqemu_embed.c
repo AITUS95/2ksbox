@@ -77,6 +77,8 @@ struct qemu_embed {
     uint32_t win_w, win_h, win_dpi;     /* qemu_embed_set_window_size, 0 = none */
     uint32_t refresh_mhz;   /* qemu_embed_set_refresh_rate, 0 = none */
     bool win_seen;          /* the console was told a size at least once */
+    bool ui_supported;      /* the console took UI info at the last refresh (a device may start
+                               to later: d3dpt-vga once its driver follows the window) */
 
     QemuMutex in_lock;
     in_event in_q[IN_QUEUE_LEN];
@@ -244,6 +246,17 @@ static void bh_follow_console(void *opaque)
     qatomic_set(&e->con, con);
     qemu_console_register_listener(con, &e->dcl, &embed_dcl_ops);
     e->win_seen = false;
+    e->ui_supported = qemu_console_ui_info_supported(con);
+    embed_tell_window_size(e, false);
+}
+
+/* The console started to take UI info (d3dpt-vga, once the guest's driver
+ * writes FOLLOW, register set v12): every size told before was refused, so
+ * the window's goes now. */
+static void bh_ui_info_on(void *opaque)
+{
+    qemu_embed_t *e = opaque;
+    e->win_seen = false;
     embed_tell_window_size(e, false);
 }
 
@@ -313,6 +326,13 @@ static void embed_dpy_refresh(DisplayChangeListener *dcl)
 {
     qemu_embed_t *e = container_of(dcl, qemu_embed_t, dcl);
     embed_wake_placeholders(dcl->con);
+    bool ui = qemu_console_ui_info_supported(e->con);
+    if (ui != e->ui_supported) {
+        e->ui_supported = ui;
+        if (ui) {
+            aio_bh_schedule_oneshot(qemu_get_aio_context(), bh_ui_info_on, e);
+        }
+    }
     if (!e->follow_pending && embed_live_console() != e->con) {
         e->follow_pending = true;
         aio_bh_schedule_oneshot(qemu_get_aio_context(), bh_follow_console, e);
@@ -563,6 +583,7 @@ qemu_embed_t *qemu_embed_new(int argc, char **argv,
     qemu_init(e->argc, e->argv);
 
     e->con = qemu_console_lookup_default();
+    e->ui_supported = qemu_console_ui_info_supported(e->con);
     /* Fires on_switch/on_update/on_cursor synchronously before returning. */
     qemu_console_register_listener(e->con, &e->dcl, &embed_dcl_ops);
     /* qemu-3dfx: window-less context provider (doc 12) */

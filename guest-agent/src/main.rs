@@ -27,7 +27,9 @@
 //! by the player when the machine has one) and exits.
 //!
 //! Once the desktop is up it also makes the virtio-gpu's screen the only
-//! one, or d3dpt-vga's (tracks M24 and M20, `card_screen_only`).
+//! one, or d3dpt-vga's (tracks M24 and M20, `card_screen_only`), and on
+//! d3dpt-vga makes the desktop follow the player's window
+//! (`follow_window`).
 
 #![windows_subsystem = "windows"]
 
@@ -491,6 +493,173 @@ fn card_screen_only() {
     log(&format!("display: the paravirtual card's screen turned on as the only one ({})", r));
 }
 
+// gdi32's D3DKMT calls (d3dkmthk.h), for the WDDM driver's escape
+#[repr(C)]
+struct D3dkmtOpenAdapterFromLuid {
+    luid: LUID,
+    h_adapter: u32,
+}
+#[repr(C)]
+struct D3dkmtEscape {
+    h_adapter: u32,
+    h_device: u32,
+    kind: u32, // D3DKMT_ESCAPE_DRIVERPRIVATE = 0
+    flags: u32,
+    data: *mut c_void,
+    size: u32,
+    h_context: u32,
+}
+#[link(name = "gdi32")]
+extern "system" {
+    fn D3DKMTOpenAdapterFromLuid(a: *mut D3dkmtOpenAdapterFromLuid) -> i32;
+    fn D3DKMTEscape(e: *const D3dkmtEscape) -> i32;
+}
+/// guest-tools/src/d3dptvid/wddm/d3dpt_wddm.h: D3DPT_ESC_SIZE, op D3DPT_ESC_WINDOW
+#[repr(C)]
+struct EscSize {
+    magic: u32,
+    op: u32,
+    w: u32,
+    h: u32,
+}
+const D3DPT_ESC_MAGIC: u32 = 0x4353_4544;
+const D3DPT_ESC_WINDOW: u32 = 2;
+
+/// The desktop following the player's window on d3dpt-vga (track M20 step
+/// 5, register set v12), as viogpudo's `viogpuap` does for the virtio-gpu.
+/// The WDDM driver hears the window's size from the device and sets
+/// `Global\2ksboxWindowSize`; the agent asks the driver for it as a mode
+/// (an escape, which also makes it the driver's custom mode) and applies
+/// it to the card's screen. Its first ask is what turns the device's
+/// following on, so a guest without the agent keeps its screen's size and
+/// the player knows not to size it. A driver without the event (an older
+/// one, viogpudo) leaves this to its own service.
+fn follow_window() {
+    use windows_sys::Win32::Devices::Display::*;
+
+    let name = wide(r"Global\2ksboxWindowSize");
+    let event = unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, 0, name.as_ptr()) };
+    if event.is_null() {
+        log("display: no d3dpt-vga window event (another card, or an older driver); the desktop keeps its size");
+        return;
+    }
+    // the adapter of the card's active path, for the escape
+    let card = || -> Option<LUID> {
+        let (mut np, mut nm) = (0u32, 0u32);
+        if unsafe { GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm) } != 0 {
+            return None;
+        }
+        let mut paths = vec![unsafe { std::mem::zeroed::<DISPLAYCONFIG_PATH_INFO>() }; np as usize];
+        let mut modes = vec![unsafe { std::mem::zeroed::<DISPLAYCONFIG_MODE_INFO>() }; nm as usize];
+        if unsafe {
+            QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), std::ptr::null_mut())
+        } != 0
+        {
+            return None;
+        }
+        paths.truncate(np as usize);
+        paths.iter().find_map(|p| {
+            let mut an: DISPLAYCONFIG_ADAPTER_NAME = unsafe { std::mem::zeroed() };
+            an.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME;
+            an.header.size = std::mem::size_of::<DISPLAYCONFIG_ADAPTER_NAME>() as u32;
+            an.header.adapterId = p.targetInfo.adapterId;
+            if unsafe { DisplayConfigGetDeviceInfo(&mut an.header) } != 0 {
+                return None;
+            }
+            let len = an.adapterDevicePath.iter().position(|&c| c == 0).unwrap_or(128);
+            String::from_utf16_lossy(&an.adapterDevicePath[..len])
+                .to_ascii_uppercase()
+                .contains("VEN_1234&DEV_3D00")
+                .then_some(p.sourceInfo.adapterId)
+        })
+    };
+    let Some(luid) = card() else {
+        log("display: d3dpt-vga's screen is not on; the desktop keeps its size");
+        return;
+    };
+    let mut open = D3dkmtOpenAdapterFromLuid { luid, h_adapter: 0 };
+    if unsafe { D3DKMTOpenAdapterFromLuid(&mut open) } != 0 {
+        log("display: d3dpt-vga's adapter could not be opened; the desktop keeps its size");
+        return;
+    }
+    log("display: the desktop follows the window");
+    loop {
+        let mut z = EscSize { magic: D3DPT_ESC_MAGIC, op: D3DPT_ESC_WINDOW, w: 0, h: 0 };
+        let esc = D3dkmtEscape {
+            h_adapter: open.h_adapter,
+            h_device: 0,
+            kind: 0,
+            flags: 0,
+            data: &mut z as *mut EscSize as *mut c_void,
+            size: std::mem::size_of::<EscSize>() as u32,
+            h_context: 0,
+        };
+        let st = unsafe { D3DKMTEscape(&esc) };
+        if st != 0 {
+            log(&format!("display: the driver's escape failed (0x{:08x}); the desktop keeps its size", st as u32));
+            return;
+        }
+        if z.w != 0 && z.h != 0 {
+            apply_size(luid, z.w, z.h);
+        }
+        if unsafe { WaitForSingleObject(event, INFINITE) } != WAIT_OBJECT_0 {
+            log("display: the window event's wait failed");
+            return;
+        }
+    }
+}
+
+/// The card's screen at w x h: its source mode the new size, its target's
+/// mode left for Windows to pick from what the driver offers with it (the
+/// driver's custom mode, made by the escape just before). Not
+/// ChangeDisplaySettingsEx: it checks the mode list Windows cached, which
+/// the custom mode is not in (DISP_CHANGE_BADMODE); SetDisplayConfig builds
+/// a new VidPN, so it asks the driver.
+fn apply_size(luid: LUID, w: u32, h: u32) {
+    use windows_sys::Win32::Devices::Display::*;
+    use windows_sys::Win32::Graphics::Gdi::DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+
+    let (mut np, mut nm) = (0u32, 0u32);
+    if unsafe { GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm) } != 0 {
+        log("display: QueryDisplayConfig failed; the window's size is not applied");
+        return;
+    }
+    let mut paths = vec![unsafe { std::mem::zeroed::<DISPLAYCONFIG_PATH_INFO>() }; np as usize];
+    let mut modes = vec![unsafe { std::mem::zeroed::<DISPLAYCONFIG_MODE_INFO>() }; nm as usize];
+    if unsafe {
+        QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), std::ptr::null_mut())
+    } != 0
+    {
+        log("display: QueryDisplayConfig failed; the window's size is not applied");
+        return;
+    }
+    paths.truncate(np as usize);
+    modes.truncate(nm as usize);
+    let same = |a: &LUID| a.LowPart == luid.LowPart && a.HighPart == luid.HighPart;
+    let mut found = false;
+    for p in paths.iter_mut().filter(|p| same(&p.sourceInfo.adapterId)) {
+        let si = unsafe { p.sourceInfo.Anonymous.modeInfoIdx } as usize;
+        if let Some(m) = modes.get_mut(si).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE) {
+            let s = unsafe { &mut m.Anonymous.sourceMode };
+            if s.width == w && s.height == h {
+                log(&format!("display: already {}x{}", w, h));
+                return;
+            }
+            s.width = w;
+            s.height = h;
+            p.targetInfo.Anonymous.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+            found = true;
+        }
+    }
+    if !found {
+        log("display: d3dpt-vga's screen is gone; the window's size is not applied");
+        return;
+    }
+    let flags = SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES | SDC_SAVE_TO_DATABASE;
+    let r = unsafe { SetDisplayConfig(paths.len() as u32, paths.as_ptr(), modes.len() as u32, modes.as_ptr(), flags) };
+    log(&format!("display: the window's {}x{} -> {}", w, h, r));
+}
+
 fn main() {
     let _ = std::fs::create_dir_all(r"C:\2KSBOX");
     *LOG.lock().unwrap() = std::fs::OpenOptions::new().create(true).append(true).open(r"C:\2KSBOX\agent.log").ok();
@@ -526,7 +695,10 @@ fn main() {
     }
     let hw = hwnd as usize;
     std::thread::spawn(move || reader(hw));
-    std::thread::spawn(card_screen_only);
+    std::thread::spawn(|| {
+        card_screen_only();
+        follow_window();
+    });
     unsafe {
         let mut m: MSG = std::mem::zeroed();
         while GetMessageW(&mut m, std::ptr::null_mut(), 0, 0) > 0 {

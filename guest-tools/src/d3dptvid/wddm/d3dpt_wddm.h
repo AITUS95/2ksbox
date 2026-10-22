@@ -58,12 +58,25 @@ typedef struct D3DPT_CTX_PRIV {
 
 /* Escape: the user-mode driver's private data */
 #define D3DPT_ESC_MAGIC 0x43534544u               /* "DESC" */
-enum { D3DPT_ESC_LOG = 1 };
+enum { D3DPT_ESC_LOG = 1, D3DPT_ESC_WINDOW = 2 };
 #define D3DPT_ESC_TEXT 120
 typedef struct D3DPT_ESC {
     ULONG magic, op;
     char text[D3DPT_ESC_TEXT];                    /* D3DPT_ESC_LOG: one line, NUL terminated, no newline */
 } D3DPT_ESC;
+
+/* D3DPT_ESC_WINDOW (register set v12, track M20): the guest agent asks for
+ * the mode of the front end's window, after the driver signalled
+ * D3DPT_WINDOW_EVENT. The driver answers its custom mode (the window's
+ * size, aligned and made to fit the segment), now in its mode list; 0 x 0
+ * when there is none. */
+typedef struct D3DPT_ESC_SIZE {
+    ULONG magic, op;
+    ULONG w, h;
+} D3DPT_ESC_SIZE;
+/* an auto-reset event the driver sets when the window's size changed; the
+ * agent opens it as Global\2ksboxWindowSize */
+#define D3DPT_WINDOW_EVENT L"\\BaseNamedObjects\\2ksboxWindowSize"
 
 /*
  * An allocation's private data, from GetStandardAllocationDriverData

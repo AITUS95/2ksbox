@@ -94,6 +94,20 @@ typedef struct D3DPT_ADAPTER {
     ULONG seg_size;                   /* VRAM below the Direct3D command window */
     struct { ULONG w, h, mhz; } modes[64];  /* the host's 32-bpp modes (MODE_*), then the widescreen sizes */
     ULONG nmodes;
+    /* register set v12 (CAP_FOLLOW, track M20): the desktop follows the
+     * front end's window. The device's IRQ_DISPLAY queues follow_dpc,
+     * which takes PREF_W / PREF_H into win_w / win_h and sets
+     * follow_event (D3DPT_WINDOW_EVENT); the guest agent then asks
+     * (D3DPT_ESC_WINDOW), which makes the size the last entry of modes,
+     * the custom mode (custom: its index, ~0u for none), and applies it */
+    BOOLEAN follow;                   /* the device can (CAP_FOLLOW, with CAP_IRQ) */
+    BOOLEAN follow_on;                /* FOLLOW written: at the agent's first ask, so a guest with no agent
+                                         (Windows 7) never has the front end size its window for nothing */
+    volatile LONG win_w, win_h;
+    ULONG custom;
+    PKEVENT follow_event;
+    HANDLE follow_event_h;
+    KDPC follow_dpc;
     ULONG cur_w, cur_h, cur_pitch, cur_mhz; /* what CommitVidPn programmed */
     PUCHAR vram;                      /* the segment mapped (kernel VA): the "GPU" is the CPU */
     ULONG vram_map;                   /* bytes mapped: the segment, then the cursor image */
@@ -434,6 +448,7 @@ static void read_modes(D3DPT_ADAPTER *a)
         }
     }
     a->nmodes = 0;
+    a->custom = ~0u;
     for (i = 0; i < n && a->nmodes < RTL_NUMBER_OF(a->modes); i++) {
         ULONG w, h, bpp, hz;
 
@@ -472,6 +487,71 @@ static void read_modes(D3DPT_ADAPTER *a)
     dbg_hex(" and widescreen ", a->nmodes - table);
     dbg_hex(", refresh (mHz) ", host ? host : 60000);
     dbg_puts(host ? " (the host's)\n" : "\n");
+}
+
+/* The window's size as the custom mode, the last entry of the table
+ * (register set v12): its width a multiple of 8 and its height even, as
+ * Windows' mode lists keep them, and made smaller, aspect kept, until six
+ * of its frames fit the segment (read_modes' rule for the widescreen
+ * sizes). Nothing under 640x480. A size the table has already is that
+ * entry, no custom one. Answers the mode's width (and *out_h), 0 for
+ * none. PASSIVE: the lists dxgkrnl asks for next have it. */
+static ULONG set_custom_mode(D3DPT_ADAPTER *a, ULONG w, ULONG h, ULONG *out_h)
+{
+    ULONG k, mhz = a->nmodes ? a->modes[0].mhz : 60000;
+
+    if (a->custom != ~0u) {
+        a->nmodes = a->custom;                  /* the last one goes */
+        a->custom = ~0u;
+    }
+    *out_h = 0;
+    while (w && h && (ULONGLONG)w * h * 4 * 6 > a->seg_size) {
+        w = w * 7 / 8;
+        h = h * 7 / 8;
+    }
+    w &= ~7u;
+    h &= ~1u;
+    if (w < 640 || h < 480) {
+        return 0;
+    }
+    for (k = 0; k < a->nmodes; k++) {
+        if (a->modes[k].w == w && a->modes[k].h == h) {
+            *out_h = h;
+            return w;
+        }
+    }
+    if (a->nmodes >= RTL_NUMBER_OF(a->modes)) {
+        return 0;
+    }
+    a->custom = a->nmodes;
+    a->modes[a->nmodes].w = w;
+    a->modes[a->nmodes].h = h;
+    a->modes[a->nmodes].mhz = mhz;
+    a->nmodes++;
+    *out_h = h;
+    return w;
+}
+
+/* IRQ_DISPLAY's DPC: the window's size, and the agent told */
+static KDEFERRED_ROUTINE follow_tick;
+static VOID follow_tick(PKDPC dpc, PVOID ctx, PVOID a1, PVOID a2)
+{
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
+
+    UNREFERENCED_PARAMETER(dpc);
+    UNREFERENCED_PARAMETER(a1);
+    UNREFERENCED_PARAMETER(a2);
+    if (!a->regs) {
+        return;
+    }
+    InterlockedExchange(&a->win_w, (LONG)a->regs[D3DPT_FB_REG_PREF_W / 4]);
+    InterlockedExchange(&a->win_h, (LONG)a->regs[D3DPT_FB_REG_PREF_H / 4]);
+    dbg_hex("d3dptkmd: the window is ", (ULONG)a->win_w);
+    dbg_hex(" x ", (ULONG)a->win_h);
+    dbg_puts("\n");
+    if (a->follow_event) {
+        KeSetEvent(a->follow_event, 0, FALSE);
+    }
 }
 
 static void unmap(D3DPT_ADAPTER *a);
@@ -654,10 +734,33 @@ static NTSTATUS d3dpt_start_device(IN_CONST_PVOID ctx, IN_PDXGK_START_INFO start
     }
     a->dma_errors = 0;
     a->irq_mask = a->fence_irq ? D3DPT_FB_IRQ_DMA : 0;
+    /* register set v12: the desktop follows the window. The event first,
+     * so no IRQ_DISPLAY finds none; made where the agent opens it as
+     * Global\2ksboxWindowSize (a kernel-made object's default security:
+     * SYSTEM and Administrators; the agent runs elevated) */
+    a->follow = a->vsync_irq && version >= 12u && (a->regs[D3DPT_FB_REG_CAPS / 4] & D3DPT_FB_CAP_FOLLOW);
+    a->win_w = a->win_h = 0;
+    if (a->follow && !a->follow_event) {
+        UNICODE_STRING name;
+
+        RtlInitUnicodeString(&name, D3DPT_WINDOW_EVENT);
+        a->follow_event = IoCreateSynchronizationEvent(&name, &a->follow_event_h);
+        if (a->follow_event) {
+            KeClearEvent(a->follow_event);
+        } else {
+            dbg_line("the window's event could not be made: the desktop keeps its size");
+            a->follow = FALSE;
+        }
+    }
+    if (a->follow) {
+        KeInitializeDpc(&a->follow_dpc, follow_tick, a);
+        a->irq_mask |= D3DPT_FB_IRQ_DISPLAY;
+    }
     if (a->vsync_irq) {
         a->regs[D3DPT_FB_REG_IRQ_STATUS / 4] = ~0u;
         a->regs[D3DPT_FB_REG_IRQ_ENABLE / 4] = a->irq_mask;   /* the vertical blank when dxgkrnl enables it */
     }
+    a->follow_on = FALSE;
     dbg_line(a->vsync_irq ? "vertical blank: the device's interrupt" : "vertical blank: a timer (no CAP_IRQ)");
     dbg_line(a->fence_irq ? "fences: the device's interrupt" : "fences: reported at submit (no CAP_DMA / CAP_IRQ)");
     dbg_line(a->dma ? "records: appended by the device from the DMA buffer" : "records: copied into the window by the CPU");
@@ -680,6 +783,10 @@ static void unmap(D3DPT_ADAPTER *a)
         if (a->vsync_irq && a->regs) {      /* and no interrupt of the device's */
             a->irq_mask = 0;
             a->regs[D3DPT_FB_REG_IRQ_ENABLE / 4] = 0;
+            if (a->follow_on) {
+                a->regs[D3DPT_FB_REG_FOLLOW / 4] = 0;   /* the screen is no longer ours to size */
+                a->follow_on = FALSE;
+            }
         }
         KeFlushQueuedDpcs();
         a->vsync_ready = FALSE;
@@ -1013,6 +1120,9 @@ static BOOLEAN d3dpt_interrupt(IN_CONST_PVOID ctx, IN_ULONG msg)
         a->vsync_isr++;
         notify_vsync(a);            /* queues the DPC */
     }
+    if ((st & D3DPT_FB_IRQ_DISPLAY) && a->follow) {
+        KeInsertQueueDpc(&a->follow_dpc, NULL, NULL);
+    }
     return TRUE;
 }
 
@@ -1242,6 +1352,52 @@ STUB2(DXGKDDI_ACQUIRESWIZZLINGRANGE, d3dpt_acquire_swizzling_range, IN_CONST_HAN
 STUB2(DXGKDDI_RELEASESWIZZLINGRANGE, d3dpt_release_swizzling_range, IN_CONST_HANDLE, IN_CONST_PDXGKARG_RELEASESWIZZLINGRANGE)
 STUB2(DXGKDDI_SETPALETTE, d3dpt_set_palette, IN_CONST_HANDLE, IN_CONST_PDXGKARG_SETPALETTE)
 
+static void signal_info(D3DKMDT_VIDEO_SIGNAL_INFO *s, ULONG w, ULONG h, ULONG mhz);
+
+/* The custom mode (the window's, set_custom_mode) into the monitor's own
+ * mode set, which dxgkrnl filled once at the monitor's arrival
+ * (RecommendMonitorModes) and checks a target mode against: without it
+ * SetDisplayConfig took the nearest size the monitor had (2560x1600 for a
+ * 2560x1920 window, track M20). PASSIVE. */
+static void add_monitor_mode(D3DPT_ADAPTER *a, ULONG w, ULONG h, ULONG mhz)
+{
+    const DXGK_MONITOR_INTERFACE *mi;
+    const DXGK_MONITORSOURCEMODESET_INTERFACE *si;
+    D3DKMDT_HMONITORSOURCEMODESET hset;
+    D3DKMDT_MONITOR_SOURCE_MODE *m;
+    NTSTATUS st;
+
+    st = a->dxgk.DxgkCbQueryMonitorInterface(a->dxgk.DeviceHandle, DXGK_MONITOR_INTERFACE_VERSION_V1, &mi);
+    if (!NT_SUCCESS(st)) {
+        dbg_hex("d3dptkmd: no monitor interface ", st);
+        dbg_puts("\n");
+        return;
+    }
+    st = mi->pfnAcquireMonitorSourceModeSet(a->dxgk.DeviceHandle, 0, &hset, &si);
+    if (!NT_SUCCESS(st)) {
+        dbg_hex("d3dptkmd: the monitor's modes could not be had ", st);
+        dbg_puts("\n");
+        return;
+    }
+    if (NT_SUCCESS(si->pfnCreateNewModeInfo(hset, &m))) {
+        signal_info(&m->VideoSignalInfo, w, h, mhz);
+        m->ColorBasis = D3DKMDT_CB_SRGB;
+        m->ColorCoeffDynamicRanges.FirstChannel = 8;
+        m->ColorCoeffDynamicRanges.SecondChannel = 8;
+        m->ColorCoeffDynamicRanges.ThirdChannel = 8;
+        m->ColorCoeffDynamicRanges.FourthChannel = 8;
+        m->Origin = D3DKMDT_MCO_DRIVER;
+        m->Preference = D3DKMDT_MP_NOTPREFERRED;
+        st = si->pfnAddMode(hset, m);
+        if (!NT_SUCCESS(st)) {          /* the monitor has it already */
+            si->pfnReleaseModeInfo(hset, m);
+        }
+        dbg_hex("d3dptkmd: the window's mode added to the monitor's: ", st);
+        dbg_puts("\n");
+    }
+    mi->pfnReleaseMonitorSourceModeSet(a->dxgk.DeviceHandle, hset);
+}
+
 /* The user-mode driver's escapes (D3DPT_ESC): its log lines, into the
  * DEBUG register beside this driver's. dxgkrnl hands a kernel copy of the
  * data. */
@@ -1249,8 +1405,33 @@ static DXGKDDI_ESCAPE d3dpt_escape;
 static NTSTATUS APIENTRY d3dpt_escape(IN_CONST_HANDLE h, IN_CONST_PDXGKARG_ESCAPE e)
 {
     D3DPT_ESC *m = (D3DPT_ESC *)e->pPrivateDriverData;
+    D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
 
-    UNREFERENCED_PARAMETER(h);
+    if (m && e->PrivateDriverDataSize == sizeof(D3DPT_ESC_SIZE) && m->magic == D3DPT_ESC_MAGIC &&
+        m->op == D3DPT_ESC_WINDOW) {
+        /* the guest agent, after follow_event: the window's mode, made
+         * the custom one here (PASSIVE) so the lists dxgkrnl builds for
+         * the agent's SetDisplayConfig have it */
+        D3DPT_ESC_SIZE *z = (D3DPT_ESC_SIZE *)m;
+
+        if (a->follow && !a->follow_on && a->regs) {
+            /* the first ask: from now on the device takes the window's
+             * size, and IRQ_DISPLAY brings it */
+            a->follow_on = TRUE;
+            a->regs[D3DPT_FB_REG_FOLLOW / 4] = 1;
+            dbg_line("the desktop follows the window (FOLLOW, the agent asked)");
+        }
+        z->w = a->follow ? set_custom_mode(a, (ULONG)a->win_w, (ULONG)a->win_h, &z->h) : 0;
+        if (!z->w) {
+            z->h = 0;
+        } else if (a->custom != ~0u) {
+            add_monitor_mode(a, z->w, z->h, a->modes[a->custom].mhz);
+        }
+        dbg_hex("d3dptkmd: the window's mode for the agent ", z->w);
+        dbg_hex(" x ", z->h);
+        dbg_puts("\n");
+        return STATUS_SUCCESS;
+    }
     if (!m || e->PrivateDriverDataSize < sizeof(*m) || m->magic != D3DPT_ESC_MAGIC) {
         dbg_hex("d3dptkmd: Escape not ours, size ", e->PrivateDriverDataSize);
         dbg_puts("\n");
@@ -3932,11 +4113,15 @@ static void signal_info(D3DKMDT_VIDEO_SIGNAL_INFO *s, ULONG w, ULONG h, ULONG mh
     s->ScanLineOrdering = D3DDDI_VSSLO_PROGRESSIVE;
 }
 
-/* the mode the desktop starts in: 1024x768 where the host offers it */
+/* the mode the desktop starts in: the window's (the custom mode), else
+ * 1024x768 where the host offers it */
 static BOOLEAN preferred(const D3DPT_ADAPTER *a, ULONG i)
 {
     ULONG k;
 
+    if (a->custom != ~0u) {
+        return i == a->custom;
+    }
     for (k = 0; k < a->nmodes; k++) {
         if (a->modes[k].w == 1024 && a->modes[k].h == 768) {
             return k == i;

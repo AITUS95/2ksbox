@@ -222,6 +222,21 @@ overwritten. It does three jobs:
    layout per set of connected screens, so a recovery boot or a broken
    driver gets the other card's screen back by itself. Logged as
    `display:` lines.
+4. **The desktop following the window on d3dpt-vga (track M20 step 5,
+   2026-10-22):** viogpudo's own `viogpuap` does this for the virtio-gpu
+   (M24); for our WDDM driver the agent does. Once the screens are
+   settled it opens the driver's event `Global\2ksboxWindowSize` and our
+   adapter (`D3DKMTOpenAdapterFromLuid`, the active path's), then loops:
+   it asks the driver for the window's mode (`D3DKMTEscape`,
+   `D3DPT_ESC_WINDOW`), applies it to the card's screen with
+   `SetDisplayConfig` (the source mode the new size, the target's left to
+   Windows, saved to the database), and waits on the event. Its first ask
+   is what turns the device's following on (register set v12's
+   `FOLLOW`), so a guest without the agent keeps its own size and the
+   player never sizes the guest to its window for nothing. Not
+   `ChangeDisplaySettingsEx`: it checks the mode list Windows cached,
+   which the window's mode is not in (`DISP_CHANGE_BADMODE`). Without the
+   event (another card, an older driver) it changes nothing.
 
 Its log goes to `C:\2KSBOX\agent.log`, the guest-output convention.
 

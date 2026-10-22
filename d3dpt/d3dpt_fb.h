@@ -101,6 +101,14 @@
  * 144 Hz screen), so the WDDM driver advertises its modes at the rate
  * IRQ_VBLANK then keeps (host-vblank) instead of 60.
  *
+ * Version 12 (CAP_FOLLOW, track M20): the desktop follows the front end's
+ * window. A driver that can apply a size of the window's (the WDDM
+ * driver, with the guest agent) writes FOLLOW = 1; only then does the
+ * device take the console's UI info, so the front end treats its screen
+ * as one that follows the window (a 98 / XP / 7 guest's never does).
+ * PREF_W / PREF_H then hold the window's size and IRQ_DISPLAY says it
+ * changed. A reset takes FOLLOW back to 0.
+ *
  * **Versions only add.** Every driver (the XP miniport, the 9x display
  * driver and mini-VDD) accepts any VERSION at or above the one it was
  * built with and refuses only an older one, because a newer register set is
@@ -121,7 +129,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_FB_VERSION      11u
+#define D3DPT_FB_VERSION      12u
 #define D3DPT_FB_MAGIC        0x42463344u          /* "D3FB" at REG_MAGIC */
 
 /* PCI identity: QEMU/Bochs pseudo vendor, our device id ("3D00"). The INF
@@ -185,6 +193,7 @@
                                             with host-vblank (the default) each blank of the host
                                             screen the player gives, the clock then a watchdog */
 #define D3DPT_FB_IRQ_DMA         0x2u    /* version 7: a FENCE write (the submission it names is done) */
+#define D3DPT_FB_IRQ_DISPLAY     0x4u    /* version 12: PREF_W / PREF_H changed (FOLLOW = 1) */
 #define D3DPT_FB_REG_DMA_ADDR_LO 0xc0u   /* RW (version 7, CAP_DMA): guest-physical address of records to append */
 #define D3DPT_FB_REG_DMA_ADDR_HI 0xc4u
 #define D3DPT_FB_REG_DMA_BYTES   0xc8u   /* RW: their bytes, a multiple of 8, whole records */
@@ -219,6 +228,10 @@
                                           * past them is refused (nothing copied) */
 #define D3DPT_FB_REG_HOST_MHZ    0x118u  /* R (version 11): the guest's vertical blank as the front end
                                           * gives it, in mHz (71999 for 72 Hz); 0 = none named */
+#define D3DPT_FB_REG_FOLLOW      0x11cu  /* RW (version 12, CAP_FOLLOW): 1 = the driver applies the window's
+                                          * size (the device takes the console's UI info); 0 at reset */
+#define D3DPT_FB_REG_PREF_W      0x120u  /* R: the front end's window in pixels while FOLLOW (0 = none told) */
+#define D3DPT_FB_REG_PREF_H      0x124u
 #define D3DPT_FB_DMA_OK          0u
 #define D3DPT_FB_DMA_NO_ROOM     1u      /* the batch has no room for them: ring the doorbell first */
 #define D3DPT_FB_DMA_BAD         2u      /* no window, a size not a multiple of 8, or memory the device cannot read */
@@ -243,5 +256,6 @@
 #define D3DPT_FB_CAP_FILL        0x100u  /* version 9: the FILL registers */
 #define D3DPT_FB_CAP_COPY        0x200u  /* version 9: the COPY registers */
 #define D3DPT_FB_CAP_D3D11       0x400u  /* version 10: the executor runs Direct3D 11 (the D11 records) */
+#define D3DPT_FB_CAP_FOLLOW      0x800u  /* version 12: FOLLOW, PREF_W / PREF_H and IRQ_DISPLAY (with CAP_IRQ) */
 
 #endif

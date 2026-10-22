@@ -135,6 +135,8 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
 | 8 | CURSOR_FLAGS (0xd8): `CURSOR_OWNED` turns off the flip hiding below (M18) |
 | 9 | the host's VRAM FILL_* and COPY_* (0xdc..), `CAP_FILL`, `CAP_COPY` (M20) |
 | 10 | `CAP_D3D11`: the executor runs the D11 records (protocol v25), so the WDDM driver's Direct3D 11 user-mode driver opens (M25) |
+| 11 | HOST_MHZ (0x118): the rate of the guest's vertical blank as the front end gives it (M25) |
+| 12 | FOLLOW, PREF_W, PREF_H (0x11c..0x124), `IRQ_DISPLAY`, `CAP_FOLLOW`: the desktop following the window (M20, "The desktop following the window") |
 
 The BAR has `valid.min_access_size = 4`, so every access is 32-bit,
 which matters to the 16-bit 9x driver (doc 19).
@@ -168,6 +170,7 @@ is checked.
 | `full-frames=on` | whole-frame conversion every refresh |
 | `irq=on` | an interrupt pin (INTA) for Windows 7's WDDM driver (M18), which dxgkrnl will not start without one, and the IRQ registers behind it (register set v6, `CAP_IRQ`): the vertical blank at the refresh in `HZ`, on the guest's clock, while the driver enables it; off (the default) keeps the PCI config XP, 9x and snapshots know |
 | `host-vblank=off` | with `irq=on`, the vertical blank interrupt on the guest's clock alone. On (the default, 2026-10-10, track M20) it follows the host screen's blank, which the player sends (QEMU patch 90's `qemu_host_vblank`, at the rate it picked for the guest: 72 Hz on a 144 Hz screen, track M24), and the clock is only a watchdog two periods out; `FRAMES` (98 / XP) still counts on the clock |
+| `follow=off` | with `irq=on`, no `CAP_FOLLOW` (register set v12): the desktop keeps its size whatever the window's. On (the default, 2026-10-22, track M20) the WDDM driver's `FOLLOW`, written at the guest agent's first ask, makes the console take UI info, so the player sizes the guest to its window: `PREF_W` / `PREF_H` and `IRQ_DISPLAY` carry the window's size, the driver makes it a custom mode (also in the monitor's mode set) and the agent applies it ("The desktop following the window" below) |
 | `flip-push=off` | the console stands on VRAM and the display's tick polls it, as before 2026-10-10; on (the default) a flip copies the page it shows and pushes it at once (above) |
 
 The executor properties model hosts, not devices. The adapter only hands
@@ -1608,6 +1611,46 @@ base to the primary, GDI's surface, the flip back to GDI and the heap's
 start; an older display driver reads 0 there. XP and Win98 are unchanged.
 DDTEST then runs at the refresh (75 Hz, the rate Windows 7 picks) and the
 windowed blit at 291 frames/s.
+
+## The desktop following the window (track M20, register set v12)
+
+On Windows 11 the WDDM driver's desktop takes the player's window size,
+as viogpudo's does on the virtio-gpu (M24). Four parts:
+
+- **The device** takes the console's UI info only while the driver has
+  written `FOLLOW = 1`: `d3dpt_vga_follow_ops` has a `ui_info`, the plain
+  ops none, and the front end treats a console as one that follows its
+  window exactly when it takes UI info (`qemu_embed_display_follows_window`).
+  So a 98, XP or 7 guest's screen keeps its own size, and so does a
+  Windows 11 one with no agent. The window's size (physical pixels) goes
+  to `PREF_W` / `PREF_H` and raises `IRQ_DISPLAY`; when `FOLLOW` comes on
+  with a size already known (a rebooted guest, whose console's UI info is
+  unchanged, so QEMU calls nothing) the device raises it itself. A reset
+  takes `FOLLOW` back to 0.
+- **The embed library** re-sends the window's size when its console
+  starts to take UI info (`bh_ui_info_on`): every size sent before was
+  refused.
+- **The kernel driver** enables `IRQ_DISPLAY` at start and makes the
+  auto-reset event `\BaseNamedObjects\2ksboxWindowSize`. The interrupt
+  queues a DPC that reads `PREF_W` / `PREF_H` and sets the event. The
+  escape `D3DPT_ESC_WINDOW` (`D3DPT_ESC_SIZE`) writes `FOLLOW` at its
+  first call, then makes the size the custom mode: the last entry of the
+  mode list, width a multiple of 8, height even, made smaller with its
+  aspect kept until six frames fit the segment, nothing under 640x480,
+  and the preferred mode. It also adds the mode to the monitor's source
+  mode set (`DxgkCbQueryMonitorInterface`,
+  `pfnAcquireMonitorSourceModeSet`). dxgkrnl filled that set once, at the
+  monitor's arrival, and checks a target mode against it: without the add
+  `SetDisplayConfig` with `SDC_ALLOW_CHANGES` took the nearest size the
+  monitor had (2560x1600 for a 2560x1920 window).
+- **The guest agent** waits on the event, asks with the escape and
+  applies the answer with `SetDisplayConfig` (doc 24 §4).
+
+Measured on the PC's Windows 11 test machine under WHPX (2026-10-22, the
+player on a 200 % screen): the desktop came up at the window's 2560x1920,
+then followed a resize to 3174x1890 (as 3168x1890) and to 1774x1290 (as
+1768x1290) within the console's one-second settle. Not yet on Windows 11
+on Arm, nor through a launcher machine's own agent install.
 
 ## The ddflags bits
 
