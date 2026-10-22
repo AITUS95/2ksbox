@@ -249,7 +249,8 @@ Closed 2026-09-27 (user).
 
 **Left:** the OpenGL ICD (step 8; `OPENGL32.DLL` stays per game),
 vertex texture fetch in a title (the path is checked on XP and Win98 by
-D3DFEAT9's row F, 2026-10-21).
+D3DFEAT9's row F, 2026-10-21), a game's depth-texture shadows on Win98
+(the path is checked on both by row G, 2026-10-22).
 
 ## M17: The driver's speed, on Max Payne 2
 

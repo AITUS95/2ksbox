@@ -24,6 +24,11 @@
  * D3DVERTEXTEXTURESAMPLER0, with a ps_3_0. "getters 4" says whether the
  * device let it be drawn.
  *
+ * Row G (the left edge) is a depth texture as a shadow map: a D24X8
+ * D3DUSAGE_DEPTHSTENCIL texture filled as the depth buffer of a pass of its
+ * own each frame, then sampled by a ps_2_0 that compares it against t0.z.
+ * "getters 5" says whether the device let it be drawn.
+ *
  * Deterministic: -frames N -dump N file.bmp like D3DGAME9. The same source
  * builds natively over DXVK (tools/d3dfeat9-native.cpp); the guest frame
  * through the device must be byte-identical to the native frame, and the
@@ -112,6 +117,25 @@ static const D3DVERTEXELEMENT9 vtf_elems[] = {
     D3DDECL_END()
 };
 
+/* row G: a depth texture (D24X8 with D3DUSAGE_DEPTHSTENCIL), drawn into as
+ * the depth buffer of a pass of its own, then sampled as a shadow map: the
+ * texel compared against t0.z, 1 where the reference is not deeper, the
+ * hardware shadow test of the era's NVIDIA drivers */
+static const DWORD ps2_shadow_code[] = {
+    0xFFFF0200,                                  /* ps_2_0 */
+    0x05000051, 0xA00F0000, 0x3F800000, 0x3F400000, 0x3E800000, 0x3F800000, /* def c0, 1, 0.75, 0.25, 1 */
+    0x0200001F, 0x80000000, 0xB00F0000,          /* dcl t0 */
+    0x0200001F, 0x90000000, 0xA00F0800,          /* dcl_2d s0 */
+    0x03000042, 0x800F0000, 0xB0E40000, 0xA0E40800, /* texld r0, t0, s0 */
+    0x03000005, 0x800F0000, 0x80E40000, 0xA0E40000, /* mul r0, r0, c0 */
+    0x02000001, 0x800F0800, 0x80E40000,          /* mov oC0, r0 */
+    0x0000FFFF
+};
+#define SHADOW_N 64
+struct vtx_rhw_c { float x, y, z, rhw; DWORD color; };
+struct vtx_rhw_t4 { float x, y, z, rhw, u, v, r, q; };
+#define FVF_RHW_T4 (D3DFVF_XYZRHW | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE4(0))
+
 struct vtx_decl { float x, y, z, nx, ny, nz; DWORD color; float u, v; };
 static const D3DVERTEXELEMENT9 decl_elems[] = {
     { 0, 0,  D3DDECLTYPE_FLOAT3,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0 },
@@ -151,6 +175,12 @@ struct gfx {
     const char *vtf_step;   /* the last call make_vtf made, the one vtf_hr is from */
     struct vtx_vtf vtf_v[VTF_W * VTF_H];
     WORD vtf_i[(VTF_W - 1) * (VTF_H - 1) * 6];
+    /* row G and the "getters 5" line */
+    IDirect3DTexture9 *shadow_tex;
+    IDirect3DSurface9 *shadow_ds, *shadow_rt, *main_rt, *main_ds;
+    IDirect3DPixelShader9 *ps_shadow;
+    HRESULT shadow_hr;
+    const char *shadow_step;
     /* the loader thread */
     HANDLE loader;
     volatile LONG loader_stop;
@@ -391,6 +421,83 @@ static void make_vtf(const D3DCAPS9 *caps)
     X.vtf_hr = IDirect3DDevice9_CreateVertexShader(X.dev, vs3_vtf_code, &X.vs3);
 }
 
+/* Row G's resources, when the runtime lets D24X8 be a depth-stencil
+ * texture; otherwise the row is left out and "getters 5" says why. The
+ * pass that fills it needs a colour target of its size beside it */
+static void make_shadow(void)
+{
+    X.shadow_step = "CheckDeviceFormat";
+    X.shadow_hr = IDirect3D9_CheckDeviceFormat(X.d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, X.pp.BackBufferFormat,
+                                               D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, D3DFMT_D24X8);
+    if (FAILED(X.shadow_hr)) return;
+    X.shadow_step = "the depth texture";
+    if (FAILED(X.shadow_hr = IDirect3DDevice9_CreateTexture(X.dev, SHADOW_N, SHADOW_N, 1, D3DUSAGE_DEPTHSTENCIL, D3DFMT_D24X8,
+                                                            D3DPOOL_DEFAULT, &X.shadow_tex, NULL))
+        || FAILED(X.shadow_hr = IDirect3DTexture9_GetSurfaceLevel(X.shadow_tex, 0, &X.shadow_ds))) return;
+    X.shadow_step = "the colour target";
+    if (FAILED(X.shadow_hr = IDirect3DDevice9_CreateRenderTarget(X.dev, SHADOW_N, SHADOW_N, D3DFMT_X8R8G8B8, D3DMULTISAMPLE_NONE,
+                                                                 0, FALSE, &X.shadow_rt, NULL))
+        || FAILED(X.shadow_hr = IDirect3DDevice9_GetRenderTarget(X.dev, 0, &X.main_rt))
+        || FAILED(X.shadow_hr = IDirect3DDevice9_GetDepthStencilSurface(X.dev, &X.main_ds))) return;
+    X.shadow_step = "CreatePixelShader";
+    X.shadow_hr = IDirect3DDevice9_CreatePixelShader(X.dev, ps2_shadow_code, &X.ps_shadow);
+}
+
+/* Row G's first pass, every frame: the depth texture cleared to 1, then a
+ * square over its middle half whose depth runs from 0.25 at its left edge
+ * to 0.75 at its right */
+static void shadow_pass(void)
+{
+    struct vtx_rhw_c s[4];
+    int i;
+    for (i = 0; i < 4; i++) {
+        s[i].x = i == 1 || i == 2 ? 47.5f : 15.5f; s[i].y = i >= 2 ? 47.5f : 15.5f;
+        s[i].z = i == 1 || i == 2 ? 0.75f : 0.25f; s[i].rhw = 1.0f; s[i].color = 0xffffffff;
+    }
+    IDirect3DDevice9_SetRenderTarget(X.dev, 0, X.shadow_rt);
+    IDirect3DDevice9_SetDepthStencilSurface(X.dev, X.shadow_ds);
+    IDirect3DDevice9_Clear(X.dev, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xff000000, 1.0f, 0);
+    IDirect3DDevice9_BeginScene(X.dev);
+    IDirect3DDevice9_SetVertexShader(X.dev, NULL);
+    IDirect3DDevice9_SetPixelShader(X.dev, NULL);
+    IDirect3DDevice9_SetTexture(X.dev, 0, NULL);
+    IDirect3DDevice9_SetRenderState(X.dev, D3DRS_ZENABLE, D3DZB_TRUE);
+    IDirect3DDevice9_SetRenderState(X.dev, D3DRS_ZWRITEENABLE, TRUE);
+    IDirect3DDevice9_SetRenderState(X.dev, D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    IDirect3DDevice9_SetFVF(X.dev, D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+    IDirect3DDevice9_DrawPrimitiveUP(X.dev, D3DPT_TRIANGLEFAN, 2, s, sizeof(s[0]));
+    IDirect3DDevice9_EndScene(X.dev);
+    IDirect3DDevice9_SetRenderTarget(X.dev, 0, X.main_rt);
+    IDirect3DDevice9_SetDepthStencilSurface(X.dev, X.main_ds);
+}
+
+/* Row G's second pass, in the frame's scene: a 64x64 square at the left
+ * edge (quad A's orbit reaches x 138) samples the depth texture texel for
+ * pixel, point filtered, its reference depth running from 0 at the top to
+ * 1 at the bottom, so the shadowed part of the middle square is a triangle */
+static void shadow_draw(void)
+{
+    struct vtx_rhw_t4 q[4];
+    int i;
+    for (i = 0; i < 4; i++) {
+        int r = i == 1 || i == 2, b = i >= 2;
+        q[i].x = r ? 71.5f : 7.5f; q[i].y = b ? 175.5f : 111.5f; q[i].z = 0.5f; q[i].rhw = 1.0f;
+        q[i].u = (float)r; q[i].v = (float)b; q[i].r = (float)b; q[i].q = 1.0f;
+    }
+    IDirect3DDevice9_SetVertexShader(X.dev, NULL);
+    IDirect3DDevice9_SetPixelShader(X.dev, X.ps_shadow);
+    IDirect3DDevice9_SetFVF(X.dev, FVF_RHW_T4);
+    IDirect3DDevice9_SetTexture(X.dev, 0, (IDirect3DBaseTexture9 *)X.shadow_tex);
+    IDirect3DDevice9_SetSamplerState(X.dev, 0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    IDirect3DDevice9_SetSamplerState(X.dev, 0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    IDirect3DDevice9_SetSamplerState(X.dev, 0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    IDirect3DDevice9_SetSamplerState(X.dev, 0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    IDirect3DDevice9_SetSamplerState(X.dev, 0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    IDirect3DDevice9_DrawPrimitiveUP(X.dev, D3DPT_TRIANGLEFAN, 2, q, sizeof(q[0]));
+    IDirect3DDevice9_SetTexture(X.dev, 0, NULL);
+    IDirect3DDevice9_SetPixelShader(X.dev, NULL);
+}
+
 static int set_states(void)
 {
     static const float tint[4] = { 1.0f, 0.9f, 0.8f, 1.0f };
@@ -474,6 +581,7 @@ static int render(void)
     m_identity(&world);
     m_mul(&world, &rot, &world);
 
+    if (X.ps_shadow) shadow_pass();
     IDirect3DDevice9_Clear(X.dev, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xff101828, 1.0f, 0);
     {   /* 80 rects in one Clear: more than one record carries (64) */
         D3DRECT r[80];
@@ -552,6 +660,8 @@ static int render(void)
         IDirect3DDevice9_SetVertexShader(X.dev, NULL);
         IDirect3DDevice9_SetPixelShader(X.dev, NULL);
     }
+    /* row G: the depth texture the first pass filled, as a shadow map */
+    if (X.ps_shadow) shadow_draw();
     IDirect3DDevice9_EndScene(X.dev);
 
     if (G.o.dump_frame >= 0 && (int)G.frame == G.o.dump_frame) {
@@ -625,6 +735,7 @@ int main(int argc, char **argv)
     game_log("d3dfeat9: device %dx%d %s", G.o.w, G.o.h, G.o.fullscreen ? "fullscreen" : "windowed");
     if (!make_resources() || !set_states()) return 1;
     make_vtf(&caps);
+    make_shadow();
     /* shadowed getters must return what was set */
     IDirect3DDevice9_GetVertexShaderConstantI(X.dev, 0, ic, 1);
     IDirect3DDevice9_GetVertexShaderConstantB(X.dev, 0, bc, 1);
@@ -637,6 +748,8 @@ int main(int argc, char **argv)
              (unsigned long)X.rt16_hr, X.rt16[0], X.rt16[1], X.rt16[2], X.rt16[3], X.rt16[4], X.rt16[5], X.rt16[6], X.rt16[7]);
     game_log("d3dfeat9: getters 4: vs_3_0 vertex texture fetch from R32F: %s 0x%08lx, row F %s",
              X.vtf_step, (unsigned long)X.vtf_hr, X.vs3 ? "drawn" : "left out");
+    game_log("d3dfeat9: getters 5: D24X8 depth texture as a shadow map: %s 0x%08lx, row G %s",
+             X.shadow_step, (unsigned long)X.shadow_hr, X.ps_shadow ? "drawn" : "left out");
     X.loader = CreateThread(NULL, 0, loader_main, NULL, 0, NULL);
 
     while (!G.quit && game_pump()) {

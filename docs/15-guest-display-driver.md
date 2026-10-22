@@ -1561,6 +1561,15 @@ layer since M16 step 5, doc 19).
   ADDRESSW 25, and 29..31 for sRGB read, element index and displacement
   offset (the host's `sampler_state`). ADDRESSW went to
   `SetTextureStageState` before, where D3D9 has no such state.
+- **Depth textures** (2026-10-19, M25). The core's format list gives D16,
+  D24X8 and D24S8 `D3DFORMAT_OP_TEXTURE` too, so `CheckDeviceFormat(
+  D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE)` passes; the surface arrives
+  with `DDSCAPS_TEXTURE | DDSCAPS_ZBUFFER` and the host makes it a
+  `D3DUSAGE_DEPTHSTENCIL` texture, level 0 the depth buffer, sampled with
+  DXVK's depth compare (the era's NVIDIA shadow maps) and never uploaded
+  from VRAM. D3DFEAT9's row G fills one as a pass's depth buffer and
+  samples it from a ps_2_0, byte for byte as natively through XP's and
+  Win98's own `d3d9.dll` (2026-10-22, M16's track doc).
 - **Lazy targets.** `d3d9.dll` sends a SetRenderTarget and the viewport
   it resets at the next draw or clear, not when called. A surface
   released while still the context's target is forgotten by the context

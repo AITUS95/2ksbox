@@ -34,8 +34,18 @@ game asks for) into the core's format list (`core_caps.c`), so the XP
 and 9x drivers answer it too; their surface with `DDSCAPS_TEXTURE |
 DDSCAPS_ZBUFFER` reaches the host with both caps, and the executor makes
 it a `D3DUSAGE_DEPTHSTENCIL` texture. The user ran a game's hardware
-shadows on XP with it (2026-10-20); not yet run on Win98
-(`tracks/m25-d3d11-umd.md`).
+shadows on XP with it (2026-10-20; `tracks/m25-d3d11-umd.md`). On
+2026-10-22 D3DFEAT9 got row G for it: a 64x64 D24X8
+`D3DUSAGE_DEPTHSTENCIL` texture is the depth buffer of a pass of its own
+each frame (cleared to 1, a square whose depth runs 0.25 to 0.75 across
+it, pre-transformed, beside a colour target of its size), then a ps_2_0
+samples it point-filtered with a reference depth running down the quad
+in `t0.z`, so the shadowed part is a triangle; "getters 5" says whether
+it was drawn. On Win98 (`tools/win98-dx9-test.sh` on the PC, `base98-br`,
+TCG) it draws through Win98's own `d3d9.dll` and the 9x HAL, F9
+byte-identical to the native DXVK frame and the lines equal, all 18
+checks passing; on XP (`tools/xp-dx9-test.sh`, `basexp-br`) the same.
+A game's shadows on Win98 are still the user's to try.
 
 On 2026-10-21 vertex texture fetch got its first check: D3DFEAT9's row
 F, a vs_3_0 grid lifted and coloured by an R32F heightmap it
