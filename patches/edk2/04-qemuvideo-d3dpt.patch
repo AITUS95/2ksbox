@@ -1,0 +1,22 @@
+diff --git a/OvmfPkg/QemuVideoDxe/Driver.c b/OvmfPkg/QemuVideoDxe/Driver.c
+index 6feca83..37f2c55 100644
+--- a/OvmfPkg/QemuVideoDxe/Driver.c
++++ b/OvmfPkg/QemuVideoDxe/Driver.c
+@@ -51,6 +51,17 @@ QEMU_VIDEO_CARD  gQemuVideoCardList[] = {
+     0x1111,
+     QEMU_VIDEO_BOCHS_MMIO,
+     L"QEMU Standard VGA (secondary)"
++  },{
++    //
++    // 2ksbox's d3dpt-vga (doc 15): QEMU's VGA core with the Bochs VBE
++    // ports, VRAM at BAR 0, no Bochs MMIO BAR (so the port-IO fallback
++    // below), the firmware's only screen on a Windows 11 machine
++    //
++    PCI_CLASS_DISPLAY_VGA,
++    0x1234,
++    0x3d00,
++    QEMU_VIDEO_BOCHS_MMIO,
++    L"2ksbox d3dpt-vga"
+   },{
+     PCI_CLASS_DISPLAY_VGA,
+     0x1b36,

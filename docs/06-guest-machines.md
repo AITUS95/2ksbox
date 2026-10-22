@@ -293,7 +293,11 @@ Every era family offers a choice (`bundle::Video`, the bundle's
 `video`). x64 Windows 11 has the standard VGA, with a fixed
 `virtio-gpu-pci` beside it (2026-10-08), and Windows 11 on Arm `ramfb`
 plus `virtio-gpu-pci`; on either, our adapter is the other choice, in
-place of the virtio-gpu (tracks M20, M25). It is experimental and needs
+place of the virtio-gpu (tracks M20, M25); on x64 it is then the only
+adapter (2026-10-22): our EDK2 drives it for the firmware
+(`patches/edk2/04`), so the firmware, Windows Setup and Basic Display show
+on it, and there is no second screen for Windows to extend the desktop
+onto. On Arm `ramfb` stays beside it. It is experimental and needs
 Windows' test mode, so the form names it "(experimental)", asks before it
 takes it (`wizard::Form::video_question`, a warning alert, Cancel the
 default) and warns under the picker while it is the pick

@@ -384,7 +384,8 @@ fn map_share() {
 /// (track M24; the user, 2026-10-09): the virtio-gpu's (viogpudo) or our
 /// own d3dpt-vga's (the WDDM driver, track M20 step 5). A Windows 11
 /// machine keeps a second card, the standard VGA on x64 and ramfb on Arm,
-/// for setup (which has no driver for either) and recovery, and Windows
+/// for setup (which has no driver for either) and recovery (not x64 on
+/// d3dpt-vga since 2026-10-22: our firmware drives it), and Windows
 /// extends the desktop onto both: while the other card's screen is on,
 /// DWM composes on dxgkrnl's simulated 64 Hz blank, not the paravirtual
 /// card's, whichever screen is the primary (M20 step 5, 2026-10-09), and

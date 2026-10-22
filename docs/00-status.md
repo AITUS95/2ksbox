@@ -359,7 +359,9 @@ tracks, plus the items no track owns.
     agent applies it, the driver makes it a custom mode in its and the
     monitor's lists, the agent sets it; doc 15 "The desktop following the
     window"; by hand on the PC's test machine, not yet on Arm or through a
-    launcher machine's own agent). Left: `FRAMES` on the host's blank for
+    launcher machine's own agent). x64 Windows 11 on our adapter has it
+    alone since the same day (EDK2 patch 04 drives it for the firmware;
+    no standard VGA, no second screen; doc 06). Left: `FRAMES` on the host's blank for
     98 / XP (the user saw 3D games judder).
 11. **M24, our viogpudo** (`tracks/m24-viogpudo.md`): on x64 Windows 11
     (the PC) the guest's blank follows the host screen (72 Hz on 144),

@@ -2094,6 +2094,20 @@ display_adapter_check() { # the wizard's adapter picker, from a combo box to a r
   else
     echo "dos: --wizard-edit std failed"; rc=1
   fi
+  # x64 Windows 11 on our adapter has it alone (track M20, 2026-10-22): our
+  # EDK2 drives it for the firmware (patches/edk2/04), so the standard VGA,
+  # whose screen Windows extended the desktop onto, is gone. Arm's firmware
+  # screen is ramfb, another question.
+  case "$(uname -m)" in x86_64)
+    if bundle="$($LAUNCHERX --new win11 adapter-win11 "$dir/disk.qcow2")" \
+       && $LAUNCHERX --wizard-edit "$bundle" - - - - - - - d3dpt >/dev/null; then
+      args="$($LAUNCHERX --print-args "$bundle")"
+      case "$args" in *"-device d3dpt-vga,irq=on"*) ;; *) echo "win11: our adapter did not arrive"; echo "$args"; rc=1;; esac
+      case "$args" in *"-vga std"*) echo "win11: the standard VGA is still there beside ours"; echo "$args"; rc=1;; esac
+    else
+      echo "win11: --new / --wizard-edit d3dpt failed"; rc=1
+    fi ;;
+  esac
   # Every adapter on every family, on the real binary: started paused and
   # told to quit, so a machine QEMU will not build is an exit code.
   if [ -x $QSYS ] && [ -x $QIMG ]; then

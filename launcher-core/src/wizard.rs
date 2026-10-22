@@ -1281,7 +1281,7 @@ impl Form {
             ],
             (Video::D3dpt, Family::Win11) => &[
                 "2ksbox's own display adapter and driver: Direct3D 9, 10 and 11 through the driver, the full mode table.",
-                "Install the driver from the guest tools disc's WDDM64 folder (wddm-install.ps1), then restart. Until then Windows draws on the standard VGA.",
+                "Install the driver from the guest tools disc's WDDM64 folder (wddm-install.ps1), then restart. Until then Windows draws on it with its basic driver.",
             ],
             (Video::Std, Family::Win7) => &[
                 "Windows drives it with its own VGA driver. 2D only: no Aero and no Direct3D through a driver.",

@@ -1844,10 +1844,12 @@ impl Machine {
     fn video_args(&self) -> Vec<String> {
         const RETRACE: &str = ",retrace=precise";
         let mut args = vec!["-vga".to_string(), format!("none{RETRACE}")];
-        // x64 Windows 11 on ours: the standard VGA stays for the firmware,
-        // which has no driver for d3dpt-vga, and for Windows until the
-        // WDDM driver starts; ours comes after it, so the player follows
-        // it once the driver draws (`embed_live_console`). With its
+        // x64 Windows 11 on ours, alone: our EDK2 drives it as a Bochs
+        // card (patches/edk2/04), so the firmware, Windows Setup and Basic
+        // Display (recovery, a driver that does not start) show on it,
+        // and Windows has no second screen to extend the desktop onto
+        // (until 2026-10-22 the standard VGA came first for the firmware,
+        // and the agent turned its screen off). With its
         // interrupt, as on Windows 7, and no fixed slot: the q35's xHCI
         // may hold 2. With 512 MiB of video memory (the device's most):
         // the WDDM driver offers a widescreen size only where six of its
@@ -1861,7 +1863,8 @@ impl Machine {
                 dev.push_str(",d3d9=");
                 dev.push_str(which);
             }
-            return vec!["-vga".into(), format!("std{RETRACE}"), "-device".into(), dev];
+            args.extend(["-device".into(), dev]);
+            return args;
         }
         if let Some(video) = self.effective_video() {
             let [flag, value] = video.args();
