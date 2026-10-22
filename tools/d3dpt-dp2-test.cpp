@@ -48,8 +48,12 @@ static int failures;
 /* the executor runs on a D3D9 that is not our DXVK (D3DPT_D3D9=system, the
  * Wine executor): what only our DXVK is told (WINFO's W range) is not checked */
 static bool native_d3d9;
+static int lost_seen, reset_ok, reset_failed;     /* the executor's lost-device lines (reset_device) */
 static void cb_log(void *, const char *m) {
     if (strstr(m, "this host's own Direct3D 9")) native_d3d9 = true;
+    if (strstr(m, "Direct3D device was lost")) lost_seen++;
+    if (strstr(m, "Reset of the lost device -> 0x00000000")) reset_ok++;
+    else if (strstr(m, "Reset of the lost device -> ")) reset_failed++;
     printf("exec: %s\n", m);
 }
 static void cb_active(void *, int on) { printf("exec: 3D %s\n", on ? "on" : "off"); }
@@ -278,6 +282,52 @@ static uint32_t send_dp2(d3dpt_enc *e, const Dp2Buf &d, const std::vector<tlv> &
 }
 
 static uint32_t readback(d3dpt_enc *e, uint32_t handle) { return d3dpt_enc_sync(e, D3DPT_OP_READBACK, handle); }
+
+#ifdef _WIN32
+/* On D3DPT_D3D9=system, last, once every case has left its objects on the
+ * device (multisampled targets and their resolves, several targets, cubes,
+ * state sets) and the scene's target, depth buffer and texture are bound:
+ * the executor's lost-device path, Reset and the scene drawn again from
+ * VRAM, with an event query issued and alive as DWM keeps them. Windows'
+ * own Reset refuses (D3DERR_INVALIDCALL) while one is (track M20: on
+ * Windows 11 every Reset failed so, and nothing was drawn again).
+ * D3DPT_EXEC_RESET=1 makes the executor take the path at its next batch on
+ * a device that was not lost (Reset's rules are the same); losing it for
+ * real takes a mode set of the desktop, which a same-mode CDS_RESET does
+ * not reliably make. */
+static void reset_device(d3dpt_enc *enc, const Dp2Buf &d, const std::vector<tlv> &vtx)
+{
+    enum { H_QUERY = 900 };
+    memset(vram + TEX_OFF, 0x40, TEX * TEX_PITCH);
+    vram_surface(enc, H_TEX, TEX_OFF, TEX, TEX, TEX_PITCH, D3DFMT_A8R8G8B8, D3DPT_VS_TEXTURE);
+    uint32_t off = d3dpt_enc_ret(enc, 0);
+    d3dpt_create_query *cq = (d3dpt_create_query *)d3dpt_enc_cmd(enc, D3DPT_OP_CREATE_QUERY, sizeof *cq, 0);
+    *cq = { H_QUERY, off, D3DQUERYTYPE_EVENT, 0 };
+    d3dpt_enc_flush(enc);
+    CHECK(enc->last_status == 0 && d3dpt_enc_result(enc, off)->hr == 0, "an event query (hr 0x%08x)", d3dpt_enc_result(enc, off)->hr);
+    send_dp2(enc, d, vtx);
+    { d3dpt_u32x2 *is = (d3dpt_u32x2 *)d3dpt_enc_cmd(enc, D3DPT_OP_QUERY_ISSUE, sizeof *is, 0); *is = { H_QUERY, D3DISSUE_END }; }
+    readback(enc, H_RT);
+    SetEnvironmentVariableA("D3DPT_EXEC_RESET", "1");
+    send_dp2(enc, d, vtx);
+    readback(enc, H_RT);
+    CHECK(lost_seen == 1, "the executor took its lost-device path (%d)", lost_seen);
+    CHECK(reset_ok == 1 && reset_failed == 0, "the device was Reset with the query alive (%d ok, %d failed)", reset_ok, reset_failed);
+    CHECK(near_(px(104, 84), 0x404040, 2) && near_(px(480, 240), 0xffffff, 2),
+          "the scene drawn again after the Reset (0x%06x 0x%06x)", px(104, 84), px(480, 240));
+    /* the query under its handle again, made anew and ended: DWM's wait ends */
+    uint32_t hr = 1;
+    for (int i = 0; i < 1000 && hr == 1; i++) {
+        off = d3dpt_enc_ret(enc, 4);
+        d3dpt_query_get *g = (d3dpt_query_get *)d3dpt_enc_cmd(enc, D3DPT_OP_QUERY_GET_DATA, sizeof *g, 0);
+        *g = { H_QUERY, off, D3DGETDATA_FLUSH, 4 };
+        d3dpt_enc_flush(enc);
+        hr = enc->last_status ? 0xffff0000u | enc->last_status : d3dpt_enc_result(enc, off)->hr;
+        if (hr == 1) Sleep(1);
+    }
+    CHECK(hr == 0, "the event query answers after the Reset (0x%08x)", hr);
+}
+#endif
 
 int main(int argc, char **argv) {
     const char *out = argc > 1 ? argv[1] : "d3dpt-dp2-test.bmp";
@@ -1672,6 +1722,9 @@ int main(int argc, char **argv) {
         hr = send_dp2(&enc, d, vtx);
         CHECK(hr == 0, "the scene draws on the re-created context (0x%08x)", hr);
     }
+#ifdef _WIN32
+    if (native_d3d9) reset_device(&enc, d, vtx);
+#endif
 
     p_attach(X, 0);
     p_destroy(X);

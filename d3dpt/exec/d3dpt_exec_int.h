@@ -61,7 +61,9 @@ void exec_d11_release(Exec &x);
 
 enum Kind : uint8_t { K_NONE, K_QUERY };
 
-struct Obj { Kind kind; IUnknown *p; };
+/* p is null for a query a device reset released (it holds the Reset
+ * back otherwise): made again at its next use, issued again if it was */
+struct Obj { Kind kind; IUnknown *p; uint32_t type = 0; uint32_t issued = 0; };
 
 struct Exec {
     d3dpt_exec_ops ops;

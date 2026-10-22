@@ -191,7 +191,7 @@ What differs from Linux, so a failure there reads right:
 | `preview-anim` | the shader preview: a still preset is one picture at any frame, an animated one is not |
 | `embed-3d` | `tools/embed-3d-test.c` (Linux) |
 | `d3dpt-dp2` | `tools/d3dpt-dp2-test.cpp` |
-| `d3dpt-dp2-system` | Windows only: the same test with `D3DPT_D3D9=system`, the executor on Windows' own `d3d9.dll` (a host below the Vulkan floor) |
+| `d3dpt-dp2-system` | Windows only: the same test with `D3DPT_D3D9=system`, the executor on Windows' own `d3d9.dll` (a host below the Vulkan floor), ending with the lost-device path (`D3DPT_EXEC_RESET=1`, track M20): `Reset` with an issued event query alive, the scene drawn again from VRAM, the query answering under its handle |
 | `d3dpt-gdi` | Windows only: `tools/d3dpt-gdi-test.cpp`, the executor's GDI records (protocol v27 / v29, every RenderKm operation) against this PC's own GDI; SKIP without Direct3D 11 |
 | `exec-wine` | the same test through the Wine executor; its frame must equal the in-process one. An autogen texture's 1x1 level may be either average of its halves: Wine's d3d9 on Apple's OpenGL mixes in linear light (0xbc where DXVK gives 0x7f; D3D9 leaves the filter to the driver) |
 | `exec-no-device` | the dp2 test with both Vulkan loader variables at a missing file, so DXVK's constructor throws out of `Direct3DCreate9`; it must end in the test's own exit 77, never a signal (DXVK patches 09 and 16, the executor's once-per-library rule) |

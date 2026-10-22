@@ -71,6 +71,26 @@ static bool need_device(Batch &b) {
     return true;
 }
 
+/* a guest's query by handle, made again after a device reset released it;
+ * null when there is none, or while the device is lost (a query made then
+ * would hold the next Reset back) */
+static IDirect3DQuery9 *query(Batch &b, uint32_t h, bool *gone) {
+    Exec &x = b.x;
+    auto it = x.objs.find(h);
+    if (it == x.objs.end() || it->second.kind != K_QUERY) { b.err = D3DPT_ERR_BAD_HANDLE; return nullptr; }
+    Obj &o = it->second;
+    if (!o.p) {
+        IDirect3DQuery9 *q = nullptr;
+        if (x.lost || !x.dev || FAILED(x.dev->CreateQuery((D3DQUERYTYPE)o.type, &q)) || !q) { *gone = true; return nullptr; }
+        /* an ended query (an event: DWM waits on it) ends again; one with
+         * a begin (occlusion) begins first */
+        if ((o.issued & D3DISSUE_BEGIN) || ((o.issued & D3DISSUE_END) && o.type != D3DQUERYTYPE_EVENT)) q->Issue(D3DISSUE_BEGIN);
+        if (o.issued & D3DISSUE_END) q->Issue(D3DISSUE_END);
+        o.p = q;
+    }
+    return static_cast<IDirect3DQuery9 *>(o.p);
+}
+
 /* The records below are the few this file still answers itself: the
  * queries, and releasing one. Every other op is the display driver's
  * (d3dpt_exec_ddi.cpp). */
@@ -83,7 +103,7 @@ static void exec_one(Batch &b, const d3dpt_cmd *c) {
         auto *a = body<d3dpt_handle>(c, 0, b); if (!a) return;
         auto it = x.objs.find(a->handle);
         if (it == x.objs.end()) { b.err = D3DPT_ERR_BAD_HANDLE; return; }
-        it->second.p->Release();
+        if (it->second.p) it->second.p->Release();
         x.objs.erase(it);
         break;
     }
@@ -94,21 +114,33 @@ static void exec_one(Batch &b, const d3dpt_cmd *c) {
         IDirect3DQuery9 *q = nullptr;
         r->hr = (uint32_t)x.dev->CreateQuery((D3DQUERYTYPE)a->type, &q);
         if (SUCCEEDED(r->hr) && !x.put(a->handle, K_QUERY, q)) { r->hr = (uint32_t)D3DERR_INVALIDCALL; b.err = D3DPT_ERR_BAD_HANDLE; }
+        else if (SUCCEEDED(r->hr)) x.objs[a->handle].type = a->type;
         break;
     }
     case D3DPT_OP_QUERY_ISSUE: {
         auto *a = body<d3dpt_u32x2>(c, 0, b); if (!a) return;
-        IDirect3DQuery9 *q = x.get<IDirect3DQuery9>(a->a, K_QUERY);
-        if (!q) { b.err = D3DPT_ERR_BAD_HANDLE; return; }
-        q->Issue(a->b & (D3DISSUE_BEGIN | D3DISSUE_END));
+        bool gone = false;
+        IDirect3DQuery9 *q = query(b, a->a, &gone);
+        if (!q && !gone) return;
+        x.objs[a->a].issued = a->b & (D3DISSUE_BEGIN | D3DISSUE_END);
+        if (q) q->Issue(a->b & (D3DISSUE_BEGIN | D3DISSUE_END));
         break;
     }
     case D3DPT_OP_QUERY_GET_DATA: {
         auto *a = body<d3dpt_query_get>(c, 0, b); if (!a) return;
         if (a->size > 256) { b.err = D3DPT_ERR_BAD_ARG; return; }
         d3dpt_ret *r = b.slot(a->ret_off, a->size); if (!r) return;
-        IDirect3DQuery9 *q = x.get<IDirect3DQuery9>(a->handle, K_QUERY);
-        if (!q) { b.err = D3DPT_ERR_BAD_HANDLE; return; }
+        bool gone = false;
+        IDirect3DQuery9 *q = query(b, a->handle, &gone);
+        if (!q && !gone) return;
+        if (!q) {
+            /* the device is lost: nothing is drawn, so the query is done
+             * and counted nothing (DWM must not wait on it meanwhile) */
+            memset(r + 1, 0, a->size);
+            r->hr = S_OK;
+            r->bytes = a->size;
+            break;
+        }
         r->hr = (uint32_t)q->GetData(a->size ? (void *)(r + 1) : nullptr, a->size, a->flags & D3DGETDATA_FLUSH);
         r->bytes = r->hr == S_OK ? a->size : 0;
         break;
@@ -207,11 +239,31 @@ HRESULT exec_create_device(Exec &x, UINT adapter, DWORD flags, D3DPRESENT_PARAME
 /* Native only: has the device been lost (a driver reset, a mode switch by
  * something else on the desktop), and can it be brought back? DXVK's
  * device is never lost, so nothing asks there. Called once per batch:
- * TestCooperativeLevel is a cheap state read. */
+ * TestCooperativeLevel is a cheap state read.
+ *
+ * Reset refuses (D3DERR_INVALIDCALL) while anything of the default pool is
+ * alive, and so, Windows' own Direct3D 9 measured, does an issued event
+ * query: the guest's (DWM waits on them) are released with everything
+ * else and made again at their next use. Before that every Reset failed,
+ * 38 times in a row, and Windows 11 froze (track M20).
+ *
+ * D3DPT_EXEC_RESET=1 in the process's environment runs the path once on a
+ * device that was not lost (Reset's rules are the same), and clears
+ * itself: the host test's way in, since losing a device for real takes a
+ * mode set of the desktop. Read from the process's block, not the C
+ * runtime's copy, so a test can set it between batches. */
 static void check_lost(Exec &x)
 {
     if (!x.native || !x.dev) return;
     HRESULT hr = x.dev->TestCooperativeLevel();
+#ifdef _WIN32
+    char force[4];
+    if (SUCCEEDED(hr) && GetEnvironmentVariableA("D3DPT_EXEC_RESET", force, sizeof force) && force[0] == '1') {
+        SetEnvironmentVariableA("D3DPT_EXEC_RESET", nullptr);
+        x.log("D3DPT_EXEC_RESET: the device reset as if it had been lost");
+        hr = D3DERR_DEVICENOTRESET;
+    }
+#endif
     if (SUCCEEDED(hr)) {
         if (x.lost) { x.log("the Direct3D device is back"); x.lost = false; }
         return;
@@ -225,6 +277,10 @@ static void check_lost(Exec &x)
     /* everything in the default pool has to go before a Reset, and is
      * made again from guest VRAM afterwards */
     exec_ddi_device_reset(x);
+    size_t queries = 0;
+    for (auto &kv : x.objs)
+        if (kv.second.kind == K_QUERY && kv.second.p) { kv.second.p->Release(); kv.second.p = nullptr; queries++; }
+    if (queries) x.log("%zu queries released for the reset; each is made again at its next use", queries);
     D3DPRESENT_PARAMETERS pp = x.last_pp;
     hr = x.dev->Reset(&pp);
     x.log("Reset of the lost device -> 0x%08x", (unsigned)hr);

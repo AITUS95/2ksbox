@@ -240,7 +240,13 @@ is faster. Everything it refuses and DXVK accepts sits behind
   StretchRect and readback;
 - `TestCooperativeLevel` once per batch, `Reset` on loss, and
   `exec_ddi_device_reset` drops the DEFAULT-pool mirror so every surface
-  is read from guest VRAM again;
+  is read from guest VRAM again; the guest's queries are released too and
+  made again (issued again) at their next use, because Windows' `Reset`
+  refuses with an issued event query alive (`D3DERR_INVALIDCALL`; on
+  Windows 11 DWM keeps one, and every Reset failed, track M20), and while
+  the device is lost a query answers S_OK with nothing counted.
+  `D3DPT_EXEC_RESET=1` in the process's environment takes the path once on
+  a device that was not lost (the host test's `reset_device`);
 - hardware vertex processing, and a windowed back-buffer format not the
   desktop's, are retried rather than refused;
 - NVIDIA's d3d9 lists `D3DFMT_L6V5U5` and draws it with no luminance, so
