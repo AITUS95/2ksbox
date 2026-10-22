@@ -73,7 +73,10 @@ switch ($verb) {
   }
   'test'    {
     if ($rest.Count -eq 0) { $rest = @('all') }
-    Invoke-Mingw (@('scripts/test.sh') + $rest)
+    # from a copy (it finds the tree from build/..): bash reads a running
+    # script as it goes, and an edit to scripts/test.sh during a run broke it
+    Copy-Item (Join-Path $PSScriptRoot 'test.sh') (Join-Path $PSScriptRoot '..\build\test-run.sh') -Force
+    Invoke-Mingw (@('build/test-run.sh') + $rest)
   }
   'package' { Invoke-Mingw (@('scripts/package-windows.sh') + $rest) }
   'drivers' {
