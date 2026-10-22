@@ -32,17 +32,36 @@ xdt() { OUT="$OUT" DRIVER_ISO="$ISO" bash "$XDT" "$OUT/xp.qcow2" "$@"; }
 # The installed driver is kept (CACHE): the install, a restart and the wait
 # for the driver were 5 of the run's 6.5 minutes on the PC (2026-10-22). The
 # key is what the install depends on: the image (path, size, time), the
-# driver on the ISO (DRIVER\'s names and contents, not its timestamps) and
-# the install procedure (xp-driver-test.sh); anything else changed, the
-# driver is installed again, and the cache keeps only the last. The scratch
-# disk is kept with it: XP gives a new disk the next free letter, not E:.
-# FRESH=1 installs anyway. A run from the cache still has to show the
-# driver up on its own boot ("linear mode on", below).
+# files the install takes from the ISO (the driver, its INF and DRVINST)
+# and the install procedure (xp-driver-test.sh); anything else changed, the
+# driver is installed again, and the cache keeps only the last. The files
+# are hashed with their PE time stamps and checksum zeroed: the ISO is
+# rebuilt whenever any guest source changes, and a rebuild of the same
+# driver differs in nothing else (2026-10-22: a WDDM change reinstalled
+# XP's driver). The scratch disk is kept with it: XP gives a new disk the
+# next free letter, not E:. FRESH=1 installs anyway. A run from the cache
+# still has to show the driver up on its own boot ("linear mode on", below).
 CACHE="$(gw_path "$(realpath -m "${XPDX9_CACHE:-$ROOT/build/test/xpdx9-cache}")")"
+INST="$OUT/inst-files"; mkdir -p "$INST"
+bsdtar -xf "$ISO" -C "$INST" $(bsdtar -tf "$ISO" 2>/dev/null \
+  | grep -i -E '^DRIVER/(D3DPTVID\.SYS|D3DPTDISP\.DLL|D3DPTVID\.INF|DRVINST\.EXE)$') 2>/dev/null
 KEY=$( { echo "$(realpath "$IMG") $(stat -c '%s %Y' "$IMG")"
          cat "$ROOT/tools/xp-driver-test.sh"
-         bsdtar -tf "$ISO" 2>/dev/null | grep -i '^DRIVER/' | sort
-         bsdtar -xOf "$ISO" DRIVER 2>/dev/null; } | sha256sum | cut -c1-16)
+         python3 - "$INST" <<'PY'
+import os, struct, sys
+for top, _, names in sorted(os.walk(sys.argv[1])):
+    for name in sorted(names):
+        b = open(os.path.join(top, name), "rb").read()
+        if b[:2] == b"MZ":
+            pe = struct.unpack_from("<I", b, 0x3c)[0]
+            stamp = b[pe + 8:pe + 12]
+            b = b[:pe + 88] + b"\0" * 4 + b[pe + 92:]      # CheckSum
+            if stamp != b"\0" * 4:
+                b = b.replace(stamp, b"\0" * 4)              # every TimeDateStamp
+        sys.stdout.buffer.write(name.upper().encode() + b"\0" + b)
+PY
+       } | sha256sum | cut -c1-16)
+rm -rf "$INST"
 if [ -z "${FRESH:-}" ] && [ -f "$CACHE/$KEY.qcow2" ] && [ -f "$CACHE/$KEY.scratch" ]; then
   echo "==> the driver installed already ($CACHE/$KEY.qcow2)"
   cp "$CACHE/$KEY.scratch" "$OUT/scratch.img"

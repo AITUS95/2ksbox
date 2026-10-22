@@ -211,7 +211,9 @@ exists):
 `tools/xp-dx9-test.sh` makes a fresh overlay on `WINXP_IMG`, installs the
 display driver from the newest guest-tools ISO (`xp-driver-test.sh
 install`; kept in `build/test/xpdx9-cache` and installed again only when
-the image, the ISO's `DRIVER\` or the install procedure changed, or with
+the image, the driver files the install takes (hashed without their PE
+time stamps, which every rebuild of the ISO changes) or the install
+procedure changed, or with
 `FRESH=1`: 4.4 minutes against 1.6 on the PC, 2026-10-22; a run from the
 cache must still show the driver up on its own boot), and in a second boot runs DDVMTEST, D3DGAME9, D3DGAME8 and
 D3DFEAT9 through XP's own `ddraw.dll` / `d3d9.dll` / `d3d8.dll` (M16 step
