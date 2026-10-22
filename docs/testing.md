@@ -210,7 +210,10 @@ it) and skip without them. Then XP (Linux and Windows; KVM when `/dev/kvm`
 exists):
 `tools/xp-dx9-test.sh` makes a fresh overlay on `WINXP_IMG`, installs the
 display driver from the newest guest-tools ISO (`xp-driver-test.sh
-install`), and in a second boot runs DDVMTEST, D3DGAME9, D3DGAME8 and
+install`; kept in `build/test/xpdx9-cache` and installed again only when
+the image, the ISO's `DRIVER\` or the install procedure changed, or with
+`FRESH=1`: 4.4 minutes against 1.6 on the PC, 2026-10-22; a run from the
+cache must still show the driver up on its own boot), and in a second boot runs DDVMTEST, D3DGAME9, D3DGAME8 and
 D3DFEAT9 through XP's own `ddraw.dll` / `d3d9.dll` / `d3d8.dll` (M16 step
 7; until then the Direct3D DLLs on Cirrus). Its log is
 `build/test/xpdx9.log`, a run that did not finish is `guest-run`, and a
@@ -321,7 +324,7 @@ another.
 | Tool | Proves / runs |
 |---|---|
 | `tools/x87-fast-test.c` | host oracle for `x87-fast` (above) |
-| `tools/x87-guest-test.py` | a DOS x87 battery, identical with the fast paths on and off; `QEMU_TCG_OPTS=<switch>` runs this and the other DOS batteries under an accelerator switch; `x87-guest` |
+| `tools/x87-guest-test.py` | a DOS x87 battery, identical with the fast paths on and off; `QEMU_TCG_OPTS=<switch>` runs this and the other DOS batteries under an accelerator switch; `x87-guest`. Its results (and `sse-guest`'s) are hashed in the guest, one FNV-1a per 1024 lines (`hashed()`): printing all of them through the 16550 was 23 to 26 MB a run and most of the check's time (157 s and 169 s on the PC, now 28 s and 25 s, 2026-10-22). When the two runs' hashes differ, both run again with the whole output (X87FULL / SSEFULL) and the differing lines are printed as before |
 | `tools/x87-unwind-test.asm` | the x87 shadows are materialised on a fault's unwind (qemu-user, patch 06); run line in its header |
 | `tools/sse-guest-test.py` | every SSE/SSE2 float op over edge-value pairs, `sse-fast` on/off identical, plus the SSEBENCH ratio (patch 11, doc 16); `sse-guest` |
 | `tools/rep-guest-test.py` | 536 `rep movs`/`stos` cases, `rep-fast` on/off identical and equal to a Python model (patch 17); `rep-guest` |
@@ -384,7 +387,7 @@ another.
 | `D3D9MEM.EXE [managed\|default] [n]` | 4 MiB textures in that pool until `CreateTexture` fails: the count, the HRESULT, `GetAvailableTextureMem` before and after and the 32-bit address space left; `C:\2KSBOX\D3D9MEM.LOG` (track M25: at 512 MiB of budget Unigine Heaven's textures failed with no call reaching the driver) |
 | DX8 probes: `CUBETEST STRMTEST VOLTEST FMTTEST BUMPTEST SPRTEST ANISTEST PATCHTST MSAATEST MGDTEST` | one program per D3D8 feature (`guest-tools/src/d3dptvid/*.c` over `d3d8probe.h`), every draw read back. A feature the caps lack ends `(not offered: <why>)`, so the same program becomes the check the day it is offered. Verdict PASS / NOT OFFERED / FAIL; no log is a FAIL |
 | `guest-tools/build-winetests.sh` + `tools/xp-driver-test.sh <image> winetest` | Wine's d3d8 / d3d9 conformance tests (M16, the pinned tag in the script, `patches/winetest/`) through XP's own runtime on our driver. `WTRUN.EXE` runs each test file in its own process under a time cap; `tools/winetest-summary.py` gives a table per file and, against a baseline in `reference/winetest/`, exits 1 on any check failing more than there (`WT_BASELINE=`, `WT_SAVE=`, `WT_TESTS="d3d9:visual"`, `WT_CAP=`). The build's `RUNALL.BAT` runs the same set on the rig. A file that crashes stops there, so its later checks are not counted. `--by-function build/winetest/wine-<tag>` counts the worse keys per test function, and `--baseline rig-xp.txt --split dxvk-wine.txt` marks how many of them DXVK's own run fails too (`rig-xp.txt` is the oracle, `rig-98.txt` Win98's (run with the rig's skip list, `WTSKIP.TXT`), `win11-rtx3090.txt` a modern card for contrast; each one's raw output is in `reference/winetest/logs/<name>/`) |
-| `tools/xp-dx9-test.sh <image> <guest-tools.iso>` | the XP half of the `guest` stage's Direct3D checks, alone: a fresh overlay, the driver installed, then DDVMTEST, D3DGAME9, D3DGAME8 and D3DFEAT9 through XP's own runtime in one boot; leaves the frames and `guest-*.log` in `OUT=` for the caller to judge (about 3 minutes under KVM) |
+| `tools/xp-dx9-test.sh <image> <guest-tools.iso>` | the XP half of the `guest` stage's Direct3D checks, alone: a fresh overlay, the driver installed (or the kept install, above; `FRESH=1`), then DDVMTEST, D3DGAME9, D3DGAME8 and D3DFEAT9 through XP's own runtime in one boot; leaves the frames and `guest-*.log` in `OUT=` for the caller to judge (about 3 minutes under KVM) |
 | `tools/win7-aero-test.sh <win7-x86.iso>` | the `win7-aero` check alone (TCG on the PC: ~20 min for the base, once per disc and edition, ~15 min a run); `REBASE=1` makes the base again, `EDITION=` overrides the disc's own (read from `sources\ei.cfg`), `KEEP=1` leaves the last machine running; `OUT/startmenu.png` is the desktop composed |
 | `tools/udfcat.py <image.iso> <path>` | one file of a UDF disc to stdout: Windows' install discs keep their files in UDF, which xorriso and bsdtar do not read |
 | `tools/win98-cursor-test.sh <image>` | the `win98-cursors` check alone: `CURSORS.EXE` (`guest-tools/src/cursors.c`) sets each `IDC_*` in turn on a raw copy (`RAW=`, `OUT=`) booted in the player (`win98-game-test.sh PLAYER=1`) inside a private headless sway; with `PLAYER_CURSOR_LOG=1` every shape must come back as its standard cursor, in order, and `IDC_UPARROW` as none. Measuring a new family's hashes is the same run, read from `OUT/run/qemu.log` |

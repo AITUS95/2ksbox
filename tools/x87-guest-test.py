@@ -828,6 +828,138 @@ iv: dd 0
 """
 
 
+# The result program's output, hashed (HASHED 1) or whole (HASHED 0). The
+# whole of it was 23 MB (x87) and 26 MB (SSE) a run through the 16550 a
+# byte at a time, 70 to 90 s of the run, which compared two runs of
+# arithmetic that takes seconds. Hashed, every byte goes into an FNV-1a
+# hash, and every 1024 lines the hash goes out as "H <hash>"; at the end
+# "LINES <count>". The two runs' hash lines must match; when they do not,
+# the test runs both again whole and diffs the lines as before
+# (compare_runs). The hash's state is on a page of its own (section .bss,
+# set up by hash_init: DOS does not clear past a .COM's end), since a write
+# to a page of translated code makes TCG invalidate it (SMC).
+HASH_ASM = r"""
+%if HASHED
+putc:                       ; al -> the block's hash; a line feed counts a line
+    cmp byte [h_raw], 0
+    jne uputc
+    push eax
+    push edx
+    movzx edx, al
+    mov eax, [h_val]
+    xor eax, edx
+    imul eax, eax, 01000193h
+    mov [h_val], eax
+    pop edx
+    pop eax
+    cmp al, 10
+    jne .r
+    inc dword [h_lines]
+    inc word [h_n]
+    cmp word [h_n], 1024
+    jb .r
+    call h_emit
+.r: ret
+
+h_emit:                     ; "H <hash>" on COM1; the next block starts
+    push ax
+    mov byte [h_raw], 1
+    mov al, 'H'
+    call uputc
+    mov al, ' '
+    call uputc
+    mov ax, [h_val + 2]
+    call put_hex16
+    mov ax, [h_val]
+    call put_hex16
+    mov al, 10
+    call uputc
+    mov dword [h_val], 811C9DC5h
+    mov word [h_n], 0
+    mov byte [h_raw], 0
+    pop ax
+    ret
+
+hash_init:
+    mov dword [h_val], 811C9DC5h
+    mov dword [h_lines], 0
+    mov word [h_n], 0
+    mov byte [h_raw], 0
+    ret
+
+hash_end:                   ; the last block, the line count; COM1 raw from here (DONE)
+    cmp word [h_n], 0
+    je .c
+    call h_emit
+.c: mov byte [h_raw], 1
+    mov si, str_lines
+    call puts
+    mov ax, [h_lines + 2]
+    call put_hex16
+    mov ax, [h_lines]
+    call put_hex16
+    mov al, 10
+    jmp uputc
+
+str_lines: db "LINES ", 0
+
+section .bss
+    resb 4096               ; a page past the code: DOS loads the segment at any paragraph
+h_val:   resd 1
+h_lines: resd 1
+h_n:     resw 1
+h_raw:   resb 1
+%else
+putc:
+    jmp uputc
+hash_init:
+hash_end:
+    ret
+%endif
+"""
+
+UART_PUTC = "\nputc:                       ; al = char -> COM1 (0x3F8), poll THR empty\n"
+DONE = "\n.done:\n    mov si, str_done\n"
+
+
+def hashed(asm, full=False):
+    """A result program (its putc the 16550's, its end .done printing
+    str_done) with its output hashed, or whole when full."""
+    for marker in (UART_PUTC, "\nstart:\n", DONE):
+        assert asm.count(marker) == 1, marker
+    asm = asm.replace(UART_PUTC, "\nuputc:                      ; al = char -> COM1 (0x3F8), poll THR empty\n")
+    asm = asm.replace("\nstart:\n", "\nstart:\n    call hash_init\n")
+    asm = asm.replace(DONE, "\n.done:\n    call hash_end\n    mov si, str_done\n")
+    return "%%define HASHED %d\n%s%s" % (0 if full else 1, asm, HASH_ASM)
+
+
+def compare_runs(name, a, b, bench, rerun_full):
+    """The off and on runs' output (bench lines, starting with bench, left
+    out) must be equal and end in DONE. Hashed output that differs is run
+    again whole (rerun_full() -> the two outputs) for the lines that do."""
+    strip = lambda d: b"\n".join(l for l in d.split(b"\n") if not l.startswith(bench))
+    a, b = strip(a), strip(b)
+    lines = [l for l in a.split(b"\n") if l.startswith(b"LINES ")]
+    if a == b and b"DONE" in a:
+        n = int(lines[0].split()[1], 16) if lines else a.count(b"\n")
+        print("%s guest test: %d result lines identical with the fast path on and off" % (name, n))
+        return 0
+    if lines:
+        ha = [l for l in a.split(b"\n") if l.startswith(b"H ")]
+        hb = [l for l in b.split(b"\n") if l.startswith(b"H ")]
+        blocks = [i for i, (x, y) in enumerate(zip(ha, hb)) if x != y]
+        print("%s guest test: the hashes differ in %d of %d blocks of 1024 lines (first %s); "
+              "running both again with the whole output" % (name, len(blocks), max(len(ha), len(hb)), blocks[:5]))
+        a, b = (strip(d) for d in rerun_full())
+    n_lines = a.count(b"\n")
+    al, bl = a.split(b"\n"), b.split(b"\n")
+    diffs = [(i, x, y) for i, (x, y) in enumerate(zip(al, bl)) if x != y]
+    print("%s guest test: MISMATCH, %d differing lines of %d" % (name, len(diffs), n_lines))
+    for i, x, y in diffs[:20]:
+        print("  line %d: off=%s on=%s" % (i, x.decode(), y.decode()))
+    return 1
+
+
 def build_asm(entries):
     lines = []
     for low, high in entries:
@@ -885,11 +1017,14 @@ def main():
     ensure_floppy()
     os.makedirs(OUT, exist_ok=True)
     entries = pool_entries()
-    asm = os.path.join(OUT, "x87test.asm")
+    # the result program hashed (X87TEST) and whole (X87FULL, for a mismatch)
     com = os.path.join(OUT, "X87TEST.COM")
-    with open(asm, "w") as f:
-        f.write(build_asm(entries))
-    sh("nasm", "-O0", "-f", "bin", "-o", com, asm)
+    fcom = os.path.join(OUT, "X87FULL.COM")
+    for path, full in ((com, False), (fcom, True)):
+        asm = path[:-4] + ".asm"
+        with open(asm, "w") as f:
+            f.write(hashed(build_asm(entries), full))
+        sh("nasm", "-O0", "-f", "bin", "-o", path, asm)
     basm = os.path.join(OUT, "x87bench.asm")
     bcom = os.path.join(OUT, "X87BENCH.COM")
     with open(basm, "w") as f:
@@ -926,13 +1061,18 @@ def main():
         f.write("!LASTDRIVE=Z\r\n!BUFFERS=20\r\n!FILES=40\r\n"
                 "SHELL=\\FREEDOS\\BIN\\COMMAND.COM \\FREEDOS\\BIN /E:2048 /P=\\FDAUTO.BAT\r\n")
     bat = os.path.join(OUT, "FDAUTO.BAT")
-    with open(bat, "w") as f:
-        f.write("@echo off\r\nX87BENCH.COM\r\nX87BEN24.COM\r\nX87BEN2S.COM\r\n"
-                "LONGBLK.COM\r\n"
-                "X87TEST.COM\r\n")
+
+    def autoexec(text):
+        with open(bat, "w") as f:
+            f.write(text)
+        sh("mcopy", "-o", "-i", img, bat, "::FDAUTO.BAT")
+
+    autoexec("@echo off\r\nX87BENCH.COM\r\nX87BEN24.COM\r\nX87BEN2S.COM\r\n"
+             "LONGBLK.COM\r\n"
+             "X87TEST.COM\r\n")
     sh("mcopy", "-o", "-i", img, cfg, "::FDCONFIG.SYS")
-    sh("mcopy", "-o", "-i", img, bat, "::FDAUTO.BAT")
     sh("mcopy", "-o", "-i", img, com, "::X87TEST.COM")
+    sh("mcopy", "-o", "-i", img, fcom, "::X87FULL.COM")
     sh("mcopy", "-o", "-i", img, bcom, "::X87BENCH.COM")
     sh("mcopy", "-o", "-i", img, b24com, "::X87BEN24.COM")
     sh("mcopy", "-o", "-i", img, b24scom, "::X87BEN2S.COM")
@@ -963,18 +1103,13 @@ def main():
                       "(expected 5x or more): stale build/qemu/qemu-system-i386? "
                       "re-run scripts/prepare-qemu.sh, configure, ninja" % what)
     # the bench lines are timing, not results: compare everything else
-    a = b"\n".join(l for l in a.split(b"\n") if not l.startswith(b"BENCH"))
-    b = b"\n".join(l for l in b.split(b"\n") if not l.startswith(b"BENCH"))
-    n_lines = a.count(b"\n")
-    if a == b and b"DONE" in a:
-        print("x87 guest test: %d result lines identical with the fast path on and off" % n_lines)
-        return 0
-    al, bl = a.split(b"\n"), b.split(b"\n")
-    diffs = [(i, x, y) for i, (x, y) in enumerate(zip(al, bl)) if x != y]
-    print("x87 guest test: MISMATCH, %d differing lines of %d" % (len(diffs), n_lines))
-    for i, x, y in diffs[:20]:
-        print("  line %d: off=%s on=%s" % (i, x.decode(), y.decode()))
-    return 1
+
+    def rerun_full():
+        autoexec("@echo off\r\nX87FULL.COM\r\n")
+        return tuple(open(run_qemu(fast, img, os.path.join(OUT, "serial-full-%s.log" % fast)), "rb").read()
+                     for fast in ("off", "on"))
+
+    return compare_runs("x87", a, b, b"BENCH", rerun_full)
 
 
 if __name__ == "__main__":

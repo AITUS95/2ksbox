@@ -10,8 +10,11 @@
 #
 # Env: OUT (build/test/xpdx9; keep it short, the QMP socket lives there).
 # KVM when /dev/kvm exists. The image is only read: the overlay OUT/xp.qcow2
-# is made fresh each run. Exit 1 when the install or the run did not finish.
-# About 3 minutes under KVM.
+# is made fresh each run, over the image or over the kept install
+# (build/test/xpdx9-cache, XPDX9_CACHE=; the install runs again when the
+# image, the ISO's driver or the install procedure changed, or FRESH=1).
+# Exit 1 when the install or the run did not finish. About 3 minutes under
+# KVM; on the PC under WHPX 4.4 with the install, 1.6 from the cache.
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 set -uo pipefail
@@ -21,17 +24,42 @@ IMG="${1:?image.qcow2}"; ISO="${2:?guest-tools.iso}"
 . "$ROOT/tools/guestwait.sh"
 OUT="$(gw_path "$(realpath -m "${OUT:-$ROOT/build/test/xpdx9}")")"; ISO="$(gw_path "$(realpath "$ISO")")"
 rm -rf "$OUT"; mkdir -p "$OUT"
-"$GW_QDIR/qemu-img" create -q -f qcow2 -b "$(gw_path "$(realpath "$IMG")")" -F qcow2 "$OUT/xp.qcow2" || exit 1
 # xp-driver-test.sh is run from a copy beside it (it finds the tree from its
 # own folder), so editing it meanwhile cannot break this run
 XDT="$ROOT/tools/.xdt-$$.sh"; cp "$ROOT/tools/xp-driver-test.sh" "$XDT"; trap 'rm -f "$XDT"' EXIT
 xdt() { OUT="$OUT" DRIVER_ISO="$ISO" bash "$XDT" "$OUT/xp.qcow2" "$@"; }
 
-echo "==> installing the driver"
-xdt install > "$OUT/install.log" 2>&1
-# the desktop programmed once more after the restart, by our driver
-grep -q "linear mode on" "$OUT/qemu-install.log" 2>/dev/null \
-  || { echo "the driver did not come up after the install (see $OUT/install.log)"; exit 1; }
+# The installed driver is kept (CACHE): the install, a restart and the wait
+# for the driver were 5 of the run's 6.5 minutes on the PC (2026-10-22). The
+# key is what the install depends on: the image (path, size, time), the
+# driver on the ISO (DRIVER\'s names and contents, not its timestamps) and
+# the install procedure (xp-driver-test.sh); anything else changed, the
+# driver is installed again, and the cache keeps only the last. The scratch
+# disk is kept with it: XP gives a new disk the next free letter, not E:.
+# FRESH=1 installs anyway. A run from the cache still has to show the
+# driver up on its own boot ("linear mode on", below).
+CACHE="$(gw_path "$(realpath -m "${XPDX9_CACHE:-$ROOT/build/test/xpdx9-cache}")")"
+KEY=$( { echo "$(realpath "$IMG") $(stat -c '%s %Y' "$IMG")"
+         cat "$ROOT/tools/xp-driver-test.sh"
+         bsdtar -tf "$ISO" 2>/dev/null | grep -i '^DRIVER/' | sort
+         bsdtar -xOf "$ISO" DRIVER 2>/dev/null; } | sha256sum | cut -c1-16)
+if [ -z "${FRESH:-}" ] && [ -f "$CACHE/$KEY.qcow2" ] && [ -f "$CACHE/$KEY.scratch" ]; then
+  echo "==> the driver installed already ($CACHE/$KEY.qcow2)"
+  cp "$CACHE/$KEY.scratch" "$OUT/scratch.img"
+  "$GW_QDIR/qemu-img" create -q -f qcow2 -b "$CACHE/$KEY.qcow2" -F qcow2 "$OUT/xp.qcow2" || exit 1
+  CACHED=1
+else
+  "$GW_QDIR/qemu-img" create -q -f qcow2 -b "$(gw_path "$(realpath "$IMG")")" -F qcow2 "$OUT/xp.qcow2" || exit 1
+  echo "==> installing the driver"
+  xdt install > "$OUT/install.log" 2>&1
+  # the desktop programmed once more after the restart, by our driver
+  grep -q "linear mode on" "$OUT/qemu-install.log" 2>/dev/null \
+    || { echo "the driver did not come up after the install (see $OUT/install.log)"; exit 1; }
+  rm -rf "$CACHE"; mkdir -p "$CACHE"
+  cp "$OUT/xp.qcow2" "$CACHE/$KEY.qcow2" && cp "$OUT/scratch.img" "$CACHE/$KEY.scratch" \
+    || { rm -rf "$CACHE"; echo "(the installed driver could not be kept)"; }
+  CACHED=
+fi
 
 # The run: the desktop at 32 bpp (d3d8 refuses the scenes' windowed
 # A8R8G8B8 device on 16), then the four programs, their logs on the scratch
@@ -50,4 +78,7 @@ for f in DDVMTEST D3DGAME9 D3DGAME8 D3DFEAT9; do
   mcopy -n -i "$FAT" "::/OUT/$f.LOG" "$OUT/guest-$(echo "$f" | tr A-Z a-z).log" 2>/dev/null
 done
 grep -q XPDX9DONE "$OUT/serial-bat.log" 2>/dev/null || { echo "the run did not finish (see $OUT/run.log)"; exit 1; }
+if [ -n "$CACHED" ] && ! grep -q "linear mode on" "$OUT/qemu-bat.log" 2>/dev/null; then
+  echo "the cached install's driver did not come up on this boot (see $OUT/qemu-bat.log; FRESH=1 installs again)"; exit 1
+fi
 echo "==> done: $(ls "$OUT"/*.BMP 2>/dev/null | wc -l) frames"

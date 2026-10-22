@@ -689,11 +689,15 @@ def main():
     x87.ensure_prereqs()
     x87.ensure_floppy()
     os.makedirs(OUT, exist_ok=True)
-    asm = os.path.join(OUT, "ssetest.asm")
+    # the result program hashed (SSETEST) and whole (SSEFULL, for a
+    # mismatch; x87-guest-test.py's hashed())
     com = os.path.join(OUT, "SSETEST.COM")
-    with open(asm, "w") as f:
-        f.write(build_asm())
-    x87.sh("nasm", "-O0", "-f", "bin", "-o", com, asm)
+    fcom = os.path.join(OUT, "SSEFULL.COM")
+    for path, full in ((com, False), (fcom, True)):
+        asm = path[:-4] + ".asm"
+        with open(asm, "w") as f:
+            f.write(x87.hashed(build_asm(), full))
+        x87.sh("nasm", "-O0", "-f", "bin", "-o", path, asm)
     basm = os.path.join(OUT, "ssebench.asm")
     bcom = os.path.join(OUT, "SSEBENCH.COM")
     with open(basm, "w") as f:
@@ -707,11 +711,16 @@ def main():
         f.write("!LASTDRIVE=Z\r\n!BUFFERS=20\r\n!FILES=40\r\n"
                 "SHELL=\\FREEDOS\\BIN\\COMMAND.COM \\FREEDOS\\BIN /E:2048 /P=\\FDAUTO.BAT\r\n")
     bat = os.path.join(OUT, "FDAUTO.BAT")
-    with open(bat, "w") as f:
-        f.write("@echo off\r\nSSEBENCH.COM\r\nSSETEST.COM\r\n")
+
+    def autoexec(text):
+        with open(bat, "w") as f:
+            f.write(text)
+        x87.sh("mcopy", "-o", "-i", img, bat, "::FDAUTO.BAT")
+
+    autoexec("@echo off\r\nSSEBENCH.COM\r\nSSETEST.COM\r\n")
     x87.sh("mcopy", "-o", "-i", img, cfg, "::FDCONFIG.SYS")
-    x87.sh("mcopy", "-o", "-i", img, bat, "::FDAUTO.BAT")
     x87.sh("mcopy", "-o", "-i", img, com, "::SSETEST.COM")
+    x87.sh("mcopy", "-o", "-i", img, fcom, "::SSEFULL.COM")
     x87.sh("mcopy", "-o", "-i", img, bcom, "::SSEBENCH.COM")
 
     logs = {}
@@ -739,18 +748,12 @@ def main():
                 print("WARNING: the fast path does not seem active (%s): stale "
                       "build/qemu/qemu-system-i386? re-run scripts/prepare-qemu.sh, "
                       "configure, ninja" % what)
-    a = b"\n".join(l for l in a.split(b"\n") if not l.startswith(b"SSEBENCH"))
-    b = b"\n".join(l for l in b.split(b"\n") if not l.startswith(b"SSEBENCH"))
-    n_lines = a.count(b"\n")
-    if a == b and b"DONE" in a:
-        print("sse guest test: %d result lines identical with the fast path on and off" % n_lines)
-        return 0
-    al, bl = a.split(b"\n"), b.split(b"\n")
-    diffs = [(i, x, y) for i, (x, y) in enumerate(zip(al, bl)) if x != y]
-    print("sse guest test: MISMATCH, %d differing lines of %d" % (len(diffs), n_lines))
-    for i, x, y in diffs[:20]:
-        print("  line %d: off=%s on=%s" % (i, x.decode(), y.decode()))
-    return 1
+    def rerun_full():
+        autoexec("@echo off\r\nSSEFULL.COM\r\n")
+        return tuple(open(run_qemu(fast, img, os.path.join(OUT, "serial-full-%s.log" % fast)), "rb").read()
+                     for fast in ("off", "on"))
+
+    return x87.compare_runs("sse", a, b, b"SSEBENCH", rerun_full)
 
 
 if __name__ == "__main__":
