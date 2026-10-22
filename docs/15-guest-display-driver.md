@@ -1646,6 +1646,17 @@ as viogpudo's does on the virtio-gpu (M24). Four parts:
 - **The guest agent** waits on the event, asks with the escape and
   applies the answer with `SetDisplayConfig` (doc 24 §4).
 
+**Scaling is the user's.** The driver's EDID has no physical size (0 x 0
+cm, EDID's "undefined"). With one (34 x 27 cm until 2026-10-22) Windows
+recommended a scaling from the pixels per inch of each mode and kept the
+user's as a step from that, so every size from the window changed it: 200
+% at 3168x1890, 125 % at 1768x1290 (the user's report). With none the
+recommendation is 100 % at every size: 96 dpi at four window sizes, and a
+150 % set by the user stayed 150 % through three resizes (the test
+machine's `dpi-sweep.sh`, `M25\dpi.ps1`, `M25\dpi150.ps1`). A changed EDID
+is a new monitor to an installed guest, which starts it once at the
+default scaling and size; the agent then applies the window's.
+
 Measured on the PC's Windows 11 test machine under WHPX (2026-10-22, the
 player on a 200 % screen): the desktop came up at the window's 2560x1920,
 then followed a resize to 3174x1890 (as 3168x1890) and to 1774x1290 (as
