@@ -81,11 +81,17 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
   ~62.5 Hz poll, and never reads a page the guest draws into again
   (Windows 11's DWM flipping at 72 Hz on a 144 Hz host was shown twice
   or never; the shown page is the one nothing draws into until the next
-  flip). With `flip-push=off` a 32 bpp mode with no gamma ramp is shown
+  flip). A pushed 32 bpp page with no gamma ramp goes into the shadow a
+  row at a time, only the rows that differ from the page shown before
+  (memcmp, then the copy), and the update covers the first to the last
+  changed row: DWM flips a whole page for a blinking caret, and pushed
+  whole every flip was the mode's size down to the player's texture
+  (33 MB at 3840x2160; the desktop grew choppier with the window on a 4K
+  screen, 2026-10-23, with QEMU patch 99's dirty log under WHPX). With `flip-push=off` a 32 bpp mode with no gamma ramp is shown
   straight from VRAM (`qemu_create_displaysurface_from`), the old way. The player's upload of the dirty rectangle is the one copy
   left; zero-copy from guest RAM to the GPU is impossible with a
   host-visible-only import (M3's dma-buf ring is for host-rendered 3D).
-  `-device d3dpt-vga,full-frames=on` converts the whole frame every
+  `-device d3dpt-vga,full-frames=on` converts the whole frame every flip and every
   refresh, the A/B for a picture in stale bands (an open thread in
   `docs/00-status.md`).
 - **Mode switches do not flash.** A switch is RESET then SET_MODE a few ms
@@ -167,7 +173,7 @@ is checked.
 | `d3d9=auto\|dxvk\|system` | the Direct3D 9 the executor runs on; `system` is Windows' own (ADR-007's second amendment) |
 | `exec=wine` | the executor in a Wine process on the host (ADR-018, M15, doc 14) |
 | `fb-version=N` | the register set version reported |
-| `full-frames=on` | whole-frame conversion every refresh |
+| `full-frames=on` | whole-frame conversion every refresh and every pushed flip |
 | `irq=on` | an interrupt pin (INTA) for Windows 7's WDDM driver (M18), which dxgkrnl will not start without one, and the IRQ registers behind it (register set v6, `CAP_IRQ`): the vertical blank at the refresh in `HZ`, on the guest's clock, while the driver enables it; off (the default) keeps the PCI config XP, 9x and snapshots know |
 | `host-vblank=off` | with `irq=on`, the vertical blank interrupt on the guest's clock alone. On (the default, 2026-10-10, track M20) it follows the host screen's blank, which the player sends (QEMU patch 90's `qemu_host_vblank`, at the rate it picked for the guest: 72 Hz on a 144 Hz screen, track M24), and the clock is only a watchdog two periods out; `FRAMES` (98 / XP) still counts on the clock |
 | `follow=off` | with `irq=on`, no `CAP_FOLLOW` (register set v12): the desktop keeps its size whatever the window's. On (the default, 2026-10-22, track M20) the WDDM driver's `FOLLOW`, written at the guest agent's first ask, makes the console take UI info, so the player sizes the guest to its window: `PREF_W` / `PREF_H` and `IRQ_DISPLAY` carry the window's size, the driver makes it a custom mode (also in the monitor's mode set) and the agent applies it ("The desktop following the window" below) |

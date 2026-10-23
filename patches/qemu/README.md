@@ -1212,6 +1212,26 @@ is reported dirty once. Applies after patch 82, the other `hvf-all.c`
 one. **Test:** the user's Windows 11 on Arm machine on our adapter.
 **Drop:** upstream aligns dirty-log ranges to the host page.
 
+### 99-whpx-dirty-log
+WHPX keeps a real dirty log (2026-10-23). Its `log_sync` marked the
+whole section dirty at every call, so a display device under WHPX found
+its whole scanout changed at every refresh and redrew, copied and
+uploaded all of it: on the PC the d3dpt-vga desktop of Windows 11 grew
+choppier with the window (the user: already at 2560x1440 on a 4K
+screen; KVM and HVF, which track pages, stayed smooth). A RAM section
+with a dirty log (VGA's VRAM) is now mapped with
+`WHvMapGpaRangeFlagTrackDirtyPages`, `log_start` / `log_stop` map it
+again with or without the flag, and `log_sync` takes the pages the guest
+wrote from `WHvQueryGpaRangeDirtyBitmap` (which clears them). A
+hypervisor without the call, or an unaligned section, keeps the old
+whole-section answer; `WHPX_DIRTY_TRACK=0` in the environment is the
+A/B. Applies after patch 89, the other `whpx-common.c` one. **Test:**
+`dwm-pace.ps1` (`guest-tools/viogpudo/`) on x64 Windows 11 on our
+adapter at 3840x2160 under WHPX: DwmFlush p95 18.3 ms and the animation's
+flips at the rate 1920x1080 gives (~27/s), against p95 26 ms, a 108 ms
+stall and ~17 flips/s with `WHPX_DIRTY_TRACK=0` and `full-frames=on`.
+**Drop:** upstream WHPX tracks dirty pages.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

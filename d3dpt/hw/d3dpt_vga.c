@@ -1099,6 +1099,46 @@ static void fb_cursor_move(D3dptVgaState *s)
     qemu_console_set_mouse(s->vga.con, s->cur_x, s->cur_y, on);
 }
 
+/* A flipped page into the shadow, only the rows that differ from what the
+ * shadow holds (the page shown before). DWM flips a whole page for a caret
+ * that blinked; copied and pushed whole, every flip was the mode's size
+ * all the way to the player's texture (33 MB at 3840x2160, and so the
+ * desktop grew choppier with the window). A row that differs is copied
+ * once memcmp finds the difference, so a page that changed everywhere
+ * costs about what the whole copy did. Only a 32 bpp page with no gamma
+ * ramp is the shadow's own bytes; anything converted is converted whole. */
+static void fb_push_changed(D3dptVgaState *s)
+{
+    const uint8_t *src = memory_region_get_ram_ptr(&s->vga.vram) + s->lin.offset;
+    uint8_t *dst = (uint8_t *)pixman_image_get_data(s->shadow);
+    int dstride = pixman_image_get_stride(s->shadow);
+    size_t row = (size_t)s->lin.w * 4;
+    int y, ys = -1, ye = 0;
+
+    if (s->lin.bpp != 32 || s->gamma_active || s->full_frames) {
+        fb_update_span(s, 0, s->lin.h);
+        return;
+    }
+    for (y = 0; y < (int)s->lin.h; y++) {
+        const uint8_t *a = src + (size_t)s->lin.pitch * y;
+        uint8_t *b = dst + (size_t)dstride * y;
+
+        if (memcmp(a, b, row) != 0) {
+            memcpy(b, a, row);
+            if (ys < 0) {
+                ys = y;
+            }
+            ye = y + 1;
+        }
+    }
+    /* one update, the rows from the first change to the last: each update
+     * outside the refresh is a frame the player publishes (embed v12's
+     * flush), and a flip is one frame, never shown half pushed */
+    if (ys >= 0) {
+        qemu_console_update(s->vga.con, 0, ys, s->lin.w, ye - ys);
+    }
+}
+
 /* flip-push: the page a flip shows, copied into the console's shadow and
  * pushed now, from the flip's register write (tracks M20, M24). Polled by
  * the display's tick instead (PLAYER_REFRESH_MS, ~62.5 Hz), a guest that
@@ -1135,7 +1175,7 @@ static void fb_flip_push(D3dptVgaState *s)
     g_free(memory_region_snapshot_and_clear_dirty(&s->vga.vram, m.offset,
                                                   (uint64_t)m.pitch * m.h,
                                                   DIRTY_MEMORY_VGA));
-    fb_update_span(s, 0, m.h);
+    fb_push_changed(s);
     if (!s->flip_pushes++) {
         info_report("d3dpt-vga: flips push their page (flip-push)");
     }
@@ -1661,7 +1701,8 @@ static const Property d3dpt_vga_properties[] = {
      * device implements is the check that an installed driver accepts a
      * QEMU update (d3dpt_fb.h, "Versions only add"). Nothing else reads it. */
     DEFINE_PROP_UINT32("fb-version", D3dptVgaState, fb_version, D3DPT_FB_VERSION),
-    /* convert the whole frame every refresh instead of the dirty spans:
+    /* convert the whole frame every refresh (and every pushed flip) instead
+     * of the dirty spans (the changed rows):
      * the A/B for a picture that comes out in stale bands (a
      * 3DMark 99 loading screen on the PC). On means the pixels in VRAM are
      * right and this device's incremental path is what lost them. */
