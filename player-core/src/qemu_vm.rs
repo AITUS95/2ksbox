@@ -176,12 +176,13 @@ struct Shared {
     stride: usize,
     width: usize,
     height: usize,
-    back: Vec<u32>,
-    // what changed in `back` since the last publish: only that is copied
-    // into `front` (M22)
-    back_dirty: Option<Rect>,
-    // `front` does not hold `back`'s picture (a 3D readback, a frame shown
-    // black): the next VGA publish copies all of it
+    // what changed on the surface since the last publish: only that is
+    // copied into `front` (M22), straight from the surface at the publish
+    // (an update copied nothing; a frame-sized copy of the surface in
+    // between was one copy of every changed pixel too many)
+    surface_dirty: Option<Rect>,
+    // `front` does not hold the surface's picture (a 3D readback, a frame
+    // shown black): the next VGA publish copies all of it
     front_stale: bool,
     // a real mode change happened at this instant; while it is recent, a
     // uniform single-colour VGA frame is the guest's transitional fill (XP
@@ -476,18 +477,15 @@ unsafe extern "C" fn on_switch(
     s.stride = stride as usize;
     s.width = w as usize;
     s.height = h as usize;
-    let n = s.width * s.height;
-    s.back.clear();
-    s.back.resize(n, 0);
     s.vga_dirty = true;
-    copy_rect(&mut s, 0, 0, w as usize, h as usize);
+    mark_rect(&mut s, 0, 0, w as usize, h as usize);
 }
 
 unsafe extern "C" fn on_update(ud: *mut c_void, x: c_int, y: c_int, w: c_int, h: c_int) {
     let shared = &*(ud as *const Mutex<Shared>);
     let mut s = shared.lock().unwrap();
     s.vga_dirty = true;
-    copy_rect(&mut s, x as usize, y as usize, w as usize, h as usize);
+    mark_rect(&mut s, x as usize, y as usize, w as usize, h as usize);
 }
 
 unsafe extern "C" fn on_3d_active(ud: *mut c_void, active: bool) {
@@ -657,12 +655,23 @@ fn refresh_log() -> bool {
     *ON.get_or_init(|| std::env::var_os("PLAYER_REFRESH_LOG").is_some())
 }
 
-/// Every pixel the same colour (sampled every 61st plus the last one).
-fn is_uniform(px: &[u32]) -> bool {
-    match px.first() {
-        Some(&v) => px[px.len() - 1] == v && px.iter().step_by(61).all(|&p| p == v),
-        None => true,
+/// Row `y` of the current surface (QEMU thread only: it is valid until the
+/// next `on_switch`).
+fn surface_row(s: &Shared, y: usize) -> &[u32] {
+    // SAFETY: surface valid until the next on_switch (header contract);
+    // rows are `stride` bytes apart, `width` pixels each.
+    unsafe { std::slice::from_raw_parts(s.surface.add(y * s.stride) as *const u32, s.width) }
+}
+
+/// Every pixel of the surface the same colour (sampled every 61st plus the
+/// last one).
+fn is_uniform(s: &Shared) -> bool {
+    let (w, h) = (s.width, s.height);
+    if s.surface.is_null() || w == 0 || h == 0 {
+        return true;
     }
+    let v = surface_row(s, 0)[0];
+    surface_row(s, h - 1)[w - 1] == v && (0..w * h).step_by(61).all(|i| surface_row(s, i / w)[i % w] == v)
 }
 
 unsafe extern "C" fn on_refresh_done(ud: *mut c_void) {
@@ -691,11 +700,13 @@ unsafe extern "C" fn on_refresh_done(ud: *mut c_void) {
     // tick before, ~45 times a second on an idle desktop); all of it after
     // a resize or a 3D readback. The frame still counts: scripted keys and
     // pads step by published frames.
-    let mut region = s.back_dirty.take();
+    let mut region = s.surface_dirty.take();
     if s.front.width != w || s.front.height != h || s.front_stale {
-        s.front.width = w;
-        s.front.height = h;
-        s.front.pixels = vec![0; w * h];
+        if s.front.width != w || s.front.height != h {
+            s.front.width = w;
+            s.front.height = h;
+            s.front.pixels = vec![0; w * h];
+        }
         s.front_stale = false;
         region = Some(Rect::whole(w, h));
         // what changed in a frame of another size is no region of this
@@ -704,8 +715,10 @@ unsafe extern "C" fn on_refresh_done(ud: *mut c_void) {
         // (800x600 -> 2560x1676 -> 800x600 in Windows setup)
         s.front.pending = None;
     }
+    let uniform = s.switched_at.is_some() && is_uniform(&s);
     let Shared {
-        back,
+        surface,
+        stride,
         front,
         vm,
         script,
@@ -719,7 +732,7 @@ unsafe extern "C" fn on_refresh_done(ud: *mut c_void) {
     // VGA surface of a bare qemu-system-i386 too): a uniform frame inside
     // the grace window is that fill, show black until real content arrives
     let transitional = match *switched_at {
-        Some(t) if t.elapsed() <= SWITCH_GRACE && is_uniform(back) => true,
+        Some(t) if t.elapsed() <= SWITCH_GRACE && uniform => true,
         Some(_) => {
             *switched_at = None;
             if *blanked > 0 {
@@ -736,9 +749,16 @@ unsafe extern "C" fn on_refresh_done(ud: *mut c_void) {
         region = Some(Rect::whole(w, h));
         *front_stale = true;
     } else if let Some(r) = region {
-        for y in r.y0..r.y1 {
-            let row = y * w;
-            front.pixels[row + r.x0..row + r.x1].copy_from_slice(&back[row + r.x0..row + r.x1]);
+        // straight from the surface: the device's shadow, or VRAM itself
+        // (32 bpp with flip-push off), valid until the next on_switch
+        if !surface.is_null() {
+            for y in r.y0..r.y1 {
+                let row = y * w;
+                // SAFETY: as surface_row; the rect is clamped by mark_rect
+                let src = unsafe { (*surface).add(y * *stride + r.x0 * 4) as *const u32 };
+                let dst = &mut front.pixels[row + r.x0..row + r.x1];
+                unsafe { std::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), r.x1 - r.x0) };
+            }
         }
     }
     if let Some(r) = region {
@@ -801,7 +821,9 @@ unsafe extern "C" fn on_flush(ud: *mut c_void) {
     }
 }
 
-fn copy_rect(s: &mut Shared, x: usize, y: usize, w: usize, h: usize) {
+/// What QEMU updated, clamped to the surface, kept for the publish, which
+/// copies it from the surface (on_refresh_done).
+fn mark_rect(s: &mut Shared, x: usize, y: usize, w: usize, h: usize) {
     if s.surface.is_null() || w == 0 || h == 0 {
         return;
     }
@@ -811,14 +833,7 @@ fn copy_rect(s: &mut Shared, x: usize, y: usize, w: usize, h: usize) {
     if x >= x1 || y >= sh.min(y1) {
         return;
     }
-    s.back_dirty = Some(Rect::union(s.back_dirty, Rect { x0: x, y0: y.min(sh), x1, y1 }));
-    for row in y.min(sh)..y1 {
-        // SAFETY: surface valid until the next on_switch (header contract);
-        // rows are `stride` bytes apart and the rect is pre-clamped by QEMU.
-        let src = unsafe { s.surface.add(row * s.stride + x * 4) as *const u32 };
-        let dst = &mut s.back[row * sw + x..row * sw + x1];
-        unsafe { std::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), x1 - x) };
-    }
+    s.surface_dirty = Some(Rect::union(s.surface_dirty, Rect { x0: x, y0: y.min(sh), x1, y1 }));
 }
 
 /// Start QEMU on its own thread. Returns once the VM is created and started.
@@ -869,8 +884,7 @@ pub fn start(
         stride: 0,
         width: 0,
         height: 0,
-        back: Vec::new(),
-        back_dirty: None,
+        surface_dirty: None,
         front_stale: false,
         switched_at: None,
         blanked: 0,
