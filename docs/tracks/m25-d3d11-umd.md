@@ -711,7 +711,8 @@ DriverEntry) and a census of RenderKm: every 5 s a `RenderKm in 5 s:`
 line per operation, ROP and surface kinds (kind * 16 + GDI type: 0x51 a
 redirection bitmap, 0x52 / 0x53 the staging ones, 0x54 the lookup
 table, 0x40 a Direct3D allocation), with the first one's sizes and host
-handles; and a line per GDI surface paged (the first 64).
+handles; and a line per GDI surface paged (the first 64). (Both need
+the service key's `Trace` = 1 since 2026-10-23.)
 
 - **CPU-visible** (the default): RenderKm carries almost nothing (two
   copies in 5 s, into ClearType's lookup table). GDI draws with the CPU,
@@ -1077,7 +1078,16 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   Still hundreds of lines in seconds (user, 2026-10-23: each entry's
   first two calls, each resource and present, in a dozen processes), so
   the routine lines of both user-mode drivers now need `D3D11Trace` /
-  `D3D9Trace`; without them only failures and refusals are logged.
+  `D3D9Trace`; without them only failures and refusals are logged. The
+  kernel driver's per-event lines went the same way (user, the same
+  day): `log_few` and every routine line (devices, contexts, allocations,
+  submissions, presents, VidPn negotiation, interrupt control, the 5 s
+  packet timings and RenderKm census, whose clock reads and bookkeeping
+  stop too) need the service key's `Trace` = 1
+  (`HKLM\SYSTEM\CurrentControlSet\Services\d3dptkmd`, REG_DWORD, read
+  at DriverEntry, so a restart or a disable / enable of the adapter);
+  the device's start and stop, failures, refusals, TDR dumps and the
+  user-mode drivers' relayed lines log without it.
   Unigine Heaven runs there in Direct3D 9; in Direct3D 11 it stops on its
   loading screen (user, 2026-10-20), every GetData of one of its queries
   answered `E_INVALIDARG` by the host (token 57). DXVK's immediate
