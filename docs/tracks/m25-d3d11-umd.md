@@ -98,7 +98,9 @@ build-wddm.cmd` alone) and installed by `wddm-install.ps1`.
   dozen processes, and their lines interleaved by the character.
   `HKLM\SOFTWARE\2ksbox` `D3D11Trace` (REG_MULTI_SZ, executable names)
   logs every DDI call of those processes, with each format and
-  multisample answer; every process logs each entry's first two calls.
+  multisample answer. Elsewhere (since 2026-10-23) the user-mode drivers
+  log only what went wrong (a failed call, a refusal, a `todo`) and the
+  process's OpenAdapter line; the entry traces cost one flag read.
 - DXVK writes `player-mitsuami_d3d11.log` / `_dxgi.log` in the player's
   working directory (the checkout): what it refused, by name.
 - `New-Item -Force` on a registry key that exists empties it (it took
@@ -1072,6 +1074,10 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   drivers' 4000 lines a process) slowed it (user): the kernel driver's
   per-event lines now log their first 8 to 32 (`log_few`), and the
   user-mode drivers 400 lines a process (`D3D11Trace` still lifts it).
+  Still hundreds of lines in seconds (user, 2026-10-23: each entry's
+  first two calls, each resource and present, in a dozen processes), so
+  the routine lines of both user-mode drivers now need `D3D11Trace` /
+  `D3D9Trace`; without them only failures and refusals are logged.
   Unigine Heaven runs there in Direct3D 9; in Direct3D 11 it stops on its
   loading screen (user, 2026-10-20), every GetData of one of its queries
   answered `E_INVALIDARG` by the host (token 57). DXVK's immediate
@@ -1136,4 +1142,6 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   textures and its own memory together; and the XP and 9x drivers'
   memory has no paging at all.
 - `HKLM\SOFTWARE\2ksbox` `D3D9Trace` (executables, as `D3D11Trace`)
-  lifts the Direct3D 9 driver's 4000-line log cap for those processes.
+  turns on the Direct3D 9 user-mode driver's routine lines (resources,
+  targets, blits, submissions) and lifts its 400-line log cap for those
+  processes; without it only failures are logged.

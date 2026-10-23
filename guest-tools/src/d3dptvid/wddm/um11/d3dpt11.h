@@ -35,13 +35,15 @@
 #define DXGI_DDI_ERR_WASSTILLDRAWING_ ((HRESULT)0x887B0001u)
 
 #define D11_TODO(fn) do { static ULONG n_; if (n_ < 4) { n_++; umd_log("d3d11: todo: %s", fn); } } while (0)
-/* every entry's first calls in this process: what the runtime asks next;
- * every call in a process HKLM\SOFTWARE\2ksbox's D3D11Trace names */
+/* every call, in a process HKLM\SOFTWARE\2ksbox's D3D11Trace names, and
+ * nothing at all elsewhere (one flag read): a line is a register write a
+ * character, a VM exit each, and a dozen of Windows 11's processes open
+ * the adapter */
 extern BOOL g_d11_verbose;
-#define D11_TRACE(fn) do { static LONG n_; if (InterlockedIncrement(&n_) <= 2 || g_d11_verbose) umd_log("d3d11: > %s", fn); } while (0)
+#define D11_TRACE(fn) do { if (g_d11_verbose) umd_log("d3d11: > %s", fn); } while (0)
 /* a query asked by the thousand (formats, multisample counts): its first
  * calls only, even traced, or it spends the log's lines */
-#define D11_TRACE_FEW(fn) do { static LONG n_; if (InterlockedIncrement(&n_) <= 2) umd_log("d3d11: > %s", fn); } while (0)
+#define D11_TRACE_FEW(fn) do { static LONG n_; if (g_d11_verbose && InterlockedIncrement(&n_) <= 2) umd_log("d3d11: > %s", fn); } while (0)
 
 typedef struct D11_ADAPTER {
     D3D10DDI_HRTADAPTER rt;

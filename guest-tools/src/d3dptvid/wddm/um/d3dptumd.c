@@ -101,6 +101,11 @@ typedef struct UMD_DEV {
     ULONG next_query;
 } UMD_DEV;
 
+/* a process HKLM\SOFTWARE\2ksbox's D3D9Trace names: the routine lines
+ * (resources, targets, blits, buffers); elsewhere only what went wrong,
+ * a line being a register write a character, a VM exit each */
+static BOOL g_d9_verbose;
+
 static HRESULT APIENTRY umd_get_caps(HANDLE h, CONST D3DDDIARG_GETCAPS *g);
 static HRESULT APIENTRY umd_create_device(HANDLE h, D3DDDIARG_CREATEDEVICE *c);
 static HRESULT APIENTRY umd_close_adapter(HANDLE h);
@@ -121,7 +126,8 @@ HRESULT APIENTRY OpenAdapter(D3DDDIARG_OPENADAPTER *o)
     name = strrchr(exe, '\\');
     umd_log("OpenAdapter interface 0x%x version 0x%x, process %lu %s", o->Interface, o->Version,
             GetCurrentProcessId(), name ? name + 1 : exe);
-    if (umd_listed("D3D9Trace")) {
+    g_d9_verbose = umd_listed("D3D9Trace");
+    if (g_d9_verbose) {
         umd_log_traced();
     }
     a = (UMD_ADAPTER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*a));
@@ -231,7 +237,7 @@ static HRESULT APIENTRY umd_get_caps(HANDLE h, CONST D3DDDIARG_GETCAPS *g)
         }
         break;
     }
-    if (logged < 64) {
+    if (g_d9_verbose && logged < 64) {
         logged++;
         umd_log("GetCaps type %u size %u -> 0x%08x", g->Type, g->DataSize, hr);
     }
@@ -300,7 +306,7 @@ static HRESULT cmd_flush(UMD_DEV *d)
     r.NumPatchLocations = d->pl_n;
     r.hContext = d->ctx;
     hr = d->cb.pfnRenderCb(d->rt, &r);
-    if (logged < 16) {
+    if (FAILED(hr) || (g_d9_verbose && logged < 16)) {
         logged++;
         umd_log("Render: %u records, %u bytes, %u allocations, %u patches -> 0x%08x; next buffer %u bytes",
                 d->count, d->used, d->al_n, d->pl_n, hr, r.NewCommandBufferSize);
@@ -515,9 +521,11 @@ static HRESULT APIENTRY umd_create_resource(HANDLE h, D3DDDIARG_CREATERESOURCE *
         r->kmt = ai.hAllocation;
     }
     /* the result first: a long line is cut at the escape's length */
-    umd_log("CreateResource 0x%08x: fmt %u pool %u flags 0x%08x %ux%ux%u surfaces %u levels %u ms %u: caps 0x%x bytes %u", hr,
-            c->Format, c->Pool, c->Flags.Value, c->pSurfList[0].Width, c->pSurfList[0].Height, c->pSurfList[0].Depth,
-            c->SurfCount, c->MipLevels, c->MultisampleType, r->d.caps, bytes);
+    if (FAILED(hr) || g_d9_verbose) {
+        umd_log("CreateResource 0x%08x: fmt %u pool %u flags 0x%08x %ux%ux%u surfaces %u levels %u ms %u: caps 0x%x bytes %u", hr,
+                c->Format, c->Pool, c->Flags.Value, c->pSurfList[0].Width, c->pSurfList[0].Height, c->pSurfList[0].Depth,
+                c->SurfCount, c->MipLevels, c->MultisampleType, r->d.caps, bytes);
+    }
     if (FAILED(hr)) {
         HeapFree(GetProcessHeap(), 0, r->sub);
         HeapFree(GetProcessHeap(), 0, r);
@@ -602,7 +610,7 @@ static HRESULT APIENTRY umd_lock(HANDLE h, D3DDDIARG_LOCK *l)
         if (r->d.caps & (D3DPT_VS_RENDER_TARGET | D3DPT_VS_PRIMARY)) {
             static ULONG logged;
 
-            if (logged++ < 16) {
+            if (g_d9_verbose && logged++ < 16) {
                 umd_log("Lock of a target %p: flags 0x%x, rendered %u", r, l->Flags.Value, r->rendered);
             }
         }
@@ -707,7 +715,9 @@ static BOOL umd_ctx(UMD_DEV *d)
     c->flags = 0;
     d->ctx_live = TRUE;
     d->rt_dirty = FALSE;
-    umd_log("host context 0x%08x, %u bytes of earlier tokens", d->host_ctx, d->pre_n);
+    if (g_d9_verbose) {
+        umd_log("host context 0x%08x, %u bytes of earlier tokens", d->host_ctx, d->pre_n);
+    }
     if (d->pre_n) {
         UINT off = 0;
 
@@ -845,7 +855,7 @@ static HRESULT APIENTRY umd_set_render_target(HANDLE h, CONST D3DDDIARG_SETRENDE
     if (s->RenderTargetIndex >= 4) {
         return E_INVALIDARG;
     }
-    if (logged < 32) {
+    if (g_d9_verbose && logged < 32) {
         logged++;
         umd_log("SetRenderTarget %u: %p, allocation 0x%x, caps 0x%x, %ux%u", s->RenderTargetIndex, r, r ? r->kmt : 0,
                 r ? r->d.caps : 0, r ? r->d.w : 0, r ? r->d.h : 0);
@@ -1559,7 +1569,7 @@ static HRESULT APIENTRY umd_tex_blt(HANDLE h, CONST D3DDDIARG_TEXBLT *a)
     {
         static ULONG logged;
 
-        if (logged < 24) {
+        if (g_d9_verbose && logged < 24) {
             ULONG nz = 0;
             UINT i;
 
@@ -1717,7 +1727,7 @@ static HRESULT umd_host_blt(UMD_DEV *d, CONST D3DDDIARG_BLT *a, UMD_RES *src, UM
     static ULONG logged;
     UINT *k;
 
-    if (logged < 8) {
+    if (g_d9_verbose && logged < 8) {
         logged++;
         umd_log("Blt on the host: %p (%ux%u fmt %u%s) -> %p (%ux%u fmt %u%s), flags 0x%x", src, src->d.w, src->d.h,
                 src->d.format, src->d.shared ? " shared" : "", dst, dst->d.w, dst->d.h, dst->d.format,
@@ -1929,7 +1939,7 @@ static HRESULT APIENTRY umd_blt(HANDLE h, CONST D3DDDIARG_BLT *a)
     {
         static ULONG logged;
 
-        if (logged < 24) {
+        if (g_d9_verbose && logged < 24) {
             ULONG nz = 0;
             UINT i;
 
