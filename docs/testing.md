@@ -167,10 +167,10 @@ What differs from Linux, so a failure there reads right:
 | `pad` | the gamepad on every family; `tools/hid-descriptor-check.py` on the shipped descriptor and two mutated copies that must fail |
 | `family-other` | the Other family: `-vga std`, RTL8139 at `0x03`, ES1370 at `0x04`, no tablet |
 | `hpet` | Win98 is `hpet=off` (no `hpet` in `info qtree`), XP still has one; both on a versioned `pc-i440fx-` board, and a bundle with no `board` gets 9.2's |
-| `display-adapter` | each family's adapter choices and default; a foreign adapter refused; our adapter replaced, not added beside; x64 Windows 11 on ours has it alone, on our EDK2 (the one firmware that draws on it) |
+| `display-adapter` | each family's adapter choices and default; a foreign adapter refused; our adapter replaced, not added beside; Windows 11 on ours has it alone (x64 and Arm), on our EDK2 (the one firmware that draws on it) |
 | `d3d9` | the Direct3D picker: a new machine writes nothing (`auto`); `dxvk`/`system` reach only `d3dpt-vga`, whose `info qtree` shows the property |
 | `libsynth` | `synthx selftest`: AdLib detection, a 440 Hz FM note, the shipped bank through the MPU-401 path, running status; `--roms` adds the CM-32L (doc 20 §7) |
-| `sharing` | Windows 11's clipboard and shared folder (M23) through `launcherx`: a new machine has the `qemu-vdagent` channel and no share; a folder is the player's `--share <dir>` only with the network on; `noclipboard none` takes both away, in the bundle too; and our QEMU of the machine's architecture takes the channel's devices on a bare board |
+| `sharing` | Windows 11's clipboard and shared folder (M23) through `launcherx`: a new machine has the `qemu-vdagent` channel and no share, and one screen (`virtio-vga`; no standard VGA, ramfb or `virtio-gpu-pci`); a folder is the player's `--share <dir>` only with the network on; `noclipboard none` takes both away, in the bundle too; and our QEMU of the machine's architecture takes the channel's devices on a bare board |
 | `smb` | `tools/smb-host-test.sh`: libsmb's `smbserve` against the host's own SMB client (macOS `mount_smbfs`, else Samba's `smbclient`) on localhost, at 2.1 and at 3.1.1 with signing required: read, a 3 MB write and read-back, rename, delete, mkdir / rmdir, and the server's log with the login and no signature it could not verify (M23, doc 24); with macOS's client a lease granted and broken when the host changes the file, whose next read is the new contents; skipped with no client or no `target/release/smbserve` |
 | `music` | the sound-card and music pickers into a real QEMU; the monitor writes the ports and the note must be in QEMU's own `wav` |
 | `companions-env` | the bank the player names (`LIBSYNTH_SF2`, `companions.rs`) reaches QEMU's own `getenv()`: the real player, run from a folder with no `soundfonts/` and nothing in the environment, takes a General MIDI machine to the BIOS and quits. On Windows `set_var` never reached QEMU's C runtime (doc 11, "The C runtime boundary"). Needs the player and a display |
@@ -511,7 +511,9 @@ after the shell in the variables' boot order, as a user's first start
 does; then with the ISO inserted (`--drive insert`), where the firmware
 must start the disc and never the shell, the player must answer the
 disc's "Press any key" (`[boot]` in its log), and setup's screen must
-fill a QMP screendump within two minutes (`build/w11p/setup.png`).
+fill a QMP screendump within two minutes (`build/w11p/setup.png`),
+with the drivers disc in: setup on the machine's one screen, which a
+driver of setup's taking the card blanks (viogpudo did, 2026-10-23).
 About 1.5 minutes. Needs Microsoft's Arm64 ISO (`$W11_ISO`, or
 `~/Downloads/Windows11_Client_arm64_*.iso`); Apple Silicon only for now.
 The guest stage's `win11-boot-prompt`, which skips without the ISO.

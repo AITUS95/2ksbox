@@ -178,11 +178,12 @@ void embed_fx_frame_ready(int slot)
 /* ---------------------------------------------------------------- display */
 
 /*
- * The screen a machine with two adapters shows (M20, Windows 11 on Arm):
- * the last graphic console whose device has a picture, else the default
- * one. The `virt` board has `ramfb`, which the firmware and Windows setup
- * draw on, and then `virtio-gpu-pci`, which Windows draws on once
- * viogpudo is installed. virtio-gpu holds a placeholder surface whenever
+ * The screen a machine with two adapters shows (M20: Windows 11 on Arm
+ * had two until 2026-10-23, and `-device` can still add one): the last
+ * graphic console whose device has a picture, else the default one. The
+ * `virt` board had `ramfb`, which the firmware and Windows setup drew on,
+ * and then `virtio-gpu-pci`, which Windows drew on once viogpudo was
+ * installed. virtio-gpu holds a placeholder surface whenever
  * no driver scans out (reset, the firmware's hand-over, a Windows without
  * the driver, its recovery), so following it needs no state of our own.
  * A machine with one adapter always gets that one.

@@ -331,13 +331,13 @@ pub fn video_choices(family: Family) -> &'static [Video] {
         // title whose modes come out wrong on one BIOS can settle. Our
         // own adapter is not offered, since it has no DOS driver.
         Family::Dos => &[Video::Std, Video::Cirrus],
-        // Windows 11's Basic Display Adapter drives the standard VGA's
-        // linear frame buffer. Beside it every x64 machine has a
-        // virtio-gpu (`modern_args`), whose screen follows the window once
+        // "Standard" is virtio-vga (`modern_args`, `arm_args`): Windows
+        // 11's Basic Display Adapter drives its VGA half's linear frame
+        // buffer, and its virtio-gpu's screen follows the window once
         // viogpudo is in. Ours is the Windows 7 WDDM driver built for x64
         // and test signed in the guest (track M20, `video_args`), and for
-        // Arm (track M25, `arm_args`: on Arm "standard" is ramfb with
-        // virtio-gpu). Experimental, so the form asks before taking it
+        // Arm (track M25, `arm_args`: on Arm "standard" is virtio-vga
+        // too). Experimental, so the form asks before taking it
         // (`wizard::Form::video_question`).
         Family::Win11 => &[Video::Std, Video::D3dpt],
     }
@@ -2393,9 +2393,11 @@ impl Machine {
     ///   snapshots work (NVMe cannot be migrated, as on x86_64). Windows
     ///   on Arm drives it in the box; QEMU's own aarch64 EDK2 does not,
     ///   which is one reason the firmware is ours.
-    /// * The screen is `ramfb`: EDK2 draws on it and Windows keeps it
-    ///   through its Basic Display driver, at the size the firmware set
-    ///   (1280x800; another from the firmware's setup screen).
+    /// * One screen, `virtio-vga` or our adapter (2026-10-23; ramfb
+    ///   beside a virtio-gpu until then): EDK2 draws on its VGA half and
+    ///   Windows keeps it through its Basic Display driver, at the size
+    ///   the firmware set (1280x800; another from the firmware's setup
+    ///   screen), until viogpudo or our driver takes the card.
     /// * Keyboard and pointer on xHCI, since there is no PS/2. The
     ///   tablet, or a relative mouse with the seamless pointer off.
     /// * With networking, `virtio-net`. Windows on Arm has no driver for
@@ -2445,28 +2447,30 @@ impl Machine {
             format!("file={},if=none,id=disk0", opt_value(&self.disk.display().to_string())),
             "-device".into(),
             "ide-hd,bus=ide.0,drive=disk0,bootindex=0".into(),
-            // Two screens, and the player shows the live one (embed's
-            // `embed_live_console`): the firmware, Windows setup and its
-            // recovery draw on ramfb, an installed Windows on virtio-gpu
-            // through viogpudo from the drivers disc. ramfb first, so it
-            // is the default console. `sync-ctrl` (QEMU patch 86) runs
-            // virtio-gpu's queue inside the guest's notify, so each of
-            // viogpudo's presents is copied before it draws the next;
-            // `host-vblank` (patch 90) passes the host screen's blank to
-            // our viogpudo (M24).
-            "-device".into(),
-            "ramfb".into(),
+            // One screen, as on x64 (2026-10-23, the user): `virtio-vga`
+            // (QEMU patch 100 puts it on the virt board), whose VGA half
+            // the firmware draws on (EDK2 patch 05 gives ArmVirtQemu
+            // OVMF's QemuVideoDxe) and Windows setup, recovery and Basic
+            // Display inherit, and whose virtio-gpu an installed Windows
+            // drives through viogpudo from the drivers disc. Until then
+            // ramfb sat beside a `virtio-gpu-pci` for the firmware, whose
+            // virtio-gpu GOP has no frame buffer for Windows to inherit,
+            // and Windows extended the desktop onto it. `sync-ctrl` (QEMU
+            // patch 86) runs virtio-gpu's queue inside the guest's
+            // notify, so each of viogpudo's presents is copied before it
+            // draws the next; `host-vblank` (patch 90) passes the host
+            // screen's blank to our viogpudo (M24).
+            //
             // On our adapter instead (track M25, the WDDM driver's Arm
-            // build): ramfb stays for the firmware, which has no driver
-            // for d3dpt-vga, and ours replaces virtio-gpu, as on x64
-            // (`modern_args`: viogpudo beside it would make Windows a
-            // third screen). Its interrupt and 512 MiB as on x64
+            // build) it alone, as on x64: QemuVideoDxe drives it too
+            // (EDK2 patch 04). Its interrupt and 512 MiB as on x64
             // (`video_args`), in a 64-bit BAR: the virt board's 32-bit
             // PCI window (0x10000000-0x3eff0000) cannot hold 512 MiB
             // aligned to its size, and EDK2 then fails the bus and loses
-            // the disk ("map: no mapping found"). No option ROM (an x86
-            // VGA BIOS, useless here), or EDK2 moves the BAR below 4 GiB
-            // again (`PcdPciDegradeResourceForOptionRom`).
+            // the disk ("map: no mapping found"). No option ROM on
+            // either (an x86 VGA BIOS, useless here; on ours EDK2 would
+            // move the BAR below 4 GiB again,
+            // `PcdPciDegradeResourceForOptionRom`).
             "-device".into(),
             if self.effective_video() == Some(Video::D3dpt) {
                 let mut dev = "d3dpt-vga,irq=on,vgamem_mb=512,bar64=on,romfile=".to_string();
@@ -2476,7 +2480,7 @@ impl Machine {
                 }
                 dev
             } else {
-                "virtio-gpu-pci,sync-ctrl=on,host-vblank=on".into()
+                "virtio-vga,sync-ctrl=on,host-vblank=on,romfile=".into()
             },
             "-device".into(),
             "qemu-xhci".into(),

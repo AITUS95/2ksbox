@@ -179,10 +179,12 @@ Windows 10 disc on a Windows 11 machine, 2026-10-15) (track M24, 2026-10-09:
 a machine without the agent kept ramfb's screen beside ours, and a
 choppy desktop); on one installed without it, `2ksbox\install.cmd`
 installs it by hand
-(`install.ps1`: the drivers, except viogpudo once M24's experimental one
+(`install.ps1`: the drivers, viogpudo among them from the disc's
+`2ksbox\viogpudo` (not setup's, since 2026-10-23: in setup it took the one
+screen from Basic Display and drew nothing), except viogpudo once M24's experimental one
 is in (`HKLM\SOFTWARE\2ksbox` `ExperimentalDisplay`), the agent in `C:\Program Files\2ksbox`,
 and its logon tasks; and, track M24, viogpudo's resolution service from
-the disc's `$WinPEDriver$\viogpudo` in `C:\Program Files\2ksbox\viogpu`,
+the disc's `2ksbox\viogpudo` in `C:\Program Files\2ksbox\viogpu`,
 without which the desktop takes the window's size only at boot:
 `vgpusrv` starts `viogpuap` in the console session, which applies each
 new size with `SetDisplayConfig`; both are ours on the disc, with M24's
@@ -207,12 +209,12 @@ overwritten. It does three jobs:
    minute it maps the share to the first free letter from Z: down
    (`WNetAddConnection2`, the fixed credentials) and exits. It shows no
    UI, and a machine without a shared folder simply has no drive.
-3. **The screen (tracks M24, M20):** a Windows 11 machine keeps a second
+3. **The screen (tracks M24, M20):** a Windows 11 machine kept a second
    card (the standard VGA on x64, ramfb on Arm) for setup, which has no
-   driver for the paravirtual one, and for recovery; on Arm only since
-   2026-10-22, when x64 got one screen, `virtio-vga` or our d3dpt-vga,
-   which the firmware drives itself (doc 06 "The display adapter"), so
-   there the agent finds one screen. Windows extends
+   driver for the paravirtual one, and for recovery, until x64
+   (2026-10-22) and Arm (2026-10-23) got one screen, `virtio-vga` or our
+   d3dpt-vga, which the firmware drives itself (doc 06 "The display
+   adapter"); there the agent finds one screen. Windows extends
    the desktop onto both. While the other card's screen is on, DWM
    composes on dxgkrnl's simulated 64 Hz blank, even with the
    paravirtual card's screen the primary (M20, 2026-10-10), and the

@@ -693,13 +693,15 @@ sharing_check() { # Windows 11's clipboard and shared folder, from the form to t
     *) echo "no clipboard channel on a new machine: $a"; return 1 ;; esac
   o="$(player_args "$bundle")"
   [ -z "$o" ] || { echo "player options nobody asked for: $o"; return 1; }
-  # x64 has one screen, virtio-vga: its VGA half for the firmware and
-  # Basic Display, its virtio-gpu for viogpudo, which makes it follow the
-  # window (M22; no standard VGA beside it since 2026-10-22)
-  case "$a" in *"virt,gic"*) ;;
-    *"-vga std"*|*"virtio-gpu-pci"*) echo "an x64 Windows 11 machine still has a second screen: $a"; return 1 ;;
+  # one screen, virtio-vga: its VGA half for the firmware and Basic
+  # Display, its virtio-gpu for viogpudo, which makes it follow the window
+  # (M22; no standard VGA beside it on x64 since 2026-10-22, no ramfb on
+  # Arm since 2026-10-23)
+  case "$a" in
+    *"-vga std"*|*"virtio-gpu-pci"*|*"ramfb"*) echo "a Windows 11 machine still has a second screen: $a"; return 1 ;;
+    *"virt,gic"*"-device virtio-vga,sync-ctrl=on"*) ;;
     *"-vga none"*"-device virtio-vga,sync-ctrl=on"*) ;;
-    *) echo "an x64 Windows 11 machine lacks its virtio-vga: $a"; return 1 ;; esac
+    *) echo "a Windows 11 machine lacks its virtio-vga: $a"; return 1 ;; esac
   # the window's size is remembered beside the bundle (M22)
   o="$($LAUNCHERX --print-player-args "$bundle")"
   [ "$o" = "--window-state $(dirname "$bundle")/window.toml --machine $bundle" ]     || { echo "no --window-state beside the bundle, or no --machine for the Disc menu: $o"; return 1; }
@@ -2097,22 +2099,20 @@ display_adapter_check() { # the wizard's adapter picker, from a combo box to a r
   else
     echo "dos: --wizard-edit std failed"; rc=1
   fi
-  # x64 Windows 11 on our adapter has it alone (track M20, 2026-10-22): our
-  # EDK2 drives it for the firmware (patches/edk2/04), so the standard VGA,
-  # whose screen Windows extended the desktop onto, is gone. Arm's firmware
-  # screen is ramfb, another question.
-  case "$(uname -m)" in x86_64)
-    if bundle="$($LAUNCHERX --new win11 adapter-win11 "$dir/disk.qcow2")" \
-       && $LAUNCHERX --wizard-edit "$bundle" - - - - - - - d3dpt >/dev/null; then
-      args="$($LAUNCHERX --print-args "$bundle")"
-      case "$args" in *"-device d3dpt-vga,irq=on"*) ;; *) echo "win11: our adapter did not arrive"; echo "$args"; rc=1;; esac
-      case "$args" in *"-vga std"*) echo "win11: the standard VGA is still there beside ours"; echo "$args"; rc=1;; esac
-      # ... and our firmware, the one that drives it (Linux too, 2026-10-23)
-      case "$args" in *"/2ksbox-x86_64-code.fd"*) ;; *) echo "win11: not our EDK2, which alone draws on d3dpt-vga"; echo "$args"; rc=1;; esac
-    else
-      echo "win11: --new / --wizard-edit d3dpt failed"; rc=1
-    fi ;;
-  esac
+  # Windows 11 on our adapter has it alone (track M20; x64 2026-10-22,
+  # Arm 2026-10-23): our EDK2 drives it for the firmware (patches/edk2/04,
+  # and 05 on Arm), so the standard VGA or ramfb, whose screen Windows
+  # extended the desktop onto, is gone
+  if bundle="$($LAUNCHERX --new win11 adapter-win11 "$dir/disk.qcow2")" \
+     && $LAUNCHERX --wizard-edit "$bundle" - - - - - - - d3dpt >/dev/null; then
+    args="$($LAUNCHERX --print-args "$bundle")"
+    case "$args" in *"-device d3dpt-vga,irq=on"*) ;; *) echo "win11: our adapter did not arrive"; echo "$args"; rc=1;; esac
+    case "$args" in *"-vga std"*|*ramfb*|*virtio-vga*) echo "win11: another screen is still there beside ours"; echo "$args"; rc=1;; esac
+    # ... and our firmware, the one that drives it (Linux too, 2026-10-23)
+    case "$args" in *"/2ksbox-x86_64-code.fd"*|*"/2ksbox-aarch64-code.fd"*) ;; *) echo "win11: not our EDK2, which alone draws on d3dpt-vga"; echo "$args"; rc=1;; esac
+  else
+    echo "win11: --new / --wizard-edit d3dpt failed"; rc=1
+  fi
   # Every adapter on every family, on the real binary: started paused and
   # told to quit, so a machine QEMU will not build is an exit code.
   if [ -x $QSYS ] && [ -x $QIMG ]; then

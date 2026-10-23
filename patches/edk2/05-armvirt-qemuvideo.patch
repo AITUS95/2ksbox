@@ -1,0 +1,33 @@
+diff --git a/ArmVirtPkg/ArmVirtQemu.dsc b/ArmVirtPkg/ArmVirtQemu.dsc
+index 01e744a..158b613 100644
+--- a/ArmVirtPkg/ArmVirtQemu.dsc
++++ b/ArmVirtPkg/ArmVirtQemu.dsc
+@@ -561,6 +561,16 @@
+   # Video support
+   #
+   OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf
++  #
++  # 2ksbox: a PCI VGA's frame buffer (virtio-vga, d3dpt-vga), the only
++  # screen of a Windows 11 on Arm machine, which Basic Display inherits.
++  # Mapped write-combined: as device memory, the optimized SetMem and
++  # CopyMem fault on it.
++  #
++  OvmfPkg/QemuVideoDxe/QemuVideoDxe.inf {
++    <PcdsFeatureFlag>
++      gUefiOvmfPkgTokenSpaceGuid.PcdRemapFrameBufferWriteCombine|TRUE
++  }
+   OvmfPkg/VirtioGpuDxe/VirtioGpu.inf
+   OvmfPkg/PlatformDxe/Platform.inf
+ 
+diff --git a/ArmVirtPkg/ArmVirtQemuFvMain.fdf.inc b/ArmVirtPkg/ArmVirtQemuFvMain.fdf.inc
+index 6c9a8fa..11e0f8f 100644
+--- a/ArmVirtPkg/ArmVirtQemuFvMain.fdf.inc
++++ b/ArmVirtPkg/ArmVirtQemuFvMain.fdf.inc
+@@ -172,6 +172,7 @@ READ_LOCK_STATUS   = TRUE
+   # Video support
+   #
+   INF OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf
++  INF OvmfPkg/QemuVideoDxe/QemuVideoDxe.inf
+   INF OvmfPkg/VirtioGpuDxe/VirtioGpu.inf
+   INF OvmfPkg/PlatformDxe/Platform.inf
+ 

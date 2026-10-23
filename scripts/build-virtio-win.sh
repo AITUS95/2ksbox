@@ -28,7 +28,11 @@
 # without a click, and its autounattend.xml (guest-agent/) has Windows run
 # 2ksbox\install.ps1 at the first logon, so a new machine has the agent
 # too. On a Windows installed without the disc, 2ksbox\install.cmd adds
-# them (and the agent).
+# them (and the agent). viogpudo is the exception, in 2ksbox\viogpudo,
+# which install.ps1 adds at the first logon (2026-10-23): a Windows 11
+# machine's one screen is virtio-vga, and setup's own copy of viogpudo
+# takes it from Basic Display and never scans out (Arm: setup black), so
+# setup and the first start stay on Basic Display on the card's VGA half.
 #
 # 2ksbox\experimental-display carries our own viogpudo (track M24) for
 # the disc's processor, unsigned, with its installer (test mode, a
@@ -110,6 +114,9 @@ echo "==> the 2ksbox agent (x64)"
 ( cd guest-agent && "${AGENT_CARGO[@]}" build --release --locked --target x86_64-pc-windows-gnu ) || {
   echo "build-virtio-win: the agent did not build (rustup target add x86_64-pc-windows-gnu; mingw-w64)" >&2; exit 1; }
 
+# A driver's folder on the disc: setup's, but viogpudo's (above)
+on_disc() { [ "$1" = viogpudo ] && echo 2ksbox/viogpudo || echo "\$WinPEDriver\$/$1"; }
+
 # disc <arch>: the drivers (virtio-win folder:disc folder pairs, each with
 # the files that must be there), the agent, a README, the ISO
 disc() {
@@ -120,13 +127,13 @@ disc() {
       drivers=(NetKVM viogpudo vioserial)
       files=(NetKVM/netkvm viogpudo/viogpudo vioserial/vioser)
       readme="  \$WinPEDriver\$\\NetKVM     the network card (Red Hat VirtIO Ethernet Adapter)
-  \$WinPEDriver\$\\viogpudo   the display (Red Hat VirtIO GPU DOD controller)
+  2ksbox\\viogpudo          the display (Red Hat VirtIO GPU DOD controller)
   \$WinPEDriver\$\\vioserial  the clipboard's channel to the host (VirtIO Serial)" ;;
     x64)
       dir=amd64; title="Windows 11"
       drivers=(viogpudo vioserial)
       files=(viogpudo/viogpudo vioserial/vioser)
-      readme="  \$WinPEDriver\$\\viogpudo   the display (Red Hat VirtIO GPU DOD controller)
+      readme="  2ksbox\\viogpudo          the display (Red Hat VirtIO GPU DOD controller)
   \$WinPEDriver\$\\vioserial  the clipboard's channel to the host (VirtIO Serial)" ;;
   esac
   local iso=$OUT/2ksbox-drivers-$arch.iso tree=$OUT/tree-$arch
@@ -134,9 +141,9 @@ disc() {
   # what xorriso extracts keeps the disc's read-only modes
   [ -d "$tree" ] && chmod -R u+w "$tree"
   rm -rf "$tree"
-  mkdir -p "$tree/\$WinPEDriver\$"
+  mkdir -p "$tree/\$WinPEDriver\$" "$tree/2ksbox"
   local d pairs=(/virtio-win_license.txt:virtio-win_license.txt) pair
-  for d in "${drivers[@]}"; do pairs+=("/$d/w11/$dir:\$WinPEDriver\$/$d"); done
+  for d in "${drivers[@]}"; do pairs+=("/$d/w11/$dir:$(on_disc "$d")"); done
   for pair in "${pairs[@]}"; do
     xorriso -osirrox on -indev "$SRC" -extract "${pair%%:*}" "$tree/${pair#*:}" 2>&1 \
       | grep -i -E "failure|sorry" >&2 && exit 1
@@ -147,19 +154,19 @@ disc() {
   local f ext
   for f in "${files[@]}"; do
     for ext in inf cat sys; do
-      [ -f "$tree/\$WinPEDriver\$/$f.$ext" ] || { echo "build-virtio-win: virtio-win $VERSION has no $dir $f.$ext" >&2; exit 1; }
+      [ -f "$tree/$(on_disc "${f%%/*}")/${f#*/}.$ext" ] || { echo "build-virtio-win: virtio-win $VERSION has no $dir $f.$ext" >&2; exit 1; }
     done
   done
   # viogpudo's resolution service, which 2ksbox\install.ps1 installs (M24):
   # ours, with patch 03, over upstream's
   if [ -f "build/viogpudo/$arch/viogpuap.exe" ] && [ -f "build/viogpudo/$arch/vgpusrv.exe" ]; then
-    cp "build/viogpudo/$arch/vgpusrv.exe" "build/viogpudo/$arch/viogpuap.exe" "$tree/\$WinPEDriver\$/viogpudo/"
+    cp "build/viogpudo/$arch/vgpusrv.exe" "build/viogpudo/$arch/viogpuap.exe" "$tree/2ksbox/viogpudo/"
     echo "    viogpudo's resolution helpers: ours (build/viogpudo/$arch)"
   else
     echo "note: no viogpudo build of ours for $arch (scripts/windows-drivers.sh fetch viogpudo): upstream's resolution helpers, and a desktop that takes the window's size only at boot" >&2
   fi
   for f in vgpusrv viogpuap; do
-    [ -f "$tree/\$WinPEDriver\$/viogpudo/$f.exe" ] || { echo "build-virtio-win: virtio-win $VERSION has no $dir viogpudo/$f.exe" >&2; exit 1; }
+    [ -f "$tree/2ksbox/viogpudo/$f.exe" ] || { echo "build-virtio-win: virtio-win $VERSION has no $dir viogpudo/$f.exe" >&2; exit 1; }
   done
   # our viogpudo, for whoever opts in (M24): never installed by itself
   local exp=$tree/2ksbox/experimental-display ours=build/viogpudo/$arch expnote=""
@@ -193,7 +200,10 @@ From virtio-win $VERSION (Red Hat), the $dir builds for Windows 11:
 
 $readme
 
-Windows Setup installs them by itself when this disc is in a drive.
+Windows Setup installs them by itself when this disc is in a drive,
+but the display: 2ksbox\\install.ps1 adds it at the first logon (in
+setup it would take the screen from Windows' own driver and show
+nothing).
 
 2ksbox\\install.cmd installs the drivers on an installed Windows, and
 2ksbox's agent: the clipboard shared with the host, and the host's

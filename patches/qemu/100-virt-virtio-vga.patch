@@ -1,0 +1,20 @@
+The aarch64 virt board gets virtio-vga, as the x86, PPC and RISC-V
+boards have it: virtio-gpu with QEMU's VGA core, whose linear frame
+buffer the firmware's QemuVideoDxe drives and Windows' Basic Display
+inherits, while the virtio half is the guest driver's. 2ksbox's
+Windows 11 on Arm machines then have one screen, with no ramfb beside
+the virtio-gpu for the firmware and setup.
+Drop when upstream's virt board implies VIRTIO_VGA.
+
+diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
+index 6f5b2ad..9c7a13d 100644
+--- a/hw/arm/Kconfig
++++ b/hw/arm/Kconfig
+@@ -4,6 +4,7 @@ config ARM_VIRT
+     depends on ARM
+     depends on TCG || KVM || HVF
+     imply PCI_DEVICES
++    imply VIRTIO_VGA
+     imply TEST_DEVICES
+     imply TPM_TIS_SYSBUS
+     imply TPM_TIS_I2C

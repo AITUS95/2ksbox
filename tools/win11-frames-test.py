@@ -186,7 +186,8 @@ def main():
     subprocess.run([LX, "--prepare", toml], check=True, capture_output=True)
     argv = subprocess.run([LX, "--print-args", toml], check=True, capture_output=True,
                           text=True).stdout.split()
-    gpu = [i for i, a in enumerate(argv) if a.startswith("virtio-gpu-pci")]
+    # virtio-vga since 2026-10-23 (one screen), virtio-gpu-pci beside ramfb before
+    gpu = [i for i, a in enumerate(argv) if a.startswith(("virtio-vga", "virtio-gpu-pci"))]
     if not gpu:
         skip("the machine has no virtio-gpu (not Windows 11 on Arm)")
     argv[gpu[0]] += ",id=vgpu"

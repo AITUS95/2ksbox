@@ -38,7 +38,7 @@
 # read when the driver starts; 0 for upstream's behaviour, the A/B without
 # reinstalling). Without it the value is removed and the rate is the one
 # the host gives in the device's EDID (patch 02; 60 when it gives none). Upstream's driver comes back with
-# `pnputil /add-driver <drivers disc>:\$WinPEDriver$\viogpudo\viogpudo.inf
+# `pnputil /add-driver <drivers disc>:\2ksbox\viogpudo\viogpudo.inf
 # /install` after `pnputil /delete-driver` of ours.
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
@@ -161,7 +161,7 @@ if ($LASTEXITCODE -and $LASTEXITCODE -ne 3010) {
     $code = $LASTEXITCODE
     # never a virtio-gpu without a driver: upstream's back from the drivers disc
     $up = Get-Volume | Where-Object DriveLetter | ForEach-Object {
-        "$($_.DriveLetter):\`$WinPEDriver`$\viogpudo\viogpudo.inf" } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        "$($_.DriveLetter):\2ksbox\viogpudo\viogpudo.inf" } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if ($up) {
         Write-Host "putting upstream's viogpudo back from $up"
         pnputil /add-driver $up /install | Out-Host

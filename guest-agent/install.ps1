@@ -1,7 +1,9 @@
 # 2ksbox's guest tools for Windows 11 (track M23, doc 24 section 4), run
 # elevated by install.cmd from the drivers disc:
-#   - every driver on the disc ($WinPEDriver$: NetKVM, viogpudo, vioser),
-#     for a machine installed without it;
+#   - every driver on the disc ($WinPEDriver$: NetKVM, vioser), for a
+#     machine installed without it, and viogpudo (2ksbox\viogpudo), which
+#     setup leaves out (it would take the one screen from setup's Basic
+#     Display and show nothing), so on a new machine it comes in here;
 #   - the agent in C:\Program Files\2ksbox;
 #   - two tasks at every user's logon: the agent with the user's elevated
 #     token (vioser lets only Administrators open the clipboard's port),
@@ -21,8 +23,11 @@ $drivers = Join-Path $root '$WinPEDriver$'
 # The experimental viogpudo (2ksbox\experimental-display, track M24) marks
 # itself installed; upstream's, which Windows ranks above it, stays out.
 $exp = (Get-ItemProperty HKLM:\SOFTWARE\2ksbox -ErrorAction SilentlyContinue).ExperimentalDisplay -eq 1
-if (Test-Path -LiteralPath $drivers) {
-  foreach ($d in (Get-ChildItem -LiteralPath $drivers -Directory)) {
+$gpu = Join-Path $here 'viogpudo'
+$dirs = @(Get-ChildItem -LiteralPath $drivers -Directory -ErrorAction SilentlyContinue)
+if (Test-Path -LiteralPath $gpu) { $dirs += Get-Item -LiteralPath $gpu }
+if ($dirs) {
+  foreach ($d in $dirs) {
     if ($exp -and $d.Name -eq 'viogpudo') { say "  viogpudo: the experimental one is installed, left alone"; continue }
     foreach ($l in (pnputil /add-driver "$($d.FullName)\*.inf" /install 2>&1)) { if ("$l".Trim()) { say "  $("$l".Trim())" } }
   }
@@ -37,7 +42,6 @@ New-Item -ItemType Directory -Force $dst | Out-Null
 # driver's event and applies the size with SetDisplayConfig. Without it a
 # Windows 11 guest takes the window's size only when it starts. viogpuap
 # is started by name, so it lives beside vgpusrv.
-$gpu = Join-Path $drivers 'viogpudo'
 if (Test-Path -LiteralPath (Join-Path $gpu 'vgpusrv.exe')) {
   $gdst = Join-Path $dst 'viogpu'
   New-Item -ItemType Directory -Force $gdst | Out-Null

@@ -1232,6 +1232,22 @@ flips at the rate 1920x1080 gives (~27/s), against p95 26 ms, a 108 ms
 stall and ~17 flips/s with `WHPX_DIRTY_TRACK=0` and `full-frames=on`.
 **Drop:** upstream WHPX tracks dirty pages.
 
+### 100-virt-virtio-vga
+The aarch64 `virt` board gets `virtio-vga` (`imply VIRTIO_VGA`, as the
+PC, PPC and RISC-V boards have it; track M20, 2026-10-23): virtio-gpu
+with QEMU's VGA core, whose linear frame buffer the firmware draws on
+(EDK2 patch 05, QemuVideoDxe) and Windows' Basic Display inherits, while
+viogpudo drives the virtio half. Windows 11 on Arm machines then have one
+screen, with no ramfb beside a `virtio-gpu-pci` for the firmware and
+setup. The device needs nothing x86 on the board: its VGA registers are
+in its MMIO BAR. The queue's first three-digit number: `prepare-qemu.sh`'s
+glob is lexical, so it applies between 10 and 11, which is harmless while
+no other patch touches `hw/arm/Kconfig`. **Test:** `qemu-system-aarch64
+-device help` lists `virtio-vga`; the user's Windows 11 on Arm machine on the Air (a copy) on
+it alone: the firmware, Windows and viogpudo at the window's size; setup
+from the Arm ISO (`win11-boot-prompt`). **Drop:** upstream's `virt`
+implies `VIRTIO_VGA`.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

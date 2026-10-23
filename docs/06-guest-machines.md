@@ -175,7 +175,7 @@ The modern family (ADR-024, track M20): 64-bit, on its own QEMU target
 | TPM 2.0 | libtpms in QEMU (patch 75) on `tpm-crb`, state in `tpm_state` | the same on `tpm-tis-device` |
 | RAM / disk | 4096 MB (4096 to 32768) / 64 GB | the same |
 | Disk, CD | AHCI: disk on `ide.0`, the user's CD on `ide.1`, the drivers disc on `ide.2` | `ich9-ahci,id=ide`, the same layout |
-| Video | `std` (Basic Display) plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `std` then `d3dpt-vga,irq=on,vgamem_mb=512` with our WDDM driver (tracks M20, M25: 512 MiB so the driver offers sizes up to 3840x2160, where the default 128 stops at 1920x1200) | `ramfb` plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `ramfb` then `d3dpt-vga,irq=on,vgamem_mb=512` with the WDDM driver's Arm build (M25) |
+| Video | `std` (Basic Display) plus `virtio-gpu-pci` (viogpudo from the drivers disc); or, picked in the form, `std` then `d3dpt-vga,irq=on,vgamem_mb=512` with our WDDM driver (tracks M20, M25: 512 MiB so the driver offers sizes up to 3840x2160, where the default 128 stops at 1920x1200) | `virtio-vga` alone (QEMU patch 100; viogpudo from the drivers disc; `ramfb` plus `virtio-gpu-pci` until 2026-10-23); or, picked in the form, `d3dpt-vga,irq=on,vgamem_mb=512,bar64=on` alone with the WDDM driver's Arm build (M25) |
 | Sound | HD Audio (none) | HD Audio (none) |
 | Net | e1000e when on | `virtio-net-pci` when on (NetKVM from the drivers disc) |
 | Input | PS/2 keyboard; tablet and pad on `qemu-xhci` | `usb-kbd`, `usb-tablet` (or `usb-mouse`) on `qemu-xhci` |
@@ -294,15 +294,24 @@ Every era family offers a choice (`bundle::Video`, the bundle's
 standard VGA beside a `virtio-gpu-pci` until then): the firmware, setup
 and Basic Display draw on its VGA half (upstream OVMF leaves virtio-vga to
 QemuVideoDxe), and viogpudo drives its virtio-gpu at the window's size.
-Windows 11 on Arm has `ramfb` plus `virtio-gpu-pci` (Arm has no VGA). On
-either, our adapter is the other choice, in place of the virtio-gpu
-(tracks M20, M25); on x64 it is then the only adapter (2026-10-22): our
-EDK2 drives it for the firmware (`patches/edk2/04`), so the firmware,
-Windows Setup and Basic Display show on it. So an x64 machine never has a
-second screen for Windows to extend the desktop onto; on Arm `ramfb`
-stays beside either. A machine made before 2026-10-22 sees its screen as
-a new device once (and the cards after the old standard VGA move up a
-slot); Windows binds its driver from the store by itself. It is experimental and needs
+Windows 11 on Arm has the same since 2026-10-23 (`ramfb` beside a
+`virtio-gpu-pci` until then): QEMU patch 100 puts `virtio-vga` on the
+`virt` board, and EDK2 patch 05 gives ArmVirtQemu OVMF's QemuVideoDxe,
+with the frame buffer mapped write-combined (as device memory the
+firmware's optimized `SetMem` faults on it: a synchronous exception
+before the disk). On either, our adapter is the other choice, in place of
+the virtio-gpu (tracks M20, M25), and then the only adapter (x64
+2026-10-22, Arm 2026-10-23): our EDK2 drives it for the firmware
+(`patches/edk2/04`), so the firmware, Windows Setup and Basic Display show
+on it. So no machine has a second screen for Windows to extend the
+desktop onto. viogpudo is not one of setup's drivers (the drivers disc's
+`2ksbox\viogpudo`, not `$WinPEDriver$`): in setup it took the one card
+from Basic Display and never set a scanout, a black setup on Arm; the
+agent's installer adds it at the first logon. A machine made before the
+change sees its screen as a new device once (and on x64 the cards after
+the old standard VGA move up a slot); Windows binds its driver from the
+store by itself, and picks the desktop's size afresh for the new set of
+screens (1024x768 on our adapter on the Air's machine). It is experimental and needs
 Windows' test mode, so the form names it "(experimental)", asks before it
 takes it (`wizard::Form::video_question`, a warning alert, Cancel the
 default) and warns under the picker while it is the pick

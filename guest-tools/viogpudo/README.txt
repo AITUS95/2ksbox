@@ -44,7 +44,7 @@ Undoing it
 
     Get-WindowsDriver -Online | Where-Object OriginalFileName -like '*\viogpudo.inf' |
       ForEach-Object { pnputil /delete-driver $_.Driver /uninstall /force }
-    pnputil /add-driver 'D:\$WinPEDriver$\viogpudo\viogpudo.inf' /install
+    pnputil /add-driver 'D:\2ksbox\viogpudo\viogpudo.inf' /install
     Remove-ItemProperty HKLM:\SOFTWARE\2ksbox -Name ExperimentalDisplay
     Get-ChildItem Cert:\LocalMachine\My, Cert:\LocalMachine\Root, Cert:\LocalMachine\TrustedPublisher |
       Where-Object Subject -eq 'CN=2ksbox test signing' | Remove-Item

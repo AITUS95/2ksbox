@@ -61,8 +61,7 @@ network card on Arm.
 
 The first time you sign in, Windows installs the 2ksbox agent from the
 drivers disc by itself. The agent shares the clipboard and the folder,
-and keeps the desktop smooth by making the machine's screen the only
-one. On a Windows that was installed without the drivers disc, open the
+and installs the display driver. On a Windows that was installed without the drivers disc, open the
 disc in File Explorer and run `2ksbox\install.cmd` once instead. It asks
 for administrator rights.
 
@@ -78,9 +77,9 @@ for administrator rights.
 
 ## The screen
 
-Windows 11 starts on a standard display adapter. With the display driver
-from the drivers disc, which setup installs, the
-machine's screen follows the window's size. Make the window bigger and
+Windows 11 has one screen. Setup and the first start show it at a fixed
+size. When you first sign in, the agent installs the display driver from
+the drivers disc, and from then on the screen follows the window's size. Make the window bigger and
 the desktop grows.
 
 ### An experimental, smoother display driver

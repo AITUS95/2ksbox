@@ -136,7 +136,7 @@ x64 on Linux and Windows, ARM64 on Apple Silicon) carry three things:
   by `scripts/build-virtio-win.sh`.
 - This project's own build of virtio-win's display driver, viogpudo, with
   the patches in `patches/viogpudo/`, built by `scripts/build-viogpudo.sh`.
-  Its resolution helpers replace the ISO's in `$WinPEDriver$\viogpudo`,
+  Its resolution helpers replace the ISO's in `2ksbox\viogpudo`,
   and the driver itself, which Microsoft has not signed, is in
   `2ksbox\experimental-display` for test mode. Same licence and source
   repository as virtio-win's.
