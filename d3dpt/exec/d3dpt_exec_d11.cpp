@@ -32,6 +32,35 @@
 #include "d3dpt_exec_int.h"
 #include <d3d11_1.h>
 #include <dxgi.h>
+#ifdef _WIN32
+/* the scanout ring (track M26): the player's Direct3D 12 images imported
+ * as Vulkan images on DXVK's own device (d3dpt_exec_int.h's Vulkan), and
+ * wrapped as d3d11 textures */
+#include <d3d11_3.h>
+
+/* DXVK's interop interfaces (third_party/dxvk/src/dxgi/dxgi_interfaces.h),
+ * declared as DXVK declares them, in vtable order */
+MIDL_INTERFACE("e2ef5fa5-dc21-4af7-90c4-f67ef6a09323")
+IDXGIVkInteropDevice : public IUnknown {
+    virtual void STDMETHODCALLTYPE GetVulkanHandles(VkInstance *pInstance, VkPhysicalDevice *pPhysDev, VkDevice *pDevice) = 0;
+    virtual void STDMETHODCALLTYPE GetSubmissionQueue(VkQueue *pQueue, uint32_t *pQueueFamilyIndex) = 0;
+    virtual void STDMETHODCALLTYPE TransitionSurfaceLayout(IUnknown *pSurface, const VkImageSubresourceRange *pSubresources,
+                                                           VkImageLayout OldLayout, VkImageLayout NewLayout) = 0;
+    virtual void STDMETHODCALLTYPE FlushRenderingCommands() = 0;
+    virtual void STDMETHODCALLTYPE LockSubmissionQueue() = 0;
+    virtual void STDMETHODCALLTYPE ReleaseSubmissionQueue() = 0;
+};
+MIDL_INTERFACE("e2ef5fa5-dc21-4af7-90c4-f67ef6a09324")
+IDXGIVkInteropDevice1 : public IDXGIVkInteropDevice {
+    virtual void STDMETHODCALLTYPE GetSubmissionQueue1(VkQueue *pQueue, uint32_t *pQueueIndex, uint32_t *pQueueFamilyIndex) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateTexture2DFromVkImage(const D3D11_TEXTURE2D_DESC1 *pDesc, VkImage vkImage,
+                                                                 ID3D11Texture2D **ppTexture2D) = 0;
+};
+#ifndef _MSC_VER
+__CRT_UUID_DECL(IDXGIVkInteropDevice,  0xe2ef5fa5, 0xdc21, 0x4af7, 0x90, 0xc4, 0xf6, 0x7e, 0xf6, 0xa0, 0x93, 0x23);
+__CRT_UUID_DECL(IDXGIVkInteropDevice1, 0xe2ef5fa5, 0xdc21, 0x4af7, 0x90, 0xc4, 0xf6, 0x7e, 0xf6, 0xa0, 0x93, 0x24);
+#endif
+#endif
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -117,6 +146,28 @@ struct D11 {
      * (RES_SCANOUT): an allocation's subresources first..last-1 */
     struct Owed { uint32_t h, first, last; };
     std::vector<Owed> owed;
+    /* the scanout ring (M26, d3dpt_exec_ring): the player's images, a
+     * flip's frame copied into the next one instead of read back. `scans`
+     * says which slot holds the frame of the page at a VRAM offset, the
+     * allocation it came from, until the guest's CPU writes that
+     * allocation or it goes */
+    struct Slot {
+        ID3D11Texture2D *tex = nullptr;
+        ID3D11Query *done = nullptr;            /* the last copy into it finished */
+#ifdef _WIN32
+        VkImage img = VK_NULL_HANDLE;
+        VkDeviceMemory mem = VK_NULL_HANDLE;
+#endif
+    };
+    std::vector<Slot> ring;
+    uint32_t ring_w = 0, ring_h = 0, ring_next = 0;
+    struct Scan { uint32_t h; uint32_t slot; };
+    std::unordered_map<uint32_t, Scan> scans;
+#ifdef _WIN32
+    VkDevice vk = VK_NULL_HANDLE;
+    PFN_vkDestroyImage vkDestroyImage = nullptr;
+    PFN_vkFreeMemory vkFreeMemory = nullptr;
+#endif
     void prof_part(uint32_t i, std::chrono::steady_clock::time_point &t) {
         auto now = std::chrono::steady_clock::now();
         prof_ns[i] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(now - t).count();
@@ -602,6 +653,43 @@ uint8_t *vram_of(Exec &x, uint32_t h, uint32_t &off, uint32_t &bytes)
 
 void owed_settle(Exec &x, D11 &d, uint32_t h, bool wait, bool drop = false);
 
+/* the ring's slots no longer hold the allocation's latest (its VRAM is,
+ * or it went) */
+void scans_forget(D11 &d, uint32_t h)
+{
+    for (auto it = d.scans.begin(); it != d.scans.end();)
+        it = it->second.h == h ? d.scans.erase(it) : std::next(it);
+}
+
+/* A flip's frame into the scanout ring's next slot, on the GPU, instead of
+ * a readback (M26): a 2D BGRA8 texture of the ring's size, one sample,
+ * whose first subresource is the page the flip shows. VRAM keeps its
+ * older pixels and the resource stays `newer`, so whatever reads that
+ * VRAM later reads it back first (exec_d11_sync, d3dpt_exec_scanout_vram).
+ * False: not one for the ring, read back as before. */
+bool ring_take(Exec &x, D11 &d, uint32_t h, D11Res &r)
+{
+    uint32_t off;
+    /* the offset only: vram_of syncs, and the last frame of this buffer
+     * would come back into VRAM (a 33 MB readback at 3840x2160 a flip) */
+    if (d.ring.empty() || r.d.dim != 3 || r.d.width != d.ring_w || r.d.height != d.ring_h ||
+        r.d.samples > 1 || (r.d.format != 87 && r.d.format != 91) || r.layout.empty() || !r.res ||
+        !exec_ddi_vram_offset(x, h, &off))
+        return false;
+    uint32_t page = off + r.layout[0].offset, k = d.ring_next;
+    D11::Slot &s = d.ring[k];
+    d.ring_next = (k + 1) % (uint32_t)d.ring.size();
+    owed_settle(x, d, h, false, true);          /* a readback owed for it is older */
+    for (auto it = d.scans.begin(); it != d.scans.end();)   /* the slot's last frame is overwritten */
+        it = it->second.slot == k ? d.scans.erase(it) : std::next(it);
+    d.ctx->CopySubresourceRegion(s.tex, 0, 0, 0, 0, r.res, 0, nullptr);
+    d.ctx->End(s.done);
+    d.ctx->Flush();                             /* submitted now: the display polls it */
+    d.scans[page] = { h, k };
+    r.newer = true;
+    return true;
+}
+
 /* VRAM -> host: the subresources the guest's CPU wrote */
 void res_dirty(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
 {
@@ -609,6 +697,7 @@ void res_dirty(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub)
     uint8_t *mem = vram_of(x, h, off, bytes);
     if (!mem || r.layout.empty()) return;
     owed_settle(x, d, h, false, true);         /* the guest's CPU wrote it since: what was owed is older */
+    scans_forget(d, h);                         /* and VRAM is the latest now, not a slot */
     uint32_t n = sub_count(r), first = sub == ~0u ? 0 : sub, last = sub == ~0u ? n : sub + 1;
     for (uint32_t i = first; i < last && i < r.layout.size(); i++) {
         const d3dpt_d11_sub &l = r.layout[i];
@@ -683,6 +772,7 @@ void owed_settle(Exec &x, D11 &d, uint32_t h, bool wait, bool drop)
 void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool scanout = false)
 {
     uint32_t off, bytes;
+    if (scanout && (sub == 0 || sub == ~0u) && ring_take(x, d, h, r)) return;
     /* one still owed: this copy is newer where it covers it */
     for (const D11::Owed &o : d.owed)
         if (o.h == h) {
@@ -2008,10 +2098,187 @@ void exec_d11_vram_release(Exec &x, uint32_t h)
     D11 *d = d11_of(x);
     if (!d) return;
     owed_settle(x, *d, h, false, true);
+    scans_forget(*d, h);
     auto it = d->res.find(h);
     if (it == d->res.end()) return;
     it->second.release();
     d->res.erase(it);
+}
+
+/* ---------------------------------------------------- the scanout ring */
+
+/* The ring's images go: after the GPU is done with every copy into them
+ * (DXVK wraps our Vulkan images, it does not own them) */
+static void ring_drop(D11 &d)
+{
+    if (d.ring.empty()) return;
+    d.ctx->Flush();
+    for (D11::Slot &s : d.ring) {
+        while (s.done && d.ctx->GetData(s.done, nullptr, 0, 0) == S_FALSE) std::this_thread::yield();
+        if (s.done) s.done->Release();
+        if (s.tex) s.tex->Release();
+#ifdef _WIN32
+        if (s.img && d.vkDestroyImage) d.vkDestroyImage(d.vk, s.img, nullptr);
+        if (s.mem && d.vkFreeMemory) d.vkFreeMemory(d.vk, s.mem, nullptr);
+#endif
+    }
+    d.ring.clear();
+    d.scans.clear();
+    d.ring_w = d.ring_h = d.ring_next = 0;
+}
+
+#ifdef _WIN32
+/* The Vulkan loader DXVK runs on, and the two calls the ring needs of it
+ * before it has a device's own */
+bool exec_vk_procs(VkInstance inst, PFN_vkGetDeviceProcAddr *gdpa, PFN_vkGetPhysicalDeviceMemoryProperties *memprops)
+{
+    HMODULE loader = GetModuleHandleA("vulkan-1.dll");
+    auto gipa = loader ? (PFN_vkGetInstanceProcAddr)(void *)GetProcAddress(loader, "vkGetInstanceProcAddr") : nullptr;
+    *gdpa = gipa ? (PFN_vkGetDeviceProcAddr)gipa(inst, "vkGetDeviceProcAddr") : nullptr;
+    *memprops = gipa ? (PFN_vkGetPhysicalDeviceMemoryProperties)gipa(inst, "vkGetPhysicalDeviceMemoryProperties") : nullptr;
+    return *gdpa && *memprops;
+}
+
+/* One of the player's images (an NT handle to a shared Direct3D 12
+ * resource, B8G8R8A8 typeless) as a Vulkan image on one of DXVK's devices
+ * (its d3d11's or its d3d9's), a copy's source and destination. False,
+ * logged, on any refusal. */
+bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice phys, PFN_vkGetDeviceProcAddr gdpa,
+                        PFN_vkGetPhysicalDeviceMemoryProperties memprops, void *handle, uint32_t w, uint32_t h,
+                        VkImage *img, VkDeviceMemory *mem)
+{
+#define VKFN(n) auto n = (PFN_##n)gdpa(dev, #n)
+    VKFN(vkCreateImage); VKFN(vkGetImageMemoryRequirements); VKFN(vkAllocateMemory);
+    VKFN(vkBindImageMemory); VKFN(vkGetMemoryWin32HandlePropertiesKHR);
+#undef VKFN
+    if (!vkCreateImage || !vkGetImageMemoryRequirements || !vkAllocateMemory || !vkBindImageMemory ||
+        !vkGetMemoryWin32HandlePropertiesKHR) {
+        x.log("%s: scanout ring: DXVK's device has no VK_KHR_external_memory_win32", who);
+        return false;
+    }
+    const VkExternalMemoryHandleTypeFlagBits type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT;
+    VkExternalMemoryImageCreateInfo ext = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO, nullptr, (VkExternalMemoryHandleTypeFlags)type };
+    VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &ext };
+    ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;     /* the resource is typeless */
+    ici.imageType = VK_IMAGE_TYPE_2D;
+    ici.format = VK_FORMAT_B8G8R8A8_UNORM;
+    ici.extent = { w, h, 1 };
+    ici.mipLevels = 1;
+    ici.arrayLayers = 1;
+    ici.samples = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkResult vr = vkCreateImage(dev, &ici, nullptr, img);
+    if (vr != VK_SUCCESS) { x.log("%s: scanout ring: vkCreateImage %d", who, (int)vr); return false; }
+    VkMemoryWin32HandlePropertiesKHR hp = { VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR };
+    vr = vkGetMemoryWin32HandlePropertiesKHR(dev, type, (HANDLE)handle, &hp);
+    if (vr != VK_SUCCESS) { x.log("%s: scanout ring: the handle's properties: %d", who, (int)vr); return false; }
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(dev, *img, &req);
+    VkPhysicalDeviceMemoryProperties mp;
+    memprops(phys, &mp);
+    uint32_t bits = req.memoryTypeBits & hp.memoryTypeBits, type_index = UINT32_MAX;
+    for (uint32_t i = 0; i < mp.memoryTypeCount; i++)       /* device-local first */
+        if ((bits & (1u << i)) && (type_index == UINT32_MAX ||
+            (mp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)))
+            if (type_index == UINT32_MAX || !(mp.memoryTypes[type_index].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+                type_index = i;
+    if (type_index == UINT32_MAX) { x.log("%s: scanout ring: no memory type takes the handle", who); return false; }
+    VkImportMemoryWin32HandleInfoKHR imp = { VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR, nullptr, type, (HANDLE)handle, nullptr };
+    VkMemoryDedicatedAllocateInfo ded = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, &imp, *img, VK_NULL_HANDLE };
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &ded, req.size, type_index };
+    vr = vkAllocateMemory(dev, &mai, nullptr, mem);
+    if (vr != VK_SUCCESS) { x.log("%s: scanout ring: importing the memory: %d", who, (int)vr); return false; }
+    vr = vkBindImageMemory(dev, *img, *mem, 0);
+    if (vr != VK_SUCCESS) { x.log("%s: scanout ring: vkBindImageMemory %d", who, (int)vr); return false; }
+    return true;
+}
+
+/* A ring image on the d3d11 device, and that as a d3d11 texture a copy
+ * can target */
+static bool ring_import(Exec &x, D11 &d, IDXGIVkInteropDevice1 *interop, VkPhysicalDevice phys,
+                 PFN_vkGetDeviceProcAddr gdpa, PFN_vkGetPhysicalDeviceMemoryProperties memprops,
+                 void *handle, uint32_t w, uint32_t h, D11::Slot &s)
+{
+    if (!exec_vk_ring_image(x, "d11", d.vk, phys, gdpa, memprops, handle, w, h, &s.img, &s.mem)) return false;
+    /* no bind flags: a copy's destination and source only */
+    D3D11_TEXTURE2D_DESC1 td = { w, h, 1, 1, DXGI_FORMAT_B8G8R8A8_UNORM, { 1, 0 }, D3D11_USAGE_DEFAULT, 0, 0, 0,
+                                 D3D11_TEXTURE_LAYOUT_UNDEFINED };
+    HRESULT hr = interop->CreateTexture2DFromVkImage(&td, s.img, &s.tex);
+    if (FAILED(hr)) { x.log("d11: scanout ring: CreateTexture2DFromVkImage 0x%08x", (unsigned)hr); return false; }
+    D3D11_QUERY_DESC qd = { D3D11_QUERY_EVENT, 0 };
+    hr = d.dev->CreateQuery(&qd, &s.done);
+    if (FAILED(hr)) { x.log("d11: scanout ring: an event query 0x%08x", (unsigned)hr); return false; }
+    return true;
+}
+#endif
+
+int exec_d11_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t h)
+{
+    D11 *d = d11(x);
+    if (!d) return 0;
+    ring_drop(*d);
+    if (count <= 0 || !handles || !w || !h) return 0;
+#ifdef _WIN32
+    IDXGIVkInteropDevice1 *interop = nullptr;
+    if (FAILED(d->dev->QueryInterface(__uuidof(IDXGIVkInteropDevice1), (void **)&interop)) || !interop) {
+        x.log("d11: scanout ring: the device is not DXVK's (no Vulkan interop)");
+        return 0;
+    }
+    VkInstance inst = VK_NULL_HANDLE;
+    VkPhysicalDevice phys = VK_NULL_HANDLE;
+    interop->GetVulkanHandles(&inst, &phys, &d->vk);
+    PFN_vkGetDeviceProcAddr gdpa;
+    PFN_vkGetPhysicalDeviceMemoryProperties memprops;
+    if (!exec_vk_procs(inst, &gdpa, &memprops)) {
+        x.log("d11: scanout ring: no Vulkan loader beside DXVK");
+        interop->Release();
+        return 0;
+    }
+    d->vkDestroyImage = (PFN_vkDestroyImage)gdpa(d->vk, "vkDestroyImage");
+    d->vkFreeMemory = (PFN_vkFreeMemory)gdpa(d->vk, "vkFreeMemory");
+    d->ring.resize((size_t)count);
+    d->ring_w = w;
+    d->ring_h = h;
+    bool ok = true;
+    for (int i = 0; ok && i < count; i++)
+        ok = ring_import(x, *d, interop, phys, gdpa, memprops, handles[i], w, h, d->ring[(size_t)i]);
+    interop->Release();
+    if (!ok) {
+        ring_drop(*d);
+        return 0;
+    }
+    x.log("d11: scanout ring: %d images of %ux%u, flips copied into them on the GPU", count, w, h);
+    return count;
+#else
+    return 0;
+#endif
+}
+
+int exec_d11_ring_slot(Exec &x, uint32_t page, bool wait)
+{
+    D11 *d = d11_of(x);
+    if (!d) return -1;
+    auto it = d->scans.find(page);
+    if (it == d->scans.end()) return -1;
+    D11::Slot &s = d->ring[it->second.slot];
+    HRESULT hr;
+    while ((hr = d->ctx->GetData(s.done, nullptr, 0, wait ? 0 : D3D11_ASYNC_GETDATA_DONOTFLUSH)) == S_FALSE && wait)
+        std::this_thread::yield();
+    return hr == S_OK ? (int)it->second.slot : -2;
+}
+
+void exec_d11_scanout_vram(Exec &x, uint32_t page)
+{
+    D11 *d = d11_of(x);
+    if (!d) return;
+    auto it = d->scans.find(page);
+    if (it == d->scans.end()) return;
+    auto r = d->res.find(it->second.h);
+    if (r == d->res.end() || !r->second.res) return;
+    res_readback(x, *d, it->second.h, r->second, ~0u);     /* now, and the slot still holds it too */
 }
 
 /* a guest device went (the kernel driver's CTX_DESTROY): its state and
@@ -2036,6 +2303,7 @@ void exec_d11_release(Exec &x)
     D11 *&d = d11_of(x);
     if (!d) return;
     if (d->ctx && d->idle) d->ctx->SwapDeviceContextState(d->idle, nullptr);
+    if (d->ctx) ring_drop(*d);
     for (auto &kv : d->ctxs) kv.second.release();
     for (auto &kv : d->res) kv.second.release();
     if (d->idle) d->idle->Release();

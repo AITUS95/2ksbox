@@ -53,6 +53,12 @@
  * ColorFill with any ROP3, AlphaBlend, StretchBlt, TransparentBlt and
  * ClearTypeBlend, done by the host on the CPU.
  *
+ * v30 (M26): SCANOUT, a flip about to show a Direct3D 9 render target:
+ * the host may keep the frame on its GPU (the scanout ring) and owe VRAM
+ * until a READBACK asks for it; the display drivers no longer read the
+ * target back at EndScene, only at a Lock, a blit and (without a ring) a
+ * flip.
+ *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #ifndef D3DPT_PROTO_H
@@ -60,7 +66,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_PROTO_VERSION   29u
+#define D3DPT_PROTO_VERSION   30u
 
 #define D3DPT_SHM_SIZE        0x04000000u          /* 64 MiB */
 #define D3DPT_CMD_OFFSET      0x00001000u          /* records start after the header page */
@@ -141,6 +147,7 @@ enum d3dpt_op {
                                          * SETRENDERTARGET / READBACK / VRAM_DIRTY of it is that level of the texture (v19) */
     D3DPT_OP_D11 = 109,                 /* body: d3dpt_d11 + tokens: a Direct3D 11 context's run (v25; see below) */
     D3DPT_OP_GDI = 110,                 /* body: d3dpt_gdi (v27) or d3dpt_gdi2 (v29) + n d3dpt_gdi_rect: a GDI operation (forward) */
+    D3DPT_OP_SCANOUT = 111,             /* body: d3dpt_sync: a flip will show this target (v30, M26); S_FALSE: VRAM has its frame */
     D3DPT_OP_MAX
 };
 

@@ -90,6 +90,9 @@ static bool try_lib(const char *path, const char *kind)
     lib.shared_map = D3DPT_DLSYM(lib.handle, "d3dpt_exec_shared_map");
     lib.features = D3DPT_DLSYM(lib.handle, "d3dpt_exec_features");
     lib.settle = D3DPT_DLSYM(lib.handle, "d3dpt_exec_settle");
+    lib.ring = D3DPT_DLSYM(lib.handle, "d3dpt_exec_ring");
+    lib.ring_slot = D3DPT_DLSYM(lib.handle, "d3dpt_exec_ring_slot");
+    lib.scanout_vram = D3DPT_DLSYM(lib.handle, "d3dpt_exec_scanout_vram");
     lib.name = path;
     if (!lib.version || !lib.create || !lib.destroy || !lib.attach || !lib.submit || !lib.set_vram ||
         lib.version() != D3DPT_PROTO_VERSION) {

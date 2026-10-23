@@ -54,6 +54,43 @@ extension), the cursor (already separate), and the readback on demand:
 QMP `screendump` and anything else that reads the scanout from VRAM
 asks the executor for one.
 
+## State (2026-10-23)
+
+Steps 1 to 4 for Direct3D 11's flips (Windows 11's DWM) work on the PC:
+at 3840x2160 under WHPX every present during an animation is a ring
+slot, the executor's share is back to 0.04 ms a batch, and the user:
+"much smoother". What was found on the way:
+
+- The player's refresh tick published the (older) surface between slot
+  frames, and the screen flashed: a tick with no surface update since a
+  slot leaves the slot on show (`scanout_shown`, `qemu_vm.rs`).
+- `vram_of()` syncs a Direct3D 11 allocation (`exec_d11_sync`): looking
+  the page's offset up read the buffer's last frame back, 33 MB a flip
+  (the executor at 29 % of the time). The ring takes the offset alone
+  (`exec_ddi_vram_offset`).
+- A covered player window presents nothing, so a comparison of the
+  player's CPU needs the window on screen.
+
+Step 5, the same day (user: "and do the xp/98 direct3d 9 path as
+well"): protocol v30's `SCANOUT`. The XP and 98 drivers read a target
+back at EndScene, every frame, and at a Flip, a Lock and a blit; EndScene
+no longer does, and a Flip sends `SCANOUT`, which with a ring copies the
+target into the next slot on DXVK d3d9's own queue (`ring_copy`: d3d9 has
+no way to wrap an outside image, so the executor records the barriers and
+the copy itself under DXVK's queue lock) and owes VRAM; a Lock or a blit
+still reads back, the untracked-writes merge (doc 15) unchanged. A page
+the guest's CPU wrote since the copy (GDI text over a 3D frame, the
+engine's software cursor) is shown from VRAM, read back with those
+writes kept, not from its slot. `test.sh all`: 67 passed (XP's G9, G8,
+F9 goldens on v30); D3DGAME9 in exclusive fullscreen at 1600x1200 on XP
+under WHPX in the player: 75 flips/s (the mode's rate), 4 readbacks in
+16 s, the picture right, the desktop right after.
+
+Open: the guest cursor sprite is not composited into a slot (a grabbed
+mouse); three slots and no release from the player (no tearing seen);
+98's driver on the ring checked only by its build (test.sh's Win98
+Direct3D checks need `build-winetests.sh` output on this PC); step 6.
+
 ## Steps
 
 1. **The ring in the player and the embed API.** Shared D3D12 textures

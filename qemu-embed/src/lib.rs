@@ -8,7 +8,7 @@
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::ptr;
 
-pub const API_VERSION: u32 = 16;
+pub const API_VERSION: u32 = 17;
 
 /// The system emulator this build links (`qemu-x86_64` feature: Windows
 /// 11, `qemu-aarch64`: Windows 11 on Arm; track M20), and so QEMU's own
@@ -47,6 +47,13 @@ pub struct RawDisplayCb {
     /// v12: the updates just delivered were pushed by the device outside a
     /// refresh tick (a guest flush) and complete a frame
     pub on_flush: Option<unsafe extern "C" fn(*mut c_void)>,
+    /// v17 (Windows, M26): a scanout ring of `count` width x height BGRA8
+    /// images is asked for; write their shared NT handles into `handles`
+    /// and return how many were made (0: none, count 0: release)
+    pub on_scanout_ring:
+        Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, *mut *mut c_void) -> c_int>,
+    /// v17: the image in the given ring slot is the screen's whole frame
+    pub on_scanout_slot: Option<unsafe extern "C" fn(*mut c_void, c_int)>,
 }
 
 #[repr(C)]

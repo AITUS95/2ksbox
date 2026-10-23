@@ -41,6 +41,34 @@
 #include <unistd.h>
 #endif
 
+#ifdef _WIN32
+/* DXVK's d3d9 interop interfaces (third_party/dxvk/src/d3d9/d3d9_interfaces.h),
+ * declared as DXVK declares them, in vtable order: the scanout ring (M26)
+ * records its copies on DXVK's own queue */
+MIDL_INTERFACE("2eaa4b89-0107-4bdb-87f7-0f541c493ce0")
+ID3D9VkInteropDevice : public IUnknown {
+    virtual void STDMETHODCALLTYPE GetVulkanHandles(VkInstance *pInstance, VkPhysicalDevice *pPhysDev, VkDevice *pDevice) = 0;
+    virtual void STDMETHODCALLTYPE GetSubmissionQueue(VkQueue *pQueue, uint32_t *pQueueIndex, uint32_t *pQueueFamilyIndex) = 0;
+    virtual void STDMETHODCALLTYPE TransitionTextureLayout(IUnknown *pTexture, const VkImageSubresourceRange *pSubresources,
+                                                           VkImageLayout OldLayout, VkImageLayout NewLayout) = 0;
+    virtual void STDMETHODCALLTYPE FlushRenderingCommands() = 0;
+    virtual void STDMETHODCALLTYPE LockSubmissionQueue() = 0;
+    virtual void STDMETHODCALLTYPE ReleaseSubmissionQueue() = 0;
+    virtual void STDMETHODCALLTYPE LockDevice() = 0;
+    virtual void STDMETHODCALLTYPE UnlockDevice() = 0;
+    virtual bool STDMETHODCALLTYPE WaitForResource(IDirect3DResource9 *pResource, DWORD MapFlags) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateImage(const void *desc, IDirect3DResource9 **ppResult) = 0;
+};
+MIDL_INTERFACE("d56344f5-8d35-46fd-806d-94c351b472c1")
+ID3D9VkInteropTexture : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetVulkanImageInfo(VkImage *pHandle, VkImageLayout *pLayout, VkImageCreateInfo *pInfo) = 0;
+};
+#ifndef _MSC_VER
+__CRT_UUID_DECL(ID3D9VkInteropDevice,  0x2eaa4b89, 0x0107, 0x4bdb, 0x87, 0xf7, 0x0f, 0x54, 0x1c, 0x49, 0x3c, 0xe0);
+__CRT_UUID_DECL(ID3D9VkInteropTexture, 0xd56344f5, 0x8d35, 0x46fd, 0x80, 0x6d, 0x94, 0xc3, 0x51, 0xb4, 0x72, 0xc1);
+#endif
+#endif
+
 /* `access(p, F_OK)` without unistd.h, which Windows does not have; the
  * trace dumps are the only thing that asks. */
 static bool file_exists(const char *path)
@@ -385,6 +413,45 @@ struct Ddi {
         flush_q->Issue(D3DISSUE_END);
         flush_q->GetData(nullptr, 0, D3DGETDATA_FLUSH);
     }
+    /* the scanout ring (M26, d3dpt_exec_ring): the player's images on this
+     * device's Vulkan side, a flipped target copied into the next one
+     * there (D3DPT_OP_SCANOUT) instead of read back. `scans`: which slot
+     * holds the frame of the page at a VRAM offset, from which surface,
+     * until VRAM has that surface's latest again */
+    struct RingSlot {
+#ifdef _WIN32
+        VkImage img = VK_NULL_HANDLE;
+        VkDeviceMemory mem = VK_NULL_HANDLE;
+        VkCommandBuffer cb = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;         /* the last copy into it finished */
+        bool used = false;
+#endif
+    };
+    std::vector<RingSlot> ring;
+    uint32_t ring_w = 0, ring_h = 0, ring_next = 0;
+    struct Scan { uint32_t h, slot; };
+    std::unordered_map<uint32_t, Scan> scans;
+#ifdef _WIN32
+    IUnknown *interop = nullptr;                /* DXVK's ID3D9VkInteropDevice */
+    VkDevice vk = VK_NULL_HANDLE;
+    VkQueue queue = VK_NULL_HANDLE;
+    VkCommandPool pool = VK_NULL_HANDLE;
+    PFN_vkDestroyImage vkDestroyImage = nullptr;
+    PFN_vkFreeMemory vkFreeMemory = nullptr;
+    PFN_vkCreateFence vkCreateFence = nullptr;
+    PFN_vkDestroyFence vkDestroyFence = nullptr;
+    PFN_vkWaitForFences vkWaitForFences = nullptr;
+    PFN_vkResetFences vkResetFences = nullptr;
+    PFN_vkGetFenceStatus vkGetFenceStatus = nullptr;
+    PFN_vkCreateCommandPool vkCreateCommandPool = nullptr;
+    PFN_vkDestroyCommandPool vkDestroyCommandPool = nullptr;
+    PFN_vkAllocateCommandBuffers vkAllocateCommandBuffers = nullptr;
+    PFN_vkBeginCommandBuffer vkBeginCommandBuffer = nullptr;
+    PFN_vkEndCommandBuffer vkEndCommandBuffer = nullptr;
+    PFN_vkCmdPipelineBarrier vkCmdPipelineBarrier = nullptr;
+    PFN_vkCmdCopyImage vkCmdCopyImage = nullptr;
+    PFN_vkQueueSubmit vkQueueSubmit = nullptr;
+#endif
 };
 
 namespace {
@@ -919,10 +986,19 @@ static IDirect3DSurface9 *resolved(Exec &x, VramSurf &s) {
     return s.resolve;
 }
 
+/* the scanout ring's slots no longer hold the surface's latest (VRAM does,
+ * or it went; M26) */
+static void ring_forget(Ddi &d, uint32_t h)
+{
+    for (auto it = d.scans.begin(); it != d.scans.end();)
+        it = it->second.h == h ? d.scans.erase(it) : std::next(it);
+}
+
 /* host render target -> VRAM. Pixels the guest changed since the shadow
  * was taken (untracked writes: GDI through GetDC, drawn after the scene
  * as a rule, like a title's text and panels) stay over the host's. */
 static HRESULT readback(Exec &x, Ddi &d, VramSurf &s) {
+    ring_forget(d, s.d.handle);         /* VRAM has the latest now, not a ring slot (M26) */
     sev(x, s, "read back into VRAM");
     x.scene_end();
     if (!s.rt || (s.d.caps & D3DPT_VS_ZBUFFER)) return D3DERR_INVALIDCALL;
@@ -3205,9 +3281,192 @@ struct Dp2 {
 
 } // namespace
 
+/* --------------------------------------------- the scanout ring (M26) */
+
+/* The ring's images go, after the GPU is done with every copy into them */
+static void ring_drop(Ddi &d)
+{
+#ifdef _WIN32
+    for (Ddi::RingSlot &s : d.ring) {
+        if (s.fence && s.used) d.vkWaitForFences(d.vk, 1, &s.fence, VK_TRUE, UINT64_MAX);
+        if (s.fence) d.vkDestroyFence(d.vk, s.fence, nullptr);
+        if (s.img) d.vkDestroyImage(d.vk, s.img, nullptr);
+        if (s.mem) d.vkFreeMemory(d.vk, s.mem, nullptr);
+    }
+    if (d.pool) d.vkDestroyCommandPool(d.vk, d.pool, nullptr);
+    d.pool = VK_NULL_HANDLE;
+    if (d.interop) d.interop->Release();
+    d.interop = nullptr;
+#endif
+    d.ring.clear();
+    d.scans.clear();
+    d.ring_w = d.ring_h = d.ring_next = 0;
+}
+
+int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t h)
+{
+    if (!x.ddi) return 0;
+    Ddi &d = *x.ddi;
+    ring_drop(d);
+    if (count <= 0 || !handles || !w || !h || !x.dev) return 0;
+#ifdef _WIN32
+    ID3D9VkInteropDevice *interop = nullptr;
+    if (FAILED(x.dev->QueryInterface(__uuidof(ID3D9VkInteropDevice), (void **)&interop)) || !interop) {
+        x.log("ddi: scanout ring: the device is not DXVK's (no Vulkan interop)");
+        return 0;
+    }
+    d.interop = interop;
+    VkInstance inst = VK_NULL_HANDLE;
+    VkPhysicalDevice phys = VK_NULL_HANDLE;
+    uint32_t qindex = 0, family = 0;
+    interop->GetVulkanHandles(&inst, &phys, &d.vk);
+    interop->GetSubmissionQueue(&d.queue, &qindex, &family);
+    PFN_vkGetDeviceProcAddr gdpa;
+    PFN_vkGetPhysicalDeviceMemoryProperties memprops;
+    if (!exec_vk_procs(inst, &gdpa, &memprops)) {
+        x.log("ddi: scanout ring: no Vulkan loader beside DXVK");
+        ring_drop(d);
+        return 0;
+    }
+#define VKFN(n) d.n = (PFN_##n)gdpa(d.vk, #n)
+    VKFN(vkDestroyImage); VKFN(vkFreeMemory); VKFN(vkCreateFence); VKFN(vkDestroyFence);
+    VKFN(vkWaitForFences); VKFN(vkResetFences); VKFN(vkGetFenceStatus); VKFN(vkCreateCommandPool);
+    VKFN(vkDestroyCommandPool); VKFN(vkAllocateCommandBuffers); VKFN(vkBeginCommandBuffer);
+    VKFN(vkEndCommandBuffer); VKFN(vkCmdPipelineBarrier); VKFN(vkCmdCopyImage); VKFN(vkQueueSubmit);
+#undef VKFN
+    VkCommandPoolCreateInfo pci = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, nullptr,
+                                    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, family };
+    if (d.vkCreateCommandPool(d.vk, &pci, nullptr, &d.pool) != VK_SUCCESS) {
+        x.log("ddi: scanout ring: no command pool");
+        ring_drop(d);
+        return 0;
+    }
+    d.ring.resize((size_t)count);
+    for (int i = 0; i < count; i++) {
+        Ddi::RingSlot &s = d.ring[(size_t)i];
+        VkCommandBufferAllocateInfo cai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, d.pool,
+                                            VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
+        VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        if (!exec_vk_ring_image(x, "ddi", d.vk, phys, gdpa, memprops, handles[i], w, h, &s.img, &s.mem) ||
+            d.vkAllocateCommandBuffers(d.vk, &cai, &s.cb) != VK_SUCCESS ||
+            d.vkCreateFence(d.vk, &fci, nullptr, &s.fence) != VK_SUCCESS) {
+            ring_drop(d);
+            return 0;
+        }
+    }
+    d.ring_w = w;
+    d.ring_h = h;
+    x.log("ddi: scanout ring: %d images of %ux%u, flips copied into them on the GPU", count, w, h);
+    return count;
+#else
+    return 0;
+#endif
+}
+
+/* A flipped target's frame into the ring's next slot, on DXVK's queue: a
+ * BGRA8 / BGRX8 target of the ring's size. VRAM keeps its older pixels and
+ * the target stays `rendered`, so a Lock reads it back as before. False:
+ * not one for the ring. */
+static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
+{
+#ifdef _WIN32
+    if (d.ring.empty() || !s.rt || s.d.width != d.ring_w || s.d.height != d.ring_h ||
+        (s.d.format != D3DFMT_X8R8G8B8 && s.d.format != D3DFMT_A8R8G8B8))
+        return false;
+    IDirect3DSurface9 *src = resolved(x, s);
+    ID3D9VkInteropTexture *tex = nullptr;
+    if (!src || FAILED(src->QueryInterface(__uuidof(ID3D9VkInteropTexture), (void **)&tex)) || !tex) return false;
+    ID3D9VkInteropDevice *interop = (ID3D9VkInteropDevice *)d.interop;
+    interop->FlushRenderingCommands();         /* the frame's commands before ours, on the same queue */
+    VkImage img = VK_NULL_HANDLE;
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    HRESULT hr = tex->GetVulkanImageInfo(&img, &layout, nullptr);
+    tex->Release();
+    if (FAILED(hr) || !img) return false;
+    uint32_t k = d.ring_next;
+    Ddi::RingSlot &r = d.ring[k];
+    if (r.used) {
+        d.vkWaitForFences(d.vk, 1, &r.fence, VK_TRUE, UINT64_MAX);    /* three flips ago: long done */
+        d.vkResetFences(d.vk, 1, &r.fence);
+    }
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
+                                    VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
+    d.vkBeginCommandBuffer(r.cb, &bi);
+    const VkImageSubresourceRange all = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    VkImageMemoryBarrier pre[2] = {
+        { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+          layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, img, all },
+        { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
+          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, r.img, all },
+    };
+    d.vkCmdPipelineBarrier(r.cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                           0, nullptr, 0, nullptr, 2, pre);
+    VkImageCopy region = { { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 },
+                           { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { s.d.width, s.d.height, 1 } };
+    d.vkCmdCopyImage(r.cb, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, r.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    /* the target back in the layout DXVK keeps it in; the slot in the
+     * general one the player's Direct3D 12 samples */
+    VkImageMemoryBarrier post[2] = {
+        { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, img, all },
+        { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
+          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, r.img, all },
+    };
+    d.vkCmdPipelineBarrier(r.cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                           0, nullptr, 0, nullptr, 2, post);
+    d.vkEndCommandBuffer(r.cb);
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &r.cb;
+    interop->LockSubmissionQueue();
+    VkResult vr = d.vkQueueSubmit(d.queue, 1, &si, r.fence);
+    interop->ReleaseSubmissionQueue();
+    if (vr != VK_SUCCESS) {
+        x.log("ddi: scanout ring: vkQueueSubmit %d", (int)vr);
+        return false;
+    }
+    r.used = true;
+    d.ring_next = (k + 1) % (uint32_t)d.ring.size();
+    for (auto it = d.scans.begin(); it != d.scans.end();)   /* the slot's last frame is overwritten */
+        it = it->second.slot == k ? d.scans.erase(it) : std::next(it);
+    d.scans[s.d.offset] = { s.d.handle, k };
+    return true;
+#else
+    (void)x; (void)d; (void)s;
+    return false;
+#endif
+}
+
+int exec_ddi_ring_slot(Exec &x, uint32_t page, bool wait)
+{
+    if (!x.ddi) return -1;
+    Ddi &d = *x.ddi;
+    auto it = d.scans.find(page);
+    if (it == d.scans.end()) return -1;
+#ifdef _WIN32
+    Ddi::RingSlot &r = d.ring[it->second.slot];
+    VkResult vr = wait ? d.vkWaitForFences(d.vk, 1, &r.fence, VK_TRUE, UINT64_MAX) : d.vkGetFenceStatus(d.vk, r.fence);
+    return vr == VK_SUCCESS ? (int)it->second.slot : -2;
+#else
+    (void)wait;
+    return -1;
+#endif
+}
+
+void exec_ddi_scanout_vram(Exec &x, uint32_t page)
+{
+    if (!x.ddi) return;
+    auto it = x.ddi->scans.find(page);
+    if (it == x.ddi->scans.end()) return;
+    auto s = x.ddi->surfs.find(it->second.h);
+    if (s == x.ddi->surfs.end() || !s->second.rendered) return;
+    readback(x, *x.ddi, s->second);             /* forgets the slot: VRAM has it now */
+}
+
 void exec_ddi_release(Exec &x)
 {
     if (!x.ddi) return;
+    ring_drop(*x.ddi);
     for (auto &kv : x.ddi->surfs) kv.second.release();
     for (auto &kv : x.ddi->ctxs) kv.second.release_shaders();
     for (auto &kv : x.ddi->sblocks) if (kv.second) kv.second->Release();
@@ -3489,6 +3748,7 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
         auto it = x.ddi->surfs.find(a->handle);
         if (it == x.ddi->surfs.end()) return true;
         sev(x, it->second, "released");
+        ring_forget(*x.ddi, a->handle);
         if (x.ddi->bound_rt == a->handle || x.ddi->bound_z == a->handle) {
             /* the device may still reference it: unbind first */
             if (x.dev) { x.dev->SetDepthStencilSurface(nullptr); }
@@ -3533,7 +3793,7 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
             x.log("ddi: VRAM_DIRTY of target %u (%ux%u) the host drew into since its last readback: the host's pixels dropped", a->handle,
                   s->d.width, s->d.height);
         }
-        if (s) { s->dirty = true; s->rendered = false; }
+        if (s) { s->dirty = true; s->rendered = false; ring_forget(*x.ddi, a->handle); }
         if (s && s->cube_root) {
             /* a cube face (v11): a plain cube is read again whole; a
              * render-target cube uploads the faces whose entries are dirty */
@@ -3686,6 +3946,20 @@ static bool exec_ddi_op_(Batch &b, const d3dpt_cmd *c)
         x.ddi->flush_hint(x.dev);
         break;
     }
+    case D3DPT_OP_SCANOUT: {
+        /* v30 (M26): a flip is about to show the target. A frame the host
+         * drew since VRAM last had it goes into the scanout ring on the GPU
+         * when there is one (VRAM owed: a Lock still reads it back); else
+         * it is read back as READBACK does. S_FALSE: VRAM has it already. */
+        auto *a = body<d3dpt_sync>(c, 0, b); if (!a) return true;
+        d3dpt_ret *r = b.slot(a->ret_off, 0); if (!r) return true;
+        VramSurf *s = surf(x, a->handle);
+        if (!s) { r->hr = (uint32_t)D3DERR_INVALIDCALL; return true; }
+        if (!s->rendered) { r->hr = (uint32_t)S_FALSE; return true; }
+        if (ring_copy(x, *x.ddi, *s)) { r->hr = (uint32_t)S_OK; return true; }
+        r->hr = (uint32_t)readback(x, *x.ddi, *s);
+        return true;
+    }
     case D3DPT_OP_READBACK: {
         auto *a = body<d3dpt_sync>(c, 0, b); if (!a) return true;
         d3dpt_ret *r = b.slot(a->ret_off, 0); if (!r) return true;
@@ -3746,6 +4020,17 @@ bool exec_ddi_vram(Exec &x, uint32_t handle, uint32_t *offset, uint32_t *bytes)
         *bytes = s->d.width;
     else
         *bytes = s->d.pitch * fmt_rows(s->d.format, s->d.height);
+    return true;
+}
+
+/* exec_ddi_vram's offset alone, with no sync: what Direct3D 11 drew stays
+ * on the host (the scanout ring, M26, copies it on the GPU instead) */
+bool exec_ddi_vram_offset(Exec &x, uint32_t handle, uint32_t *offset)
+{
+    if (!x.ddi || !handle) return false;
+    auto it = x.ddi->surfs.find(handle);
+    if (it == x.ddi->surfs.end()) return false;
+    *offset = it->second.d.offset;
     return true;
 }
 

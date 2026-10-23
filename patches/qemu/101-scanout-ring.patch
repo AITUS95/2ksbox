@@ -1,0 +1,91 @@
+A scanout ring (2ksbox, track M26): a registry through which a display
+device whose frames are rendered on the host's GPU (d3dpt-vga's
+Direct3D executor) asks the front end for a few images on that GPU,
+fills them there, and shows one by number, instead of reading each
+frame back into its VRAM for the front end to copy and upload again
+(33 MB a frame at 3840x2160). The embed library registers the ops; a
+plain qemu-system registers none and every device keeps its surface.
+Applies after patch 096, the other ui/console.c one.
+Never upstream: the ops are the embed library's contract.
+A screendump's update raises qemu_console_pixels_wanted(), so a device
+showing a slot puts the frame on its surface first.
+
+diff --git a/include/ui/console.h b/include/ui/console.h
+index 65ddb4c..b1de473 100644
+--- a/include/ui/console.h
++++ b/include/ui/console.h
+@@ -458,6 +458,31 @@ void qemu_host_vblank(void);
+  */
+ void qemu_host_set_refresh_mhz(uint32_t mhz);
+ uint32_t qemu_host_refresh_mhz(void);
++/*
++ * A scanout ring (2ksbox, track M26): images on the host's GPU, made by
++ * the front end, that a display device whose frames are rendered on that
++ * GPU fills there and shows by number, so a frame never leaves the GPU.
++ * `alloc` asks for `count` images of width x height BGRA8 for `con` and
++ * fills `handles` (on Windows, NT handles to shared D3D12 resources, the
++ * front end's; count 0 releases the ring); it returns how many it made,
++ * 0 for no ring. `show` puts slot `slot` on `con` as its whole frame,
++ * the slot's GPU work already finished. Main loop or vCPU thread, BQL
++ * held. None registered (a plain qemu-system): devices keep their
++ * surfaces.
++ */
++typedef struct QemuScanoutRingOps {
++    int (*alloc)(QemuConsole *con, int width, int height, int count,
++                 void **handles);
++    void (*show)(QemuConsole *con, int slot);
++} QemuScanoutRingOps;
++void qemu_scanout_ring_register(const QemuScanoutRingOps *ops);
++const QemuScanoutRingOps *qemu_scanout_ring(void);
++/*
++ * True during a device's update that a screendump asked for: the surface
++ * itself is about to be read, so a device showing a ring slot puts the
++ * frame there first.
++ */
++bool qemu_console_pixels_wanted(void);
+ void qemu_console_notify(QemuConsoleEventType type, QemuConsole *con);
+ 
+ /* vnc.c */
+diff --git a/ui/console.c b/ui/console.c
+index 220c78d..3dcd903 100644
+--- a/ui/console.c
++++ b/ui/console.c
+@@ -183,9 +183,19 @@ void qemu_console_hw_update(QemuConsole *con)
+     }
+ }
+ 
++static bool pixels_wanted;
++
+ static void console_hw_update_bh(void *con)
+ {
++    /* a screendump's update: the surface itself is read (2ksbox) */
++    pixels_wanted = true;
+     qemu_console_hw_update(con);
++    pixels_wanted = false;
++}
++
++bool qemu_console_pixels_wanted(void)
++{
++    return pixels_wanted;
+ }
+ 
+ void qemu_console_co_wait_update(QemuConsole *con)
+@@ -1157,6 +1167,18 @@ uint32_t qemu_host_refresh_mhz(void)
+     return qatomic_read(&host_refresh_mhz);
+ }
+ 
++static const QemuScanoutRingOps *scanout_ring_ops;
++
++void qemu_scanout_ring_register(const QemuScanoutRingOps *ops)
++{
++    scanout_ring_ops = ops;
++}
++
++const QemuScanoutRingOps *qemu_scanout_ring(void)
++{
++    return scanout_ring_ops;
++}
++
+ /*
+  * Called by main(), after creating QemuConsoles
+  * and before initializing ui (sdl/vnc/...).

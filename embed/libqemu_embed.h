@@ -77,6 +77,18 @@ typedef struct qemu_embed_display_cb {
        on_update calls just made complete a frame: show it now rather than
        at the next tick. Main loop or vCPU thread, BQL held. */
     void (*on_flush)(void *ud);
+    /* v17 (Windows, track M26): a scanout ring. A display device whose
+       frames are rendered on the host's GPU (d3dpt-vga's Direct3D
+       executor) asks for `count` images of width x height BGRA8 there:
+       the frontend makes them as shared D3D12 resources and writes their
+       NT handles into `handles` (still the frontend's; the device opens
+       its own references), returning how many it made, 0 for none (the
+       device keeps its surface). Asked again at another size; count 0
+       releases the ring. Main loop, BQL held. */
+    int (*on_scanout_ring)(void *ud, int width, int height, int count, void **handles);
+    /* v17: the image in `slot` (its GPU work finished) is the screen's
+       whole frame, until the next on_scanout_slot or a surface update. */
+    void (*on_scanout_slot)(void *ud, int slot);
 } qemu_embed_display_cb;
 
 /* Create + initialize QEMU. argv is a plain qemu-system command line
@@ -210,7 +222,7 @@ QEMU_EMBED_API void qemu_embed_clipboard_set_text(qemu_embed_t *e, const char *u
 
 /* Library version of the embed API, for the bindings to sanity-check. */
 QEMU_EMBED_API uint32_t qemu_embed_api_version(void);
-#define QEMU_EMBED_API_VERSION 16
+#define QEMU_EMBED_API_VERSION 17
 
 #ifdef __cplusplus
 }

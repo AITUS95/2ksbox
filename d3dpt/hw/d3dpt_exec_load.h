@@ -26,6 +26,10 @@ typedef struct D3dptExecLib {
     void (*shared_map)(uint64_t offset, void *ptr);
     uint32_t (*features)(d3dpt_exec_t *x);  /* D3DPT_EXEC_FEAT_* (M25) */
     int (*settle)(d3dpt_exec_t *x, int wait); /* v28: before the display reads VRAM; readbacks still owed */
+    /* the scanout ring (M26, Windows): flips' frames kept on the GPU */
+    int (*ring)(d3dpt_exec_t *x, void *const *handles, int count, uint32_t w, uint32_t h);
+    int (*ring_slot)(d3dpt_exec_t *x, uint32_t vram_offset, int wait);
+    void (*scanout_vram)(d3dpt_exec_t *x, uint32_t vram_offset);
     const char *name;   /* what was opened, for the log */
 } D3dptExecLib;
 

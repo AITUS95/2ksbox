@@ -992,13 +992,14 @@ static DWORD APIENTRY DdFlip(PDD_FLIPDATA d)
         dbg_puts(&p->core, "\n");
     }
     if (d3d_ctx_live) {
-        /* What Direct3D rendered into the back buffer must be in the VRAM
-         * the target has *now* before it is scanned out. A surface the host
-         * knows at another offset is registered again first (a no-op under
-         * dxg's model below). */
+        /* What Direct3D rendered into the back buffer must be where the
+         * display takes the target from *now*, before it is scanned out:
+         * the host's scanout ring on its GPU, or its VRAM (SCANOUT, v30).
+         * A surface the host knows at another offset is registered again
+         * first (a no-op under dxg's model below). */
         d3d_register_moved(&p->core, d->lpSurfCurr);
         d3d_register_moved(&p->core, d->lpSurfTarg);
-        d3d_readback(&p->core, surf_handle(d->lpSurfTarg));
+        d3d_scanout(&p->core, surf_handle(d->lpSurfTarg));
     }
     /* The page flip scans out from the target's VRAM offset and swaps
      * nothing. On NT dxg does not exchange the two surfaces' memory. It

@@ -892,3 +892,14 @@ HRESULT d3d_readback(d3dpt_core *p, ULONG handle)
     }
     return hr;
 }
+
+/* A flip is about to show the target (protocol v30, track M26): the host
+ * puts the frame where the display takes it, on its GPU when it can, and
+ * may owe VRAM until a READBACK (a Lock, a blit) asks for it */
+HRESULT d3d_scanout(d3dpt_core *p, ULONG handle)
+{
+    if (!p->d3d || !handle) {
+        return DD_OK;
+    }
+    return (HRESULT)d3dpt_enc_sync(&p->enc, D3DPT_OP_SCANOUT, handle);
+}

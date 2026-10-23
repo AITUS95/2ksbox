@@ -2674,6 +2674,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wgpu",
+ "windows",
  "windows-sys 0.52.0",
  "x11rb",
 ]

@@ -8,8 +8,17 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
+/// What makes a scanout ring's images (Windows: `d3d12ring::alloc`, on
+/// the player's own device): width, height, count. Track M26.
+#[cfg(windows)]
+pub type RingAlloc = Arc<dyn Fn(u32, u32, usize) -> Result<Vec<crate::d3d12ring::Slot>, String> + Send + Sync>;
+/// No scanout ring off Windows yet (track M26's step 6).
+#[cfg(not(windows))]
+pub type RingAlloc = std::convert::Infallible;
+
 /// A backend ring slot offered for zero-copy import: a dma-buf (Linux,
-/// `fd` >= 0) or an IOSurface (macOS, `iosurface` non-null).
+/// `fd` >= 0), an IOSurface (macOS, `iosurface` non-null) or a scanout
+/// ring's image the player made itself (`tex`, Windows).
 pub struct DmaBuf {
     pub slot: usize,
     pub fd: i32,
@@ -20,6 +29,7 @@ pub struct DmaBuf {
     pub modifier: u64,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub iosurface: usize,
+    pub tex: Option<wgpu::Texture>,
 }
 
 /// A rectangle of guest pixels, `x0..x1` by `y0..y1`.
@@ -203,8 +213,16 @@ struct Shared {
     last_3d: Option<std::time::Instant>,
     vga_dirty: bool,
     showing_vga: bool,
+    // a scanout ring slot is on show (M26) and the surface has not been
+    // updated since: a refresh publishes nothing
+    scanout_shown: bool,
     // zero-copy: the GPU side can import dma-bufs; offered slots wait here
     zero_copy: bool,
+    // the scanout ring (M26): what makes its images, and the ones made,
+    // kept for their handles while a device may open them
+    ring_alloc: Option<RingAlloc>,
+    #[cfg(windows)]
+    ring: Vec<crate::d3d12ring::Slot>,
     dmabufs: Vec<DmaBuf>,
     // QEMU's main loop has returned; the handle must not be used any more
     stopped: bool,
@@ -575,6 +593,7 @@ unsafe extern "C" fn on_3d_dmabuf(
         fourcc,
         modifier,
         iosurface: 0,
+        tex: None,
     });
     1
 }
@@ -601,6 +620,7 @@ unsafe extern "C" fn on_3d_iosurface(
         fourcc: 0,
         modifier: 0,
         iosurface: iosurface as usize,
+        tex: None,
     });
     1
 }
@@ -628,6 +648,83 @@ unsafe extern "C" fn on_3d_frame_ready(ud: *mut c_void, slot: c_int) {
     let mut s = shared.lock().unwrap();
     note_3d_frame(&mut s);
     publish_trace(&format_args!("slot {slot}"));
+    s.front.ext_slot = Some(slot as usize);
+    s.front.seq += 1;
+    s.front.published = std::time::Instant::now();
+    let waker = s.waker.clone();
+    drop(s);
+    if let Some(w) = waker {
+        w();
+    }
+}
+
+/// v17 (M26): a device asks for a scanout ring of `count` images. They are
+/// made on the player's device (`ring_alloc`), their handles written into
+/// `handles`, and their textures queued for the render thread as any ring
+/// slot; count 0, or none made, leaves the device on its surface.
+unsafe extern "C" fn on_scanout_ring(
+    ud: *mut c_void,
+    w: c_int,
+    h: c_int,
+    count: c_int,
+    handles: *mut *mut c_void,
+) -> c_int {
+    let shared = &*(ud as *const Mutex<Shared>);
+    let mut s = shared.lock().unwrap();
+    #[cfg(windows)]
+    {
+        s.ring.clear();
+        let alloc = match &s.ring_alloc {
+            Some(a) if count > 0 && w > 0 && h > 0 && !handles.is_null() => a.clone(),
+            _ => return 0,
+        };
+        match alloc(w as u32, h as u32, count as usize) {
+            Ok(slots) => {
+                for (i, slot) in slots.iter().enumerate() {
+                    *handles.add(i) = slot.handle();
+                    s.dmabufs.push(DmaBuf {
+                        slot: i,
+                        fd: -1,
+                        w: w as u32,
+                        h: h as u32,
+                        stride: 0,
+                        fourcc: 0,
+                        modifier: 0,
+                        iosurface: 0,
+                        tex: Some(slot.tex.clone()),
+                    });
+                }
+                eprintln!("[display] scanout ring: {} images of {w}x{h}", slots.len());
+                let n = slots.len() as c_int;
+                s.ring = slots;
+                n
+            }
+            Err(e) => {
+                eprintln!("[display] scanout ring of {w}x{h}: {e}; frames come through the surface");
+                0
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (&mut s, w, h, count, handles);
+        0
+    }
+}
+
+/// v17 (M26): a ring slot holds the screen's whole frame. The surface did
+/// not get it, so `front` is not the picture any more: the next surface
+/// frame is copied whole.
+unsafe extern "C" fn on_scanout_slot(ud: *mut c_void, slot: c_int) {
+    let shared = &*(ud as *const Mutex<Shared>);
+    let mut s = shared.lock().unwrap();
+    if slot < 0 {
+        return;
+    }
+    publish_trace(&format_args!("scanout slot {slot}"));
+    s.front_stale = true;
+    s.scanout_shown = true;
+    s.vga_dirty = false;
     s.front.ext_slot = Some(slot as usize);
     s.front.seq += 1;
     s.front.published = std::time::Instant::now();
@@ -693,6 +790,13 @@ unsafe extern "C" fn on_refresh_done(ud: *mut c_void) {
             eprintln!("[display] no 3D frame for {} ms and the guest drew on the VGA surface: showing it", VGA_FALLBACK.as_millis());
         }
     }
+    // a scanout ring slot has the screen (M26): the surface is older than
+    // it, and only takes the screen back once the device updates it
+    // (every tick published it, and the screen flashed between the two)
+    if s.scanout_shown && !s.vga_dirty {
+        return;
+    }
+    s.scanout_shown = false;
     s.vga_dirty = false;
     let (w, h) = (s.width, s.height);
     // only what changed since the last publish is copied (M22), and a tick
@@ -845,6 +949,7 @@ pub fn start(
     audio: Option<(Arc<crate::audio::Ring>, u32)>,
     waker: Option<Arc<dyn Fn() + Send + Sync>>,
     zero_copy: bool,
+    ring_alloc: Option<RingAlloc>,
 ) -> (Qemu, Display, JoinHandle<i32>, Option<Arc<crate::qmp::Qmp>>) {
     // QMP monitor on a socketpair: our end stays here, QEMU gets the fd.
     let qmp = match crate::qmp::Qmp::pair() {
@@ -902,7 +1007,11 @@ pub fn start(
         last_3d: None,
         vga_dirty: false,
         showing_vga: false,
+        scanout_shown: false,
         zero_copy,
+        ring_alloc,
+        #[cfg(windows)]
+        ring: Vec::new(),
         dmabufs: Vec::new(),
         stopped: false,
         released: false,
@@ -931,6 +1040,8 @@ pub fn start(
                 on_3d_frame_ready: Some(on_3d_frame_ready),
                 on_3d_iosurface: Some(on_3d_iosurface),
                 on_flush: Some(on_flush),
+                on_scanout_ring: Some(on_scanout_ring),
+                on_scanout_slot: Some(on_scanout_slot),
             };
             if let Some((r, _)) = ring_ptrs {
                 let ring = unsafe { &*(r as *const crate::audio::Ring) };

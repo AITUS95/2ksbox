@@ -124,14 +124,15 @@ void ctx_destroy_all(d3dpt_core *p, ULONG pid)
     }
 }
 
-/* EndScene: the frame into the target's VRAM, where Flip / Blt / Lock expect it */
+/* EndScene. The frame stays on the host until something asks for it: a
+ * Flip (SCANOUT), a Lock or a blit (READBACK), each of which reads it back
+ * itself (v30, track M26). It was read back here, every frame, into VRAM
+ * the flip then mostly did not need: 33 MB a frame at 3840x2160. */
 HRESULT ctx_scene_capture(d3dpt_core *p, ULONG_PTR h, BOOL end)
 {
-    D3DCTX *c = p ? ctx_of(p, h) : NULL;
-
-    if (c && end) {
-        d3dpt_enc_sync(&p->enc, D3DPT_OP_READBACK, c->rt);
-    }
+    (void)p;
+    (void)h;
+    (void)end;
     return DD_OK;
 }
 

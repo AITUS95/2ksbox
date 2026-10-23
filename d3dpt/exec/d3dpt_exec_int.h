@@ -21,6 +21,13 @@
 
 #include "d3dpt_exec.h"
 #include "../d3dpt_proto.h"
+#ifdef _WIN32
+/* the scanout ring (M26): the player's images on DXVK's Vulkan devices */
+#ifndef VK_USE_PLATFORM_WIN32_KHR
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
+#include <vulkan/vulkan.h>
+#endif
 
 /* printf checking where the compiler has it (not MSVC); mingw's plain
  * "printf" is msvcrt's dialect (no %zu), but the PE pair is built with
@@ -173,6 +180,21 @@ void exec_d11_sync(Exec &x, uint32_t handle);
 /* the flips' readbacks still owed to VRAM (RES_SCANOUT): those the GPU is
  * done with (wait false: at each batch), or all (the display) */
 size_t exec_d11_settle(Exec &x, bool wait);   /* the readbacks still owed */
+/* the scanout ring (M26): d3dpt_exec_ring, d3dpt_exec_ring_slot and
+ * d3dpt_exec_scanout_vram */
+int exec_d11_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t h);
+int exec_d11_ring_slot(Exec &x, uint32_t page, bool wait);
+void exec_d11_scanout_vram(Exec &x, uint32_t page);
+/* the same for the Direct3D 9 device's flips (D3DPT_OP_SCANOUT, v30) */
+int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t h);
+int exec_ddi_ring_slot(Exec &x, uint32_t page, bool wait);
+void exec_ddi_scanout_vram(Exec &x, uint32_t page);
+#ifdef _WIN32
+bool exec_vk_procs(VkInstance inst, PFN_vkGetDeviceProcAddr *gdpa, PFN_vkGetPhysicalDeviceMemoryProperties *memprops);
+bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice phys, PFN_vkGetDeviceProcAddr gdpa,
+                        PFN_vkGetPhysicalDeviceMemoryProperties memprops, void *handle, uint32_t w, uint32_t h,
+                        VkImage *img, VkDeviceMemory *mem);
+#endif
 void exec_d11_vram_release(Exec &x, uint32_t handle);
 bool exec_d11_ctx_destroy(Exec &x, uint32_t ctx);
 /* ... and what it asks of the display driver's side (d3dpt_exec_ddi.cpp):
@@ -181,6 +203,7 @@ bool exec_d11_ctx_destroy(Exec &x, uint32_t ctx);
  * object that drew into it, true if the allocation is a Direct3D 9
  * surface whose pixels VRAM now holds */
 bool exec_ddi_vram(Exec &x, uint32_t handle, uint32_t *offset, uint32_t *bytes);
+bool exec_ddi_vram_offset(Exec &x, uint32_t handle, uint32_t *offset);   /* no sync (M26) */
 void exec_ddi_vram_written(Exec &x, uint32_t handle);
 bool exec_ddi_vram_sync(Exec &x, uint32_t handle);
 

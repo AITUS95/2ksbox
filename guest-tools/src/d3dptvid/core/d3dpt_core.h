@@ -359,6 +359,7 @@ void d3d_dirty_range(d3dpt_core *c, ULONG handle, ULONG off, ULONG len);
 void d3d_colorkey_op(d3dpt_core *c, ULONG handle, ULONG lo, ULONG hi, ULONG flags);
 void surf_colorkey_check(d3dpt_core *c, ULONG handle);
 HRESULT d3d_readback(d3dpt_core *c, ULONG handle);
+HRESULT d3d_scanout(d3dpt_core *c, ULONG handle);
 void surf_forget(ULONG handle);
 void surf_colorkey_set(d3dpt_core *c, ULONG handle, ULONG lo, ULONG hi);
 void surf_lock_range(ULONG handle, BOOL has_rect, LONG left, LONG right);

@@ -1247,6 +1247,21 @@ it alone: the firmware, Windows and viogpudo at the window's size; setup
 from the Arm ISO (`win11-boot-prompt`). **Drop:** upstream's `virt`
 implies `VIRTIO_VGA`.
 
+### 101-scanout-ring
+The scanout ring's registry (track M26, 2026-10-23): `qemu_scanout_ring_register()`
+/ `qemu_scanout_ring()` in `ui/console.c`, ops through which a display
+device whose frames are rendered on the host's GPU (d3dpt-vga's Direct3D
+executor) asks the front end for images on that GPU (`alloc`) and shows
+one by number (`show`), so a flip's frame never leaves the GPU. The embed
+library registers them (embed API v17); a plain qemu-system registers
+none and devices keep their surfaces. Also `qemu_console_pixels_wanted()`,
+true during the device update a screendump schedules, so a device showing
+a slot reads its frame back onto the surface first. Applies after patch
+096, the other `ui/console.c` one. **Test:** x64 Windows 11 on our adapter
+under WHPX at 3840x2160: `flips show their ring slot (zero-copy)` in the
+log, every present a slot, `screendump` of `d3dpt0` current. **Drop:**
+never upstream; the ops are the embed library's contract.
+
 ## Dropped in M21
 
 Patches the move to QEMU 11.1 (track M21) retired. The files are gone;

@@ -10,6 +10,8 @@ pub mod boot_prompt;
 pub mod clipboard;
 pub mod companions;
 pub mod cursor_shape;
+#[cfg(windows)]
+pub mod d3d12ring;
 #[cfg(target_os = "linux")]
 pub mod dmabuf;
 pub mod gpu;

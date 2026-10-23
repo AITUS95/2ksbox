@@ -2,7 +2,7 @@
 
 The library that puts QEMU inside the player: its shape, the QEMU entry
 points it uses, the patches it needs, the audio driver and the hazards.
-The API is **v16** (`QEMU_EMBED_API_VERSION` in `embed/libqemu_embed.h`
+The API is **v17** (`QEMU_EMBED_API_VERSION` in `embed/libqemu_embed.h`
 and `API_VERSION` in the `qemu-embed` crate move together; rebuild the
 libraries before the players link). The 3D context provider is doc 12, the
 player's display pipeline doc 03. QEMU file:line references were taken
@@ -59,9 +59,11 @@ not block. Everything else may come from any thread.
 | 14 | `stopped_by_reset` gone again: QEMU patch 87 made the reset itself work under WHPX, so nothing runs with `-no-reboot` |
 | 15 | `set_refresh_rate`: the guest screen's refresh rate in mHz, carried with v9's size into the EDID (M24, below) |
 | 16 | `vblank`: a host vertical blank that starts a guest frame, to virtio-gpu's `host-vblank` (QEMU patch 90; M24, below) |
+| 17 | `on_scanout_ring`, `on_scanout_slot`: a scanout ring (Windows, track M26): a display device asks the player for images on the host's GPU (shared Direct3D 12 resources, their NT handles), fills them there and shows one by number, through QEMU patch 101's `qemu_scanout_ring` ops, which the library registers |
 
-Windows has no zero-copy slot; its 3D frames arrive through
-`on_3d_frame` (a DXGI shared handle is open, M11).
+The OpenGL pass-through has no zero-copy slot on Windows; its 3D frames
+arrive through `on_3d_frame` (a DXGI shared handle is open, M11). The
+Direct3D executor's flips do (v17, M26; doc 15).
 
 ## What needs no QEMU changes
 

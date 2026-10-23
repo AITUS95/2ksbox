@@ -40,7 +40,10 @@ if [ "${1:-}" = "--windows" ]; then
   # it. /EHsc: what DXVK is built with (meson's default for MSVC).
   # NOMINMAX: <windows.h>'s min/max macros against <algorithm>'s.
   # Options with '-', not '/', which MSYS2 would take for paths.
+  # DXVK's Vulkan headers: the scanout ring imports the player's images
+  # on DXVK's own device (track M26).
   ( cd "$OUT" && cl -nologo -std:c++17 -O2 -EHsc -MT -W3 -LD -utf-8 \
+      -I"$(cygpath -w "$ROOT/third_party/dxvk/include/vulkan/include")" \
       -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS -Fe"$(cygpath -w "$DLL")" \
       "$(cygpath -w "$ROOT/d3dpt/exec/d3dpt_exec.cpp")" "$(cygpath -w "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp")" \
       "$(cygpath -w "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp")" user32.lib )
@@ -89,7 +92,10 @@ if command -v "$WCXX" >/dev/null && command -v "$WCC" >/dev/null; then
   WOUT="$OUT/wine"; mkdir -p "$WOUT"
   # -static as well: Homebrew's mingw links libwinpthread dynamically where
   # Fedora's does not, and the DLL must stand alone beside the .exe.
+  # DXVK's Vulkan headers, as the MSVC build's (the scanout ring is in its
+  # source; on Wine's d3d9 it finds no DXVK and is never made)
   "$WCXX" -std=c++17 -O2 -fvisibility=hidden -Wall -Wno-unused-function -shared \
+    -I"$ROOT/third_party/dxvk/include/vulkan/include" \
     -D__USE_MINGW_ANSI_STDIO=1 -static -static-libgcc -static-libstdc++ -o "$WOUT/d3dpt_exec.dll" \
     "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp"
   "$WCC" -O2 -Wall -static -o "$WOUT/d3dpt-exec-host.exe" "$ROOT/d3dpt/exec/d3dpt_exec_host.c" -I"$ROOT/d3dpt/exec"

@@ -605,7 +605,9 @@ static DWORD __stdcall Flip32(d3dpt_ddhal_flip *d)
         cmd_lock_acquire();
         d3d_register_moved(&core, curr);
         d3d_register_moved(&core, targ);
-        d3d_readback(&core, surf_handle(targ));
+        /* the host's frame where the display takes it: its scanout ring on
+         * the GPU, or VRAM (SCANOUT, v30, track M26) */
+        d3d_scanout(&core, surf_handle(targ));
         cmd_lock_release();
     }
     if (targ && targ->lpGbl) {

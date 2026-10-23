@@ -55,6 +55,10 @@ x11rb = { version = "0.13", features = ["randr"] }
 # window's screen's refresh and vertical blank, Win32_Graphics_Dwm DWM's
 # composition when that blank is refused (screen.rs)
 windows-sys = { version = "0.52", features = ["Win32_Media", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Devices_Display", "Wdk_Graphics_Direct3D"] }
+# the scanout ring's shared Direct3D 12 resources (d3d12ring.rs, track
+# M26): the version wgpu-hal's Direct3D 12 backend links, so its device
+# and our resources are the same types
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # the window's screen (screen.rs); its rate and blank are Core Video's

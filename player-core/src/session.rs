@@ -119,7 +119,7 @@ impl Session {
         }
         let audio_cfg = audio_out.as_ref().map(|o| (ring, o.sample_rate));
         session._audio = audio_out;
-        let (vm, display, join, qmp) = qemu_vm::start(args.qemu.clone(), audio_cfg, waker, gpu.zero_copy());
+        let (vm, display, join, qmp) = qemu_vm::start(args.qemu.clone(), audio_cfg, waker, gpu.zero_copy(), gpu.scanout_ring());
         session.qemu_thread = Some(join);
         session.source = Source::Qemu {
             vm,

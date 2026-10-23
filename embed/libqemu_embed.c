@@ -190,6 +190,7 @@ void embed_fx_frame_ready(int slot)
  */
 static void embed_tell_window_size(qemu_embed_t *e, bool delay);
 static const DisplayChangeListenerOps embed_dcl_ops;
+static const QemuScanoutRingOps embed_ring_ops;
 
 static QemuConsole *embed_live_console(void)
 {
@@ -593,8 +594,38 @@ qemu_embed_t *qemu_embed_new(int argc, char **argv,
     /* qemu-3dfx's OpenGL pass-through, the x86 targets' alone (patch 77) */
     embed_fx_register();
 #endif
+    qemu_scanout_ring_register(&embed_ring_ops);
     return e;
 }
+
+/* v17, track M26: patch 101's scanout ring, to the frontend. A device
+ * makes its ring whether its console is on show or not (a second adapter
+ * may become the screen); only the one on show puts a slot up. */
+static int embed_ring_alloc(QemuConsole *con, int width, int height, int count,
+                            void **handles)
+{
+    qemu_embed_t *e = fx_instance;
+
+    (void)con;
+    if (!e || !e->cb.on_scanout_ring || !e->cb.on_scanout_slot) {
+        return 0;
+    }
+    return e->cb.on_scanout_ring(e->ud, width, height, count, handles);
+}
+
+static void embed_ring_show(QemuConsole *con, int slot)
+{
+    qemu_embed_t *e = fx_instance;
+
+    if (e && e->cb.on_scanout_slot && con == qatomic_read(&e->con)) {
+        e->cb.on_scanout_slot(e->ud, slot);
+    }
+}
+
+static const QemuScanoutRingOps embed_ring_ops = {
+    .alloc = embed_ring_alloc,
+    .show = embed_ring_show,
+};
 
 int qemu_embed_run(qemu_embed_t *e)
 {
@@ -604,6 +635,7 @@ int qemu_embed_run(qemu_embed_t *e)
 
 void qemu_embed_destroy(qemu_embed_t *e, int status)
 {
+    qemu_scanout_ring_register(NULL);
     fx_instance = NULL;
     qemu_console_unregister_listener(&e->dcl);
     qemu_cleanup(status);

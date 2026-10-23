@@ -161,6 +161,16 @@ struct D3dptVgaState {
     bool exec_tried;
     uint32_t d3d_err;           /* last D3DPT_ERR_* of the doorbell */
     QemuMutex exec_lock;        /* the executor's calls: a batch runs without the BQL (d3d_doorbell) */
+    /* the scanout ring (track M26): the front end's images on the host's
+     * GPU, which the executor copies a flip's frame into instead of
+     * reading it back, and which the console shows by number */
+    bool zero_copy;             /* property */
+    int ring_n;                 /* images in the ring (0: none) */
+    uint32_t ring_w, ring_h;
+    bool ring_refused;          /* this size could not have one: not asked again */
+    bool shadow_stale;          /* a slot had the screen since the shadow last did */
+    uint32_t ring_shows;        /* slots shown, for the log */
+    uint32_t ring_declines;     /* slots passed over for what the CPU drew, for the log */
     uint32_t batches;
     int64_t exec_ns;            /* host time inside the executor, all batches */
     uint32_t batches_last;      /* both at the last rate report */
@@ -633,6 +643,150 @@ static bool fb_settled(D3dptVgaState *s, bool wait)
     return owed == 0;
 }
 
+/* ----------------------------------------------------- the scanout ring
+ *
+ * Track M26. A 32 bpp page a flip shows is usually a frame the executor
+ * rendered on the host's GPU (DWM's composition, a game's flip chain),
+ * and reading it back into VRAM so the front end could copy it and upload
+ * it again was the whole cost of a big screen (33 MB a frame at
+ * 3840x2160). With a ring the executor copies it into one of the front
+ * end's images on the GPU (d3dpt_exec_ring) and the console shows that
+ * image (QEMU patch 101's qemu_scanout_ring); VRAM and the shadow keep
+ * an older picture, `shadow_stale`, until something must show or read
+ * them (the CPU drew on the page, a screendump), which reads the page
+ * back first (d3dpt_exec_scanout_vram). */
+#define D3DPT_RING_SLOTS 3
+
+static void fb_ring_drop(D3dptVgaState *s)
+{
+    const QemuScanoutRingOps *ops = qemu_scanout_ring();
+
+    if (!s->ring_n) {
+        return;
+    }
+    qemu_mutex_lock(&s->exec_lock);
+    s->lib->ring(s->exec, NULL, 0, 0, 0);
+    qemu_mutex_unlock(&s->exec_lock);
+    if (ops) {
+        ops->alloc(s->vga.con, 0, 0, 0, NULL);
+    }
+    s->ring_n = 0;
+}
+
+/* A ring of the mode's size, made once the executor is there: true when
+ * flips can go through it */
+static bool fb_ring_ready(D3dptVgaState *s, const D3dptLinearMode *m)
+{
+    const QemuScanoutRingOps *ops = qemu_scanout_ring();
+    void *handles[D3DPT_RING_SLOTS];
+    int n, took;
+
+    if (!s->zero_copy || !s->exec || !s->lib->ring || !s->lib->ring_slot ||
+        !ops || m->bpp != 32 || s->gamma_active || s->full_frames) {
+        fb_ring_drop(s);
+        return false;
+    }
+    if (s->ring_n && s->ring_w == m->w && s->ring_h == m->h) {
+        return true;
+    }
+    if (s->ring_refused && s->ring_w == m->w && s->ring_h == m->h) {
+        return false;
+    }
+    fb_ring_drop(s);
+    s->ring_w = m->w;
+    s->ring_h = m->h;
+    n = ops->alloc(s->vga.con, m->w, m->h, D3DPT_RING_SLOTS, handles);
+    took = 0;
+    if (n > 0) {
+        qemu_mutex_lock(&s->exec_lock);
+        took = s->lib->ring(s->exec, handles, n, m->w, m->h);
+        qemu_mutex_unlock(&s->exec_lock);
+    }
+    if (took <= 0 || took != n) {
+        if (n > 0) {
+            ops->alloc(s->vga.con, 0, 0, 0, NULL);
+        }
+        s->ring_refused = true;
+        info_report("d3dpt-vga: no scanout ring at %ux%u (%s): flips are read back",
+                    m->w, m->h, n > 0 ? "the executor could not take it" : "the front end made none");
+        return false;
+    }
+    s->ring_refused = false;
+    s->ring_n = n;
+    info_report("d3dpt-vga: scanout ring of %d at %ux%u: flips stay on the GPU", n, m->w, m->h);
+    return true;
+}
+
+/* The flip's page from a ring slot: 1 shown, 0 not in one (VRAM has it),
+ * -1 its copy not finished (and `wait` 0) */
+static int fb_ring_show(D3dptVgaState *s, const D3dptLinearMode *m, bool wait)
+{
+    int slot;
+
+    if (!fb_ring_ready(s, m)) {
+        return 0;
+    }
+    if (wait) {
+        qemu_mutex_lock(&s->exec_lock);
+    } else if (qemu_mutex_trylock(&s->exec_lock) != 0) {
+        return -1;
+    }
+    slot = s->lib->ring_slot(s->exec, m->offset, wait);
+    qemu_mutex_unlock(&s->exec_lock);
+    if (slot == -2) {
+        return -1;
+    }
+    if (slot < 0) {
+        return 0;
+    }
+    /* The guest's CPU wrote the page since the copy (a title's text through
+     * GDI over its Direct3D 9 frame, which no READBACK precedes): the slot
+     * lacks it. The frame comes into VRAM with those pixels kept over it
+     * (the executor's readback merges them) and shows from there. */
+    {
+        DirtyBitmapSnapshot *snap =
+            memory_region_snapshot_and_clear_dirty(&s->vga.vram, m->offset,
+                                                   (uint64_t)m->pitch * m->h,
+                                                   DIRTY_MEMORY_VGA);
+        bool drew = memory_region_snapshot_get_dirty(&s->vga.vram, snap, m->offset,
+                                                     (uint64_t)m->pitch * m->h);
+        g_free(snap);
+        if (drew) {
+            if (s->ring_declines++ < 8) {
+                info_report("d3dpt-vga: the guest drew on a flipped page (offset %u): "
+                            "shown from VRAM, not its ring slot", m->offset);
+            }
+            if (s->lib->scanout_vram) {
+                qemu_mutex_lock(&s->exec_lock);
+                s->lib->scanout_vram(s->exec, m->offset);
+                qemu_mutex_unlock(&s->exec_lock);
+            }
+            return 0;
+        }
+    }
+    s->shadow_stale = true;
+    qemu_scanout_ring()->show(s->vga.con, slot);
+    if (!s->ring_shows++) {
+        info_report("d3dpt-vga: flips show their ring slot (zero-copy)");
+    }
+    return 1;
+}
+
+/* The shadow has the screen again: the page's frame into VRAM first if a
+ * slot holds it */
+static void fb_ring_unstale(D3dptVgaState *s, uint32_t offset)
+{
+    if (!s->shadow_stale) {
+        return;
+    }
+    s->shadow_stale = false;
+    if (s->ring_n && s->lib->scanout_vram) {
+        qemu_mutex_lock(&s->exec_lock);
+        s->lib->scanout_vram(s->exec, offset);
+        qemu_mutex_unlock(&s->exec_lock);
+    }
+}
+
 static bool d3dpt_vga_gfx_update(void *opaque)
 {
     D3dptVgaState *s = opaque;
@@ -692,7 +846,17 @@ static bool d3dpt_vga_gfx_update(void *opaque)
     }
     if (s->lin_on && !s->resurface && s->shadow && m.offset != s->lin.offset &&
         m.w == s->lin.w && m.h == s->lin.h && m.bpp == s->lin.bpp && m.pitch == s->lin.pitch) {
-        /* a page flip the push did not take: the same shadow, the new page */
+        /* a page flip the push did not take: the same shadow, the new page;
+         * from its ring slot if one holds it (M26), its copy not finished
+         * yet left to the next refresh */
+        int shown = fb_ring_show(s, &m, false);
+        if (shown != 0) {
+            if (shown == 1) {
+                fb_make_src(s, &m);
+                s->lin = m;
+            }
+            return true;
+        }
         fb_make_src(s, &m);
         s->lin = m;
         s->full_update = true;
@@ -706,6 +870,25 @@ static bool d3dpt_vga_gfx_update(void *opaque)
         s->full_update = true;
     }
     if (s->full_frames) {
+        s->full_update = true;
+    }
+    if (s->shadow_stale) {
+        /* a ring slot has the screen (M26): the surface takes it back only
+         * for something to show (the CPU drew on the page, a repaint of the
+         * whole, a screendump: qemu_console_pixels_wanted), the page's
+         * frame read back into VRAM first */
+        if (!s->full_update && !qemu_console_pixels_wanted()) {
+            snap = memory_region_snapshot_and_clear_dirty(&s->vga.vram, m.offset,
+                                                          (uint64_t)m.pitch * m.h,
+                                                          DIRTY_MEMORY_VGA);
+            bool drew = memory_region_snapshot_get_dirty(&s->vga.vram, snap, m.offset,
+                                                         (uint64_t)m.pitch * m.h);
+            g_free(snap);
+            if (!drew) {
+                return true;
+            }
+        }
+        fb_ring_unstale(s, m.offset);
         s->full_update = true;
     }
 
@@ -1161,6 +1344,20 @@ static void fb_flip_push(D3dptVgaState *s)
     if (s->pal_dirty && m.bpp == 8) {
         fb_apply_palette(s);
     }
+    /* the page's frame on the GPU (M26): shown from its ring slot, once
+     * the executor's copy there is done (tried again as below) */
+    switch (fb_ring_show(s, &m, s->push_tries >= D3DPT_SETTLE_TRIES)) {
+    case 1:
+        s->push_tries = 0;
+        timer_del(s->settle_timer);
+        fb_make_src(s, &m);
+        s->lin = m;
+        return;
+    case -1:
+        s->push_tries++;
+        timer_mod(s->settle_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 1);
+        return;
+    }
     /* the page's pixels, if the executor still owes them: tried again by
      * the timer, the newest page then (a flip in between supersedes it) */
     if (!fb_settled(s, s->push_tries >= D3DPT_SETTLE_TRIES)) {
@@ -1175,7 +1372,14 @@ static void fb_flip_push(D3dptVgaState *s)
     g_free(memory_region_snapshot_and_clear_dirty(&s->vga.vram, m.offset,
                                                   (uint64_t)m.pitch * m.h,
                                                   DIRTY_MEMORY_VGA));
-    fb_push_changed(s);
+    if (s->shadow_stale) {
+        /* a slot had the screen: this page is all of it now, VRAM had the
+         * page's latest (no slot does), so whatever rows match the shadow */
+        s->shadow_stale = false;
+        fb_update_span(s, 0, m.h);
+    } else {
+        fb_push_changed(s);
+    }
     if (!s->flip_pushes++) {
         info_report("d3dpt-vga: flips push their page (flip-push)");
     }
@@ -1711,6 +1915,10 @@ static const Property d3dpt_vga_properties[] = {
      * and pushes it to the display at once (fb_flip_push); off, the
      * console stands on VRAM and the display's tick polls it, the A/B */
     DEFINE_PROP_BOOL("flip-push", D3dptVgaState, flip_push, true),
+    /* with flip-push: a flipped frame the executor rendered is copied into
+     * the front end's scanout ring on the GPU and shown from there instead
+     * of read back into VRAM (track M26, Windows hosts); off, the A/B */
+    DEFINE_PROP_BOOL("zero-copy", D3dptVgaState, zero_copy, true),
     /* an interrupt pin for the WDDM driver (M18, Windows 7) and the IRQ
      * registers behind it (register set v6: the vertical blank) */
     DEFINE_PROP_BOOL("irq", D3dptVgaState, irq, false),

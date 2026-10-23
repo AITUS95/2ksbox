@@ -429,17 +429,10 @@ impl Gpu {
     pub fn import_slot(&mut self, d: &qemu_vm::DmaBuf) {
         let srgb = self.config.format.is_srgb();
         let (slot, w, h) = (d.slot, d.w, d.h);
-        #[cfg(target_os = "linux")]
-        let r = dmabuf::import(&self.device, d.fd, w, h, d.stride, d.fourcc, d.modifier, srgb);
-        #[cfg(target_os = "macos")]
-        let r = iosurface::import(&self.device, d.iosurface as *mut std::ffi::c_void, w, h, srgb);
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        let r: Result<wgpu::Texture, String> = {
-            let _ = srgb;
-            if d.fd >= 0 {
-                unsafe { libc::close(d.fd) };
-            }
-            Err("no zero-copy import on this platform".into())
+        // a scanout ring's image (M26) is ours already: nothing to import
+        let r = match &d.tex {
+            Some(tex) => Ok(tex.clone()),
+            None => self.import_backend_slot(d, srgb),
         };
         match r {
             Ok(tex) => {
@@ -460,6 +453,43 @@ impl Gpu {
                 }
             }
         }
+    }
+
+    /// The backend's buffer behind a ring slot, as a texture.
+    fn import_backend_slot(&self, d: &qemu_vm::DmaBuf, srgb: bool) -> Result<wgpu::Texture, String> {
+        let (w, h) = (d.w, d.h);
+        #[cfg(target_os = "linux")]
+        let r = dmabuf::import(&self.device, d.fd, w, h, d.stride, d.fourcc, d.modifier, srgb);
+        #[cfg(target_os = "macos")]
+        let r = iosurface::import(&self.device, d.iosurface as *mut std::ffi::c_void, w, h, srgb);
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        let r: Result<wgpu::Texture, String> = {
+            let _ = (srgb, w, h);
+            if d.fd >= 0 {
+                unsafe { libc::close(d.fd) };
+            }
+            Err("no zero-copy import on this platform".into())
+        };
+        r
+    }
+
+    /// What makes a scanout ring's images on this device (track M26):
+    /// Direct3D 12 on Windows, unless `PLAYER_ZERO_COPY=0` (the A/B). None
+    /// elsewhere, and devices keep their surfaces.
+    pub fn scanout_ring(&self) -> Option<qemu_vm::RingAlloc> {
+        #[cfg(windows)]
+        {
+            if std::env::var("PLAYER_ZERO_COPY").as_deref() == Ok("0")
+                || unsafe { self.device.as_hal::<wgpu::hal::api::Dx12>() }.is_none()
+            {
+                return None;
+            }
+            let device = self.device.clone();
+            let srgb = self.config.format.is_srgb();
+            Some(std::sync::Arc::new(move |w, h, n| crate::d3d12ring::alloc(&device, w, h, n, srgb)))
+        }
+        #[cfg(not(windows))]
+        None
     }
 
     /// Show an imported slot (Some) or the CPU-uploaded framebuffer (None).

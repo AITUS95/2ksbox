@@ -81,6 +81,19 @@ D3DPT_EXEC_API uint32_t d3dpt_exec_features(d3dpt_exec_t *x);
  * so the caller never blocks on the GPU. Returns how many readbacks are
  * still owed (0: VRAM is current). */
 D3DPT_EXEC_API int d3dpt_exec_settle(d3dpt_exec_t *x, int wait);
+/* Optional too, Windows (track M26): the scanout ring. `ring` imports the
+ * front end's `count` images of w x h (NT handles to shared Direct3D 12
+ * resources, BGRA8; the caller's still) and returns how many it took, 0
+ * for none (count 0 drops the ring); from then on a flip's frame
+ * (D3DPT_D11_RES_SCANOUT) that fits goes into the next image on the GPU
+ * instead of back into VRAM. `ring_slot`: the image holding the frame of
+ * the page at that VRAM offset, once its copy is done; -1 when VRAM
+ * holds the page's latest (no slot does), -2 when the copy is not done
+ * and `wait` is 0. `scanout_vram`: that page's frame into VRAM now, for
+ * a reader of VRAM (a screendump, a picture the CPU path redraws). */
+D3DPT_EXEC_API int d3dpt_exec_ring(d3dpt_exec_t *x, void *const *handles, int count, uint32_t w, uint32_t h);
+D3DPT_EXEC_API int d3dpt_exec_ring_slot(d3dpt_exec_t *x, uint32_t vram_offset, int wait);
+D3DPT_EXEC_API void d3dpt_exec_scanout_vram(d3dpt_exec_t *x, uint32_t vram_offset);
 D3DPT_EXEC_API int d3dpt_exec_shared_alloc(const char *name, uint64_t size, uint64_t *offset);
 D3DPT_EXEC_API void d3dpt_exec_shared_map(uint64_t offset, void *ptr);
 

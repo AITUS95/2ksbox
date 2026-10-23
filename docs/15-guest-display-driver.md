@@ -87,7 +87,25 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
   changed row: DWM flips a whole page for a blinking caret, and pushed
   whole every flip was the mode's size down to the player's texture
   (33 MB at 3840x2160; the desktop grew choppier with the window on a 4K
-  screen, 2026-10-23, with QEMU patch 99's dirty log under WHPX). With `flip-push=off` a 32 bpp mode with no gamma ramp is shown
+  screen, 2026-10-23, with QEMU patch 99's dirty log under WHPX).
+  **On a Windows host a flip's frame does not leave the GPU** (track
+  M26, `zero-copy`, on by default): the player makes a scanout ring,
+  three shared Direct3D 12 images of the mode's size (embed API v17,
+  QEMU patch 101), the executor imports them into DXVK's Vulkan device
+  (`d3dpt_exec_ring`) and copies a flip's `RES_SCANOUT` buffer into the
+  next one on the GPU instead of reading it back, and the device shows
+  that slot (`fb_ring_show`). VRAM and the shadow keep an older picture
+  until something must show or read them: the guest's CPU drawing on the
+  page, a repaint of the whole, a screendump
+  (`qemu_console_pixels_wanted`), each of which reads the page back first
+  (`d3dpt_exec_scanout_vram`). The user at 3840x2160: "much smoother".
+  XP's and 98's Direct3D 9 flips take the same ring (protocol v30's
+  `SCANOUT`, below "Untracked writes"): DXVK's d3d9 device imports the
+  images too, and the executor records the copy on DXVK's queue itself
+  (`ring_copy`; d3d9 has no way to wrap an outside image); D3DGAME9 in
+  exclusive fullscreen at 1600x1200 on XP under WHPX: 75 flips a second
+  (the mode's rate), 4 readbacks in 16 s where there was one a frame.
+  With `flip-push=off` a 32 bpp mode with no gamma ramp is shown
   straight from VRAM (`qemu_create_displaysurface_from`), the old way. The player's upload of the dirty rectangle is the one copy
   left; zero-copy from guest RAM to the GPU is impossible with a
   host-visible-only import (M3's dma-buf ring is for host-rendered 3D).
@@ -178,6 +196,7 @@ is checked.
 | `host-vblank=off` | with `irq=on`, the vertical blank interrupt on the guest's clock alone. On (the default, 2026-10-10, track M20) it follows the host screen's blank, which the player sends (QEMU patch 90's `qemu_host_vblank`, at the rate it picked for the guest: 72 Hz on a 144 Hz screen, track M24), and the clock is only a watchdog two periods out; `FRAMES` (98 / XP) still counts on the clock |
 | `follow=off` | with `irq=on`, no `CAP_FOLLOW` (register set v12): the desktop keeps its size whatever the window's. On (the default, 2026-10-22, track M20) the WDDM driver's `FOLLOW`, written at the guest agent's first ask, makes the console take UI info, so the player sizes the guest to its window: `PREF_W` / `PREF_H` and `IRQ_DISPLAY` carry the window's size, the driver makes it a custom mode (also in the monitor's mode set) and the agent applies it ("The desktop following the window" below) |
 | `flip-push=off` | the console stands on VRAM and the display's tick polls it, as before 2026-10-10; on (the default) a flip copies the page it shows and pushes it at once (above) |
+| `zero-copy=off` | flips are read back into VRAM and pushed from there, as before 2026-10-23; on (the default) a Windows host's player gets them through its scanout ring on the GPU (M26, above) |
 
 The executor properties model hosts, not devices. The adapter only hands
 them to the loader (`d3dpt/hw/d3dpt_exec_load.c`).
@@ -583,8 +602,14 @@ Register set v5 adds a ramp where a RAMDAC would have one.
 
 `VRAM_DIRTY` announces the guest's writes to a render target's VRAM
 (from `DdUnlock` and the driver's own copies). The host uploads a dirty
-target before drawing and reads the host frame back into VRAM at
-EndScene, Lock and Flip. Two kinds of guest write never pass through
+target before drawing and reads the host frame back into VRAM at a
+Lock, a blit and, with no scanout ring, a Flip (`SCANOUT`, protocol v30;
+EndScene read it back too until 2026-10-23, track M26). With a ring
+(a Windows host's player) a Flip's frame goes into the ring on the GPU
+and VRAM is owed it; when the guest's CPU wrote that page meanwhile (the
+two kinds below), the device passes the slot over and has the executor
+read the frame back with those writes kept, and shows that.
+Two kinds of guest write never pass through
 `DdLock` / `DdUnlock`:
 
 - **`GetDC` on a DirectDraw surface** is `NtGdiDdGetDC` → dxg, which

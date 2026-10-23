@@ -519,6 +519,36 @@ int d3dpt_exec_settle(d3dpt_exec_t *xp, int wait)
     try { return (int)exec_d11_settle(*x, wait != 0); } catch (...) { return 0; }
 }
 
+int d3dpt_exec_ring(d3dpt_exec_t *xp, void *const *handles, int count, uint32_t w, uint32_t h)
+{
+    Exec *x = (Exec *)xp;
+    if (!x) return 0;
+    /* both devices' flips: Direct3D 11's (RES_SCANOUT) and Direct3D 9's
+     * (OP_SCANOUT, v30), each on its own Vulkan device */
+    int d11 = 0, ddi = 0;
+    try { d11 = exec_d11_ring(*x, handles, count, w, h); } catch (...) {}
+    try { ddi = exec_ddi_ring(*x, handles, count, w, h); } catch (...) {}
+    return d11 > ddi ? d11 : ddi;
+}
+
+int d3dpt_exec_ring_slot(d3dpt_exec_t *xp, uint32_t vram_offset, int wait)
+{
+    Exec *x = (Exec *)xp;
+    if (!x) return -1;
+    try {
+        int slot = exec_d11_ring_slot(*x, vram_offset, wait != 0);
+        return slot != -1 ? slot : exec_ddi_ring_slot(*x, vram_offset, wait != 0);
+    } catch (...) { return -1; }
+}
+
+void d3dpt_exec_scanout_vram(d3dpt_exec_t *xp, uint32_t vram_offset)
+{
+    Exec *x = (Exec *)xp;
+    if (!x) return;
+    try { exec_d11_scanout_vram(*x, vram_offset); } catch (...) {}
+    try { exec_ddi_scanout_vram(*x, vram_offset); } catch (...) {}
+}
+
 uint32_t d3dpt_exec_features(d3dpt_exec_t *xp)
 {
     Exec *x = (Exec *)xp;
