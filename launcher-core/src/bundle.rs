@@ -1866,6 +1866,11 @@ impl Machine {
             args.extend(["-device".into(), dev]);
             return args;
         }
+        // x64 Windows 11 otherwise: no VGA here; its screen is the
+        // virtio-vga `modern_args` adds after the other cards
+        if self.family == Family::Win11 {
+            return args;
+        }
         if let Some(video) = self.effective_video() {
             let [flag, value] = video.args();
             // `-vga <name>` replaces the `none` above rather than adding
@@ -2277,12 +2282,17 @@ impl Machine {
     ///   list needs.
     /// * The RTC in local time, which is what Windows reads it as.
     /// * The PS/2 keyboard the q35 has; the tablet and a pad on xHCI.
-    /// * Two screens, as on Arm: the standard VGA, which the firmware,
-    ///   setup and Windows' Basic Display draw on, and `virtio-gpu-pci`,
-    ///   which viogpudo drives on an installed Windows at the player
-    ///   window's size (M22). virtio-vga alone does not do: the
-    ///   firmware binds its virtio half, which has no frame buffer, and
-    ///   Windows without viogpudo shows nothing.
+    /// * One screen, `virtio-vga` (2026-10-22): the firmware, setup and
+    ///   Windows' Basic Display draw on its VGA half, and viogpudo drives
+    ///   its virtio-gpu on an installed Windows at the player window's
+    ///   size (M22). Until then the standard VGA and a `virtio-gpu-pci`,
+    ///   two screens: virtio-vga alone was tried on Linux (2026-10-08) and
+    ///   showed the boot manager's text and nothing more, put down to the
+    ///   firmware binding its virtio half, which upstream OVMF does not
+    ///   (Virtio10Dxe leaves virtio-vga to QemuVideoDxe). On the PC under
+    ///   WHPX with our OVMF it ran: firmware, Basic Display at 1280x800,
+    ///   and with viogpudo the window's size at every resize. Our adapter
+    ///   (`Video::D3dpt`) is the screen in its place.
     /// * The drivers disc (`disc_library::drivers_iso`: virtio-win's x64
     ///   display and serial drivers, and the 2ksbox agent) in a CD drive
     ///   of its own on `ide.2`, as on Arm.
@@ -2348,13 +2358,18 @@ impl Machine {
             args.extend(["-nic".into(), "none".into()]);
         }
         args.extend(self.clipboard_args());
-        // After the cards an installed machine already had, so none of
-        // them moves. QEMU patch 86's `sync-ctrl`, as on Arm, and patch
-        // 90's `host-vblank` (the host screen's blank as the guest's, for
-        // our viogpudo, M24). Not beside our adapter: viogpudo would make
-        // Windows a third screen.
+        // The screen, after the cards an installed machine already had.
+        // virtio-vga alone (2026-10-22, the user): its VGA half is the
+        // firmware's, setup's and Basic Display's (upstream OVMF leaves
+        // virtio-vga to QemuVideoDxe for exactly that), and viogpudo drives
+        // its virtio-gpu at the window's size, so Windows has one screen;
+        // until then the standard VGA sat beside a virtio-gpu-pci and the
+        // agent turned its screen off. QEMU patch 86's `sync-ctrl`, as on
+        // Arm, and patch 90's `host-vblank` (the host screen's blank as the
+        // guest's, for our viogpudo, M24). Not beside our adapter, which
+        // is the screen then.
         if self.effective_video() != Some(Video::D3dpt) {
-            args.extend(["-device".into(), "virtio-gpu-pci,sync-ctrl=on,host-vblank=on".into()]);
+            args.extend(["-device".into(), "virtio-vga,sync-ctrl=on,host-vblank=on".into()]);
         }
         args.extend(self.audio_args());
         args.extend(self.cdrom_args(shelf));

@@ -209,9 +209,10 @@ overwritten. It does three jobs:
    UI, and a machine without a shared folder simply has no drive.
 3. **The screen (tracks M24, M20):** a Windows 11 machine keeps a second
    card (the standard VGA on x64, ramfb on Arm) for setup, which has no
-   driver for the paravirtual one, and for recovery; except x64 on our
-   d3dpt-vga, which the firmware drives itself since 2026-10-22 (doc 06
-   "The display adapter"), so there the agent finds one screen. Windows extends
+   driver for the paravirtual one, and for recovery; on Arm only since
+   2026-10-22, when x64 got one screen, `virtio-vga` or our d3dpt-vga,
+   which the firmware drives itself (doc 06 "The display adapter"), so
+   there the agent finds one screen. Windows extends
    the desktop onto both. While the other card's screen is on, DWM
    composes on dxgkrnl's simulated 64 Hz blank, even with the
    paravirtual card's screen the primary (M20, 2026-10-10), and the

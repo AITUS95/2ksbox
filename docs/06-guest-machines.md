@@ -290,14 +290,19 @@ machine line.
 ## The display adapter
 
 Every era family offers a choice (`bundle::Video`, the bundle's
-`video`). x64 Windows 11 has the standard VGA, with a fixed
-`virtio-gpu-pci` beside it (2026-10-08), and Windows 11 on Arm `ramfb`
-plus `virtio-gpu-pci`; on either, our adapter is the other choice, in
-place of the virtio-gpu (tracks M20, M25); on x64 it is then the only
-adapter (2026-10-22): our EDK2 drives it for the firmware
-(`patches/edk2/04`), so the firmware, Windows Setup and Basic Display show
-on it, and there is no second screen for Windows to extend the desktop
-onto. On Arm `ramfb` stays beside it. It is experimental and needs
+`video`). x64 Windows 11 has one screen, `virtio-vga` (2026-10-22; the
+standard VGA beside a `virtio-gpu-pci` until then): the firmware, setup
+and Basic Display draw on its VGA half (upstream OVMF leaves virtio-vga to
+QemuVideoDxe), and viogpudo drives its virtio-gpu at the window's size.
+Windows 11 on Arm has `ramfb` plus `virtio-gpu-pci` (Arm has no VGA). On
+either, our adapter is the other choice, in place of the virtio-gpu
+(tracks M20, M25); on x64 it is then the only adapter (2026-10-22): our
+EDK2 drives it for the firmware (`patches/edk2/04`), so the firmware,
+Windows Setup and Basic Display show on it. So an x64 machine never has a
+second screen for Windows to extend the desktop onto; on Arm `ramfb`
+stays beside either. A machine made before 2026-10-22 sees its screen as
+a new device once (and the cards after the old standard VGA move up a
+slot); Windows binds its driver from the store by itself. It is experimental and needs
 Windows' test mode, so the form names it "(experimental)", asks before it
 takes it (`wizard::Form::video_question`, a warning alert, Cancel the
 default) and warns under the picker while it is the pick
