@@ -38,20 +38,25 @@ else
   BUILD="${1:-$ROOT/build/dxvk}"
 fi
 WIN_CC="${WIN_CC:-}"
-darwin=()
+plat=()
 if [ "$(uname -s)" = Darwin ]; then
   export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
   # The macOS every Mac build targets (scripts/macos-floor.sh), as flags
   # and not only the environment. A changed flag is a changed command
   # line, so ninja recompiles what a changed environment would have kept.
   T="${MACOSX_DEPLOYMENT_TARGET:-$("$ROOT/scripts/macos-floor.sh")}"
-  darwin=(-Dc_args="-mmacosx-version-min=$T" -Dcpp_args="-mmacosx-version-min=$T"
+  plat=(-Dc_args="-mmacosx-version-min=$T" -Dcpp_args="-mmacosx-version-min=$T"
           -Dc_link_args="-mmacosx-version-min=$T" -Dcpp_link_args="-mmacosx-version-min=$T")
+elif [ "$(uname -s)" = Linux ]; then
+  # Each library also looks beside itself: the package puts the three side
+  # by side in lib/2ksbox, where the build tree's own $ORIGIN/../dxgi
+  # leads nowhere and d3d11 would not find its dxgi
+  plat=(-Dcpp_link_args='-Wl,-rpath,$ORIGIN')
 fi
 # d3d11 and its dxgi too since track M25 (the executor's Direct3D 10 / 11
 # side, d3dpt/exec/d3dpt_exec_d11.cpp)
 opts=(--buildtype release -Denable_dxgi=true -Denable_d3d8=false -Denable_d3d10=false -Denable_d3d11=true
-      -Dnative_sdl2=disabled -Dnative_glfw=disabled -Dnative_sdl3=disabled ${darwin[@]+"${darwin[@]}"})
+      -Dnative_sdl2=disabled -Dnative_glfw=disabled -Dnative_sdl3=disabled ${plat[@]+"${plat[@]}"})
 # A meson build directory holds absolute paths and cannot be relocated. In
 # a renamed or moved checkout its --reconfigure walks into directories that
 # no longer exist ("[Errno 2] No such file or directory: <old

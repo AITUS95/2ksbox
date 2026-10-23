@@ -129,7 +129,8 @@ if [ -f build/d3dpt/libd3dpt_exec.so ] && [ -f build/dxvk/src/d3d9/libdxvk_d3d9.
   install -m755 build/d3dpt/libd3dpt_exec.so "$STAGE/lib/2ksbox/"
   install -m755 build/dxvk/src/d3d9/libdxvk_d3d9.so.0 "$STAGE/lib/2ksbox/libdxvk_d3d9.so.0"
   # Direct3D 10 / 11's pair (track M25), under the sonames
-  # `companions.rs` names, as the d3d9
+  # `companions.rs` names, as the d3d9. d3d11 links dxgi, which it finds
+  # beside itself through the $ORIGIN configure-dxvk.sh gives it
   for n in d3d11 dxgi; do
     if [ -f "build/dxvk/src/$n/libdxvk_$n.so.0" ]; then
       install -m755 "build/dxvk/src/$n/libdxvk_$n.so.0" "$STAGE/lib/2ksbox/libdxvk_$n.so.0"

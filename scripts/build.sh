@@ -549,6 +549,12 @@ if want dxvk; then
     if [ -f build/dxvk/build.ninja ] && ! grep -q 'libdxvk_d3d11' build/dxvk/build.ninja; then
       dxvk_retarget=1
     fi
+    # Configured before a Linux build looked beside itself for its
+    # libraries (configure-dxvk.sh), which the package needs
+    if [ "$(uname -s)" = Linux ] && [ -f build/dxvk/build.ninja ] \
+       && ! grep -qF -- "'-Wl,-rpath,\$\$ORIGIN'" build/dxvk/build.ninja; then
+      dxvk_retarget=1
+    fi
     if [ -n "$FORCE" ] || [ ! -f build/dxvk/build.ninja ] || [ -n "$dxvk_retarget" ]; then
       say "dxvk: configure"
       scripts/configure-dxvk.sh
