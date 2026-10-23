@@ -4,14 +4,16 @@
 #
 #   aarch64  (Arm hosts, step 4) ArmVirtQemu for QEMU's aarch64 `virt`
 #            board, with clang and lld
-#   x86_64   (Windows hosts, step 5) OvmfPkgX64 for the q35, with Visual
-#            Studio (EDK2's VS2022 toolchain), MINGW64's nasm and an iasl
-#            built here from ACPICA's pinned source
+#   x86_64   OvmfPkgX64 for the q35, with an iasl built here from
+#            ACPICA's pinned source: on Windows hosts (step 5) with Visual
+#            Studio (EDK2's VS2022 toolchain) and MINGW64's nasm, on Linux
+#            with clang and lld (GCC 16 is too new for this pin's
+#            BaseTools) and the distribution's nasm
 #
 #   scripts/build-edk2.sh [-f] [aarch64|x86_64]
-#       the host's own firmware by default (x86_64 on Windows, aarch64
-#       elsewhere); build if anything changed, then install; -f builds
-#       again regardless
+#       the host's own firmware by default (x86_64 on Windows and on an
+#       x86_64 Linux, aarch64 elsewhere); build if anything changed, then
+#       install; -f builds again regardless
 #
 # Why not QEMU's prebuilt aarch64 firmware (docs/tracks/m20-win11.md,
 # "Step 4's results"):
@@ -33,6 +35,11 @@
 # Secure Boot capable, its variables unprotected from the guest's own
 # kernel, which nothing here needs.
 #
+# Why not QEMU's prebuilt x86_64 firmware on Linux either: its
+# QemuVideoDxe has no driver for d3dpt-vga, and an x64 Windows 11 machine
+# on our adapter has no other screen (patches/edk2/04). Built here with
+# QEMU's own secure options (SMM_REQUIRE=TRUE, which KVM and TCG have).
+#
 # Everything else matches QEMU's own builds (qemu/roms/edk2-build.config,
 # `build.armvirt.aa64` and `build.ovmf.x86_64.secure`): their options,
 # RELEASE; Arm's NX policy and silence.
@@ -44,10 +51,11 @@
 #
 # Needs, for aarch64: clang and lld that can target aarch64 ELF (macOS:
 # Homebrew's llvm and lld, build tools only; Linux: the distribution's),
-# make. For x86_64 (MSYS2's MINGW64 shell): Visual Studio's C++ tools,
-# MINGW64's nasm, MSYS2's bison and flex (iasl's build; build-windows.sh
-# --msys2-deps). Both: git and a Python 3 (uv's 3.12, as for QEMU's
-# configure). The first run fetches EDK2 and its submodules (~400 MB) into
+# make. For x86_64 on Windows (MSYS2's MINGW64 shell): Visual Studio's C++
+# tools, MINGW64's nasm, MSYS2's bison and flex (iasl's build;
+# build-windows.sh --msys2-deps); on Linux: clang, lld, a C compiler,
+# make, nasm, bison and flex. All: git and a Python 3 (uv's 3.12, as for
+# QEMU's configure). The first run fetches EDK2 and its submodules (~400 MB) into
 # build/deps/src/edk2.
 set -euo pipefail
 
@@ -62,9 +70,9 @@ for a in "$@"; do
     *) echo "usage: scripts/build-edk2.sh [-f] [aarch64|x86_64]" >&2; exit 2 ;;
   esac
 done
-[ -n "$ARCH" ] || { [ -n "$WINDOWS" ] && ARCH=x86_64 || ARCH=aarch64; }
-if [ "$ARCH" = x86_64 ] && [ -z "$WINDOWS" ]; then
-  echo "build-edk2: x86_64 is a Windows host's firmware (elsewhere QEMU's secure build runs)" >&2; exit 2
+[ -n "$ARCH" ] || { [ -n "$WINDOWS" ] || [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ] && ARCH=x86_64 || ARCH=aarch64; }
+if [ "$ARCH" = x86_64 ] && [ "$(uname -s)" = Darwin ]; then
+  echo "build-edk2: a Mac runs no x64 Windows 11 (player::cannot_start)" >&2; exit 2
 fi
 
 SRC=build/deps/src/edk2
@@ -92,7 +100,12 @@ if [ -z "$FORCE" ] && [ -f "$STAMPFILE" ] && [ "$(cat "$STAMPFILE")" = "$STAMP" 
   echo "==> edk2: $ARCH up to date ($PIN)"
 else
   # --- tools ---------------------------------------------------------
-  if [ "$ARCH" = x86_64 ]; then
+  if [ "$ARCH" = x86_64 ] && [ -z "$WINDOWS" ]; then
+    for t in clang ld.lld cc make nasm bison flex; do
+      command -v $t >/dev/null || { echo "build-edk2: needs $t" >&2; exit 1; }
+    done
+    export CLANG_BIN="$(dirname "$(command -v clang)")/"
+  elif [ "$ARCH" = x86_64 ]; then
     NASM="${MINGW_PREFIX:-/mingw64}/bin/nasm.exe"
     [ -x "$NASM" ] || { echo "build-edk2: needs MINGW64's nasm (pacman -S mingw-w64-x86_64-nasm)" >&2; exit 1; }
     for t in bison flex; do
@@ -113,7 +126,7 @@ else
       echo "build-edk2: needs clang and lld" >&2; exit 1; }
     export CLANGDWARF_BIN="$(dirname "$(command -v clang)")/"
   fi
-  if [ "$ARCH" = x86_64 ]; then
+  if [ "$ARCH" = x86_64 ] && [ -n "$WINDOWS" ]; then
     # EDK2's Windows build wants a Windows Python (MINGW64's fails in
     # BaseTools' NmakeSubdirs.py): the Python launcher's 3.12. MSYS2's
     # login shell has none of Windows' PATH, so the launcher is looked
@@ -130,7 +143,8 @@ else
   export PYTHON_COMMAND="$PY"
 
   # --- iasl (x86_64) -------------------------------------------------
-  if [ "$ARCH" = x86_64 ] && [ ! -x "$IASL_DIR/iasl.exe" ]; then
+  IASL=iasl; [ -z "$WINDOWS" ] || IASL=iasl.exe
+  if [ "$ARCH" = x86_64 ] && [ ! -x "$IASL_DIR/$IASL" ]; then
     tgz=build/deps/src/acpica-$ACPICA.tar.gz
     if ! [ -f "$tgz" ] || [ "$(sha256sum "$tgz" | cut -d' ' -f1)" != "$ACPICA_SHA" ]; then
       echo "==> edk2: fetching ACPICA $ACPICA (iasl)"
@@ -140,18 +154,24 @@ else
         echo "build-edk2: ACPICA $ACPICA is not $ACPICA_SHA" >&2; rm -f "$tgz.part"; exit 1; }
       mv "$tgz.part" "$tgz"
     fi
-    echo "==> edk2: iasl (ACPICA $ACPICA, Visual Studio)"
     rm -rf "build/deps/src/acpica-$ACPICA"
     tar -xzf "$tgz" -C build/deps/src
-    # Its browse database step fails after the compiler is linked (an
-    # absolute /acpica path), so the exe is what decides
-    ( cd "build/deps/src/acpica-$ACPICA/generate/msvc2017" \
-      && PATH="$PATH:/usr/bin" "$MSBUILD" AslCompiler.vcxproj -nologo -v:quiet -p:Configuration=Release \
-           -p:Platform=Win32 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 >/dev/null 2>&1 || true )
-    exe="build/deps/src/acpica-$ACPICA/generate/msvc2017/AslCompiler/AslCompiler.exe"
-    [ -x "$exe" ] || { echo "build-edk2: iasl did not build (msbuild in build/deps/src/acpica-$ACPICA/generate/msvc2017)" >&2; exit 1; }
     mkdir -p "$IASL_DIR"
-    cp "$exe" "$IASL_DIR/iasl.exe"
+    if [ -z "$WINDOWS" ]; then
+      echo "==> edk2: iasl (ACPICA $ACPICA)"
+      make -C "build/deps/src/acpica-$ACPICA" -j8 iasl >/dev/null
+      cp "build/deps/src/acpica-$ACPICA/generate/unix/bin/iasl" "$IASL_DIR/iasl"
+    else
+      echo "==> edk2: iasl (ACPICA $ACPICA, Visual Studio)"
+      # Its browse database step fails after the compiler is linked (an
+      # absolute /acpica path), so the exe is what decides
+      ( cd "build/deps/src/acpica-$ACPICA/generate/msvc2017" \
+        && PATH="$PATH:/usr/bin" "$MSBUILD" AslCompiler.vcxproj -nologo -v:quiet -p:Configuration=Release \
+             -p:Platform=Win32 -p:PlatformToolset=v143 -p:WindowsTargetPlatformVersion=10.0 >/dev/null 2>&1 || true )
+      exe="build/deps/src/acpica-$ACPICA/generate/msvc2017/AslCompiler/AslCompiler.exe"
+      [ -x "$exe" ] || { echo "build-edk2: iasl did not build (msbuild in build/deps/src/acpica-$ACPICA/generate/msvc2017)" >&2; exit 1; }
+      cp "$exe" "$IASL_DIR/iasl.exe"
+    fi
   fi
 
   # --- source --------------------------------------------------------
@@ -175,15 +195,21 @@ else
     echo "    $(basename "$p"): applied"
   done
 
-  if [ "$ARCH" = aarch64 ]; then
+  if [ -z "$WINDOWS" ]; then
     # --- BaseTools ---------------------------------------------------
     # The macOS SDK's stdint.h defines UINT8_MAX, which Decompress.c
-    # defines again under -Werror (fixed upstream after this pin)
+    # defines again under -Werror (fixed upstream after this pin). On
+    # Linux with clang, warnings stay warnings: GCC 16's C23 fails this
+    # pin's tools outright, and clang 23 warns of a set but unused global.
     if [ ! -x "$SRC/BaseTools/Source/C/bin/GenFw" ]; then
       echo "==> edk2: BaseTools"
-      make -C "$SRC/BaseTools/Source/C" -j8 EXTRA_OPTFLAGS=-Wno-macro-redefined >/dev/null
+      CCS=(EXTRA_OPTFLAGS=-Wno-macro-redefined)
+      [ "$(uname -s)" = Darwin ] || CCS=(CC=clang CXX=clang++ "EXTRA_OPTFLAGS=-Wno-macro-redefined -Wno-error")
+      make -C "$SRC/BaseTools/Source/C" -j8 "${CCS[@]}" >/dev/null
     fi
+  fi
 
+  if [ "$ARCH" = aarch64 ]; then
     # --- ArmVirtQemu -------------------------------------------------
     echo "==> edk2: ArmVirtQemu (AARCH64, CLANGDWARF, RELEASE, Secure Boot)"
     (
@@ -209,6 +235,25 @@ else
       truncate -s 64M "$OUT/${pair#*:}.part"
       mv "$OUT/${pair#*:}.part" "$OUT/${pair#*:}"
     done
+  elif [ -z "$WINDOWS" ]; then
+    # --- OvmfPkgX64 (Linux) ------------------------------------------
+    # QEMU's own secure build (`build.ovmf.x86_64.secure`), with SMM
+    echo "==> edk2: OvmfPkgX64 (X64, CLANGDWARF, RELEASE, Secure Boot with SMM)"
+    (
+      cd "$SRC"
+      export WORKSPACE="$PWD" IASL_PREFIX="$ROOT/$IASL_DIR/"
+      set +u
+      . ./edksetup.sh BaseTools >/dev/null
+      build -q -a X64 -t CLANGDWARF -b RELEASE -p OvmfPkg/OvmfPkgX64.dsc -n 8 \
+        -D NETWORK_HTTP_BOOT_ENABLE=TRUE -D NETWORK_IP6_ENABLE=TRUE -D NETWORK_TLS_ENABLE=TRUE \
+        -D NETWORK_ISCSI_ENABLE=TRUE -D NETWORK_ALLOW_HTTP_CONNECTIONS=TRUE \
+        -D TPM2_ENABLE=TRUE -D TPM2_CONFIG_ENABLE=TRUE -D TPM1_ENABLE=TRUE \
+        -D SECURE_BOOT_ENABLE=TRUE -D SMM_REQUIRE=TRUE -D BUILD_SHELL=FALSE
+    )
+    FV="$SRC/Build/OvmfX64/RELEASE_CLANGDWARF/FV"
+    mkdir -p "$OUT"
+    cp "$FV/OVMF_CODE.fd" "$OUT/2ksbox-x86_64-code.fd"
+    cp "$FV/OVMF_VARS.fd" "$OUT/2ksbox-x86_64-vars.fd"
   else
     # --- OvmfPkgX64 --------------------------------------------------
     # EDK2's Windows build runs in cmd: Visual Studio's x86 environment

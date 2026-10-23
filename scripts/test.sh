@@ -2107,6 +2107,8 @@ display_adapter_check() { # the wizard's adapter picker, from a combo box to a r
       args="$($LAUNCHERX --print-args "$bundle")"
       case "$args" in *"-device d3dpt-vga,irq=on"*) ;; *) echo "win11: our adapter did not arrive"; echo "$args"; rc=1;; esac
       case "$args" in *"-vga std"*) echo "win11: the standard VGA is still there beside ours"; echo "$args"; rc=1;; esac
+      # ... and our firmware, the one that drives it (Linux too, 2026-10-23)
+      case "$args" in *"/2ksbox-x86_64-code.fd"*) ;; *) echo "win11: not our EDK2, which alone draws on d3dpt-vga"; echo "$args"; rc=1;; esac
     else
       echo "win11: --new / --wizard-edit d3dpt failed"; rc=1
     fi ;;

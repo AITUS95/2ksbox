@@ -88,6 +88,8 @@ need build/qemu/libqemu-embed-i386.so "scripts/configure-qemu.sh && ninja -C bui
 need build/qemu/libqemu-embed-x86_64.so "ninja -C build/qemu libqemu-embed-x86_64.so"
 need build/qemu/qemu-img "ninja -C build/qemu qemu-img"
 need qemu/pc-bios "scripts/prepare-qemu.sh"
+need qemu/pc-bios/2ksbox-x86_64-code.fd "scripts/build-edk2.sh"
+need qemu/pc-bios/2ksbox-x86_64-vars.fd "scripts/build-edk2.sh"
 
 if [ "$BUILD" = 1 ]; then
   # The launcher and the player (player-mitsuami, track M22) are each their

@@ -72,8 +72,10 @@ Also: [testing](testing.md), [macOS](build-macos.md),
 QEMU's libraries from source, [build-macos.md](build-macos.md) "The
 libraries"; `mitsuami` is the launcher, which needs GTK 4.10+
 development files on Linux (`pkg-config gtk4`) and nothing extra on a
-Mac; `edk2` is an Arm host's alone, Windows 11 on Arm's firmware
-(`scripts/build-edk2.sh`, `patches/edk2/README.md`); `virtio` is
+Mac; `edk2` is Windows 11's firmware for the host's processor
+(`scripts/build-edk2.sh`, `patches/edk2/README.md`): ArmVirtQemu on an
+Arm host, OvmfPkgX64 on an x86_64 Linux (clang, lld, nasm, bison and
+flex), none on an Intel Mac; `virtio` is
 Windows 11's drivers disc for the host's processor
 (`scripts/build-virtio-win.sh`), on every host but an Intel Mac).
 Naming
@@ -90,6 +92,7 @@ ninja -C build/qemu qemu-system-i386 qemu-system-x86_64 qemu-img qemu-io \
 cargo build --release        # default members; the player links libqemu-embed-i386
 cargo build --release -p player --features qemu-x86_64 --target-dir target/qemu-x86_64   # Windows 11's player (Linux)
 scripts/build-virtio-win.sh  # Windows 11's drivers disc (display and clipboard drivers, the agent), build/virtio-win/2ksbox-drivers-x64.iso
+scripts/build-edk2.sh        # its firmware (OVMF, with a screen on d3dpt-vga) into qemu/pc-bios
 # an Arm host (M20 step 4): ninja also builds qemu-system-aarch64 and libqemu-embed-aarch64, then
 scripts/build-edk2.sh        # Windows 11 on Arm's firmware into qemu/pc-bios
 scripts/build-virtio-win.sh  # there its drivers disc instead, build/virtio-win/2ksbox-drivers-arm64.iso

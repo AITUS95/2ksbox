@@ -25,9 +25,11 @@
 #           Windows 11's, linked by a player of its own; see `rust`), and
 #           on an Arm host qemu-system-aarch64 and libqemu-embed-aarch64
 #           (Windows 11 on Arm)
-#   edk2    Arm hosts: build-edk2.sh, the firmware of Windows 11 on Arm
-#           (EDK2's ArmVirtQemu with Secure Boot and AHCI) into
-#           qemu/pc-bios. Needs clang and lld (Homebrew's on a Mac)
+#   edk2    build-edk2.sh, Windows 11's firmware into qemu/pc-bios: on
+#           Arm hosts EDK2's ArmVirtQemu with Secure Boot and AHCI (needs
+#           clang and lld, Homebrew's on a Mac), on an x86_64 Linux its
+#           OvmfPkgX64 with a screen on d3dpt-vga (needs clang, lld, nasm,
+#           bison and flex). Not on an Intel Mac
 #   virtio  build-virtio-win.sh, Windows 11's drivers disc for the host's
 #           processor (on Arm virtio-win's ARM64 network, display and
 #           serial drivers; on x86 its x64 serial driver, the clipboard's;
@@ -401,14 +403,19 @@ if want qemu; then
 fi
 
 # --- edk2 -------------------------------------------------------------
-# Windows 11 on Arm's firmware, where QEMU has the aarch64 target. Its own
-# stamp (build/edk2/.stamp) makes an unchanged run a no-op.
+# Windows 11's firmware for the host's processor: on Arm ArmVirtQemu, on
+# an x86_64 Linux OvmfPkgX64 (QEMU's own cannot draw on d3dpt-vga). Its
+# own stamp (build/edk2/.stamp, .stamp-x86_64) makes an unchanged run a
+# no-op.
 if want edk2; then
-  if [ -n "$ROSETTA" ] || ! case "$(uname -m)" in arm64|aarch64) true ;; *) false ;; esac; then
-    skip edk2 "an x86 host runs no Windows 11 on Arm" || true
+  ARM=""; case "$(uname -m)" in arm64|aarch64) ARM=1 ;; esac
+  if [ "$(uname -s)" = Darwin ] && { [ -n "$ROSETTA" ] || [ -z "$ARM" ]; }; then
+    skip edk2 "a Mac runs no x64 Windows 11" || true
+  elif [ -z "$ARM" ] && ! { have clang && have ld.lld && have nasm && have bison && have flex; }; then
+    skip edk2 "no clang / lld / nasm / bison / flex" || true
   elif [ "$(uname -s)" = Darwin ] && ! [ -x /opt/homebrew/opt/lld/bin/ld.lld ]; then
     skip edk2 "no lld (brew install llvm lld; build tools only)" || true
-  elif [ "$(uname -s)" != Darwin ] && ! { have clang && have ld.lld; }; then
+  elif [ -n "$ARM" ] && [ "$(uname -s)" != Darwin ] && ! { have clang && have ld.lld; }; then
     skip edk2 "no clang / lld" || true
   else
     say "edk2: build-edk2.sh"

@@ -125,28 +125,26 @@ impl Arch {
         }
     }
 
-    /// EDK2's code for it in `pc-bios`: QEMU's secure build on x86_64
-    /// (unpacked there by `scripts/prepare-qemu.sh`), but on a Windows
-    /// host our own (`scripts/build-edk2.sh x86_64`), Secure Boot without
-    /// SMM, since QEMU's secure build needs SMM and WHPX has none ("System
-    /// Management Mode not supported by this hypervisor";
-    /// [`Machine::modern_args`]); on aarch64 our own build too, since
-    /// QEMU's has no Secure Boot, which Windows 11's setup requires, and
-    /// no AHCI driver.
+    /// EDK2's code for it in `pc-bios`, our own build
+    /// (`scripts/build-edk2.sh`) on both: on x86_64 for a firmware screen
+    /// on d3dpt-vga (`patches/edk2/04`), which QEMU's has no driver for,
+    /// with SMM on Linux as QEMU's secure build, and on a Windows host
+    /// Secure Boot without SMM, since WHPX has none ("System Management
+    /// Mode not supported by this hypervisor"; [`Machine::modern_args`]);
+    /// on aarch64 since QEMU's has no Secure Boot, which Windows 11's
+    /// setup requires, and no AHCI driver.
     pub fn efi_code_file(self) -> &'static str {
         match self {
-            Arch::X86_64 if cfg!(target_os = "windows") => "2ksbox-x86_64-code.fd",
-            Arch::X86_64 => "edk2-x86_64-secure-code.fd",
+            Arch::X86_64 => "2ksbox-x86_64-code.fd",
             Arch::Aarch64 => "2ksbox-aarch64-code.fd",
         }
     }
 
     /// The empty variable store a machine's own is made from: our builds'
-    /// own, and for QEMU's x86_64 firmware QEMU's i386 template.
+    /// own.
     pub fn efi_vars_template(self) -> &'static str {
         match self {
-            Arch::X86_64 if cfg!(target_os = "windows") => "2ksbox-x86_64-vars.fd",
-            Arch::X86_64 => "edk2-i386-vars.fd",
+            Arch::X86_64 => "2ksbox-x86_64-vars.fd",
             Arch::Aarch64 => "2ksbox-aarch64-vars.fd",
         }
     }

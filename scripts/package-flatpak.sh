@@ -227,6 +227,9 @@ command -v flatpak-builder >/dev/null || { echo "flatpak-builder not installed" 
 # Windows 11's drivers disc is made on the host too (the manifest says why)
 [ "$APP" = 0 ] || [ -f build/virtio-win/2ksbox-drivers-x64.iso ] || {
   echo "no build/virtio-win/2ksbox-drivers-x64.iso: run scripts/build-virtio-win.sh x64 first" >&2; exit 1; }
+# and its firmware, which the copied tree carries in qemu/pc-bios
+[ "$APP" = 0 ] || [ -f qemu/pc-bios/2ksbox-x86_64-code.fd ] || {
+  echo "no qemu/pc-bios/2ksbox-x86_64-code.fd: run scripts/build-edk2.sh first" >&2; exit 1; }
 [ -f guest-tools/out/guest-tools-3dfx-*.iso ] 2>/dev/null || \
   ls guest-tools/out/guest-tools-*.iso >/dev/null 2>&1 || \
   echo "package-flatpak.sh: no guest-tools ISO built; the app will ship without it"

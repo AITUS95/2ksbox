@@ -361,7 +361,9 @@ tracks, plus the items no track owns.
     window"; by hand on the PC's test machine, not yet on Arm or through a
     launcher machine's own agent). x64 Windows 11 on our adapter has it
     alone since the same day (EDK2 patch 04 drives it for the firmware;
-    no standard VGA, no second screen; doc 06), and so does one on
+    no standard VGA, no second screen; doc 06; on Linux too since
+    2026-10-23, when `build.sh`'s `edk2` stage started building our OVMF
+    there), and so does one on
     viogpudo: `virtio-vga` alone, whose VGA half upstream OVMF already
     drives. Left: `FRAMES` on the host's blank for
     98 / XP (the user saw 3D games judder).

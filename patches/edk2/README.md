@@ -6,7 +6,9 @@ ArmVirtQemu for QEMU's aarch64 `virt` board, with QEMU's build options
 plus `SECURE_BOOT_ENABLE`; on Windows hosts (`build-windows.sh`'s `edk2`
 stage) OvmfPkgX64 with Visual Studio 2022, with QEMU's options for its
 secure build but `SMM_REQUIRE=FALSE`, since WHPX has no SMM (track M20
-step 5). It applies these with `git apply`, in filename order, to a tree
+step 5); on an x86_64 Linux (`build.sh`'s `edk2` stage) OvmfPkgX64 with
+clang (`CLANGDWARF`) and QEMU's secure build's options, SMM included,
+for patch 04 (GCC 16 is too new for the pin's BaseTools). It applies these with `git apply`, in filename order, to a tree
 it restores first. The files keep EDK2's CRLF line
 endings (`.gitattributes` here), and a patch must too. The build is
 stamped by the pin, these files and the script, so editing one rebuilds
