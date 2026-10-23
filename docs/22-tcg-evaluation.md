@@ -420,7 +420,7 @@ samples (107–127 MiB against 480–820 MiB):
 About 2 % on the SSE helpers and nothing on the x87 ones, for a buffer an
 eighth of the size: the five-instruction far form was the whole cost.
 
-The patch is `patches/qemu/63-jit-buffer-near-helpers`. It runs before
+The patch is `patches/qemu/063-jit-buffer-near-helpers`. It runs before
 the command line exists, so it has no switch and its A/B is a pristine
 build. On a user's machine it removes a 35–45 % loss on a third of
 launches rather than speeding up the median one.

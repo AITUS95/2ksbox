@@ -66,7 +66,7 @@ shape we replaced.
 
 ## Design
 
-1. **Patch `30-3dfx-ui-vtable`.** The 11 entry points become a vtable
+1. **Patch `030-3dfx-ui-vtable`.** The 11 entry points become a vtable
    registered by the display (`QemuFxUiOps`). With no provider Mesa
    refuses contexts cleanly (patch 04) and the VM keeps running, which is
    what a bare `qemu-system-i386` does.

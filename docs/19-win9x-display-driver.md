@@ -348,7 +348,7 @@ name (a 16-colour mode must resolve to *something*).
   it install". Edit `SYSTEM.INI` in binary: it has CRLF line endings and
   a text-mode rewrite eats a section header.
 - A 9x splash screen frozen after a restart is patch 22's APIC bug
-  (`patches/qemu/README.md`, `22-upstream-apic-reset-cpuid`), not the
+  (`patches/qemu/README.md`, `022-upstream-apic-reset-cpuid`), not the
   driver.
 - `SETUP.EXE` copies the INF and the three binaries from `DRIVER9X\`
   into `WINDOWS\INF` (the binaries also into `SYSTEM`) and asks for a
@@ -825,7 +825,7 @@ mini-VDD:
   numbering, which past 43 differs from older write-ups.
 - **A fault outside any VM** (a timer or event callback) sends no switch
   at all; patch 44's corrupted `uint16_t` slot list
-  (`patches/qemu/README.md`, `44-tlb-retire`) put up invisible VTDAPI
+  (`patches/qemu/README.md`, `044-tlb-retire`) put up invisible VTDAPI
   screens this way. Every message screen does send the VMM's
   `Begin_Message_Mode` (0x10) / `End_Message_Mode` (0x11) to every VxD.
   The first clears `ENABLE`, remembering whether it was set; the second

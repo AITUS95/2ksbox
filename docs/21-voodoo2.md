@@ -63,7 +63,7 @@ voodoo/
   voodoo2.c         the PCI device
   undither.c/.h     the scanout undither (§12)
   meson.build       -> hw/voodoo/meson.build
-patches/qemu/62-voodoo2-device.patch   subdir('hw/voodoo') in meson.build
+patches/qemu/062-voodoo2-device.patch   subdir('hw/voodoo') in meson.build
 scripts/sync-86box-voodoo.sh
 ```
 

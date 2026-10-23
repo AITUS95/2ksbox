@@ -313,7 +313,7 @@ gets `LEGACY_BOARD` (9.2's), and `CURRENT_BOARD` moves to
   or a fork of qemu-3dfx) is a decision for the user. Record it as an
   ADR amendment to ADR-001.
 - Port the non-TCG patches and the overlays: the embed API (10,
-  20-embed-audio), the OpenGL pass-through's own patches (00, 02, 04,
+  020-embed-audio), the OpenGL pass-through's own patches (00, 02, 04,
   30, 31, 32, 66, 70, 74), the devices (26, 27, 34, 40, 50 to 56, 60 to
   62, 64, 65, 71 to 73), and the build and platform patches (13, 14, 29,
   41, 46, 68, 69). Patch 29 is the switch framework the TCG patches hang
@@ -327,7 +327,7 @@ gets `LEGACY_BOARD` (9.2's), and `CURRENT_BOARD` moves to
 - The submodule is at v11.1.2. qemu-3dfx's patch is ported into
   `patches/qemu-3dfx/00-qemu111x-mesa.patch` (our tree, not a fork: the
   ADR-001 amendment), OpenGL half only, which folds 02 and 74.
-- 35 patches ported: 00, 04, 10, 13, 14, 20-embed-audio, 22, 23, 25 to
+- 35 patches ported: 00, 04, 10, 13, 14, 020-embed-audio, 22, 23, 25 to
   28, 30 to 32, 34, 40, 41, 50 to 56, 60 to 62, 64 to 66, 70 to 73, and
   one new one, 78 (75 until main's M20 took the number; 11.0 never finalizes an audio backend a device uses,
   so the `wav` audiodev's header kept lengths of 0 and the `music` and

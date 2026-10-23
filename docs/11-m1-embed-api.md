@@ -244,12 +244,12 @@ through `setenv`, and quit cleanly.
 
 ## What needs patches
 
-1. **`10-embed-api.patch`**, meson: `shared_library('qemu-embed-<target>',
+1. **`010-embed-api.patch`**, meson: `shared_library('qemu-embed-<target>',
    files('embed/libqemu_embed.c'), objects: lib.extract_all_objects(…),
    …)` beside the executable. Linking the objects directly, not through
    the archive, keeps the `type_init` constructors; it needs `-fPIC`
    (`configure-qemu.sh` adds it).
-2. **`20-embed-audio.patch`**, the `embed` audiodev. The driver is
+2. **`020-embed-audio.patch`**, the `embed` audiodev. The driver is
    `embed/embedaudio.c`, compiled into the shared library. QEMU needs a
    `qapi/audio.json` enum + union entry, a per-direction case in
    `audio_template.h`, **and a case in `audio/audio.c:

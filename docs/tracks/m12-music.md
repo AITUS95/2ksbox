@@ -41,7 +41,7 @@ work (doc 20 §8).
   (the byte-stream parser), `src/capi.rs`, `libsynth.h`,
   `src/bin/synthx.rs`.
 - `libsynth/qemu/opl3.c` and `mpu401.c`, overlaid into `hw/audio/` by
-  `scripts/prepare-qemu.sh`; `patches/qemu/60-opl3-mpu401-devices.patch`
+  `scripts/prepare-qemu.sh`; `patches/qemu/060-opl3-mpu401-devices.patch`
   wires them into meson/Kconfig with `-Dlibsynth_dir`.
 - `soundfonts/`: the shipped bank and its provenance.
 - `launcher-core/src/bundle.rs` (`Sound`, `Music`, their `*_choices`,

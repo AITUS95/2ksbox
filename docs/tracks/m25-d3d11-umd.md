@@ -1002,7 +1002,7 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   restart. **The cause is QEMU's**: WHPX's APIC EOI exit called
   `ioapic_eoi_broadcast()` without the BQL from the vCPU loop while the
   device raised its line under it from another vCPU, and the two
-  interleave so that neither delivers (patch 94, `94-whpx-eoi-bql`, which
+  interleave so that neither delivers (patch 94, `094-whpx-eoi-bql`, which
   takes the BQL; every guest's level-triggered INTx under WHPX could lose
   its line so, an XP's sound or USB card on an APIC HAL included; KVM's
   IOAPIC is in the kernel and TCG's EOI holds the BQL). Checked

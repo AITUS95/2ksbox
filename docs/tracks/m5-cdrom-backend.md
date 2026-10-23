@@ -26,11 +26,11 @@ items. The design is elsewhere:
     change);
   - the block driver `libdisc/qemu/cdimage.{c,h}`, overlaid into the QEMU
     tree by `prepare-qemu.sh`.
-- QEMU patches (rows in `patches/qemu/README.md`): `50-cdimage-block-driver`
-  (meson, `CONFIG_CDIMAGE`), `51-atapi-disc-model` (`hw/ide/`),
-  `53-atapi-dvd-profile` (M5g), `54-atapi-audio-seek-stop` (Win9x's
-  seek-as-stop, doc 17 §5.4), `55-atapi-audio-read-error`,
-  `56-atapi-medium-type` (MODE SENSE's medium type, for DOS CD drivers).
+- QEMU patches (rows in `patches/qemu/README.md`): `050-cdimage-block-driver`
+  (meson, `CONFIG_CDIMAGE`), `051-atapi-disc-model` (`hw/ide/`),
+  `053-atapi-dvd-profile` (M5g), `054-atapi-audio-seek-stop` (Win9x's
+  seek-as-stop, doc 17 §5.4), `055-atapi-audio-read-error`,
+  `056-atapi-medium-type` (MODE SENSE's medium type, for DOS CD drivers).
   Numbers 57–59 are reserved for this track; patch 52, the shelf, is
   shared with M6.
 - Guest programs: `guest-tools/src/cdtest.c` (`CDTEST.EXE`, MCI CD audio)

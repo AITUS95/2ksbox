@@ -39,7 +39,7 @@ no CPU readback, so it goes through librashader like the 2D framebuffer?
   OpenGL.framework, no X server), the backend M3 grew from.
 - The July 2026 upstream sync broke the Darwin build
   (`GL_CONTEXTALPHA`), fixed by
-  `patches/qemu/00-3dfx-darwin-contextalpha.patch`.
+  `patches/qemu/000-3dfx-darwin-contextalpha.patch`.
 
 ## Plan as written
 

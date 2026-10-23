@@ -573,7 +573,7 @@ check's proof.
 change replaces `blk_bs(s->blk)`, so the handle is never cached in
 IDEState.
 
-### 5.2 Build: patch `50-cdimage-block-driver`
+### 5.2 Build: patch `050-cdimage-block-driver`
 
 - A meson option `libdisc_dir` (the directory holding `liblibdisc.a`),
   the `libdisc` dependency with the staticlib's native libraries per
@@ -598,7 +598,7 @@ IDEState.
   on Linux the copies interpose identical code. QEMU's own Rust support
   is not enabled, and cargo builds the crate outside meson.
 
-### 5.3 ATAPI: patch `51-atapi-disc-model`
+### 5.3 ATAPI: patch `051-atapi-disc-model`
 
 Files:
 

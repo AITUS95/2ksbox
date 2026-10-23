@@ -14,8 +14,8 @@ also covers the later x87 patches from other work: 37 (PE sticky), 45
 
 ## Scope and files
 
-- QEMU patches `05-x87-fast`, `06-x87-inline-tcg`, `11-sse-inline-tcg` and
-  `12-simd-inline-tcg`. They touch:
+- QEMU patches `005-x87-fast`, `006-x87-inline-tcg`, `011-sse-inline-tcg` and
+  `012-simd-inline-tcg`. They touch:
   - `target/i386/tcg/`: `x87-fast.h`, `x87-shadow.c.inc`,
     `sse-fast.c.inc`, `sse-fast-lane.c.inc`, `simd-fast.c.inc`;
   - the new opcodes: `include/tcg/tcg-opc.h`, `tcg/tcg.c`,
