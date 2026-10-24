@@ -266,7 +266,7 @@ static void mpu401_callback(void *opaque, int free)
  *
  * The bank is searched for the way QEMU searches for every other
  * companion of ours: the property, then LIBSYNTH_SF2 (which a
- * packaged player sets, player/src/companions.rs), then the copy in a
+ * packaged player sets, player-core/src/companions.rs), then the copy in a
  * checkout. So a machine that simply says `synth=gm` starts everywhere
  * this project is run from, and a bundle never has to carry an absolute
  * path into someone else's install. */

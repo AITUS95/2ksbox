@@ -125,7 +125,7 @@ static void crtcal__num(uint32_t *fb, int w, int h, int x, int y,
 /*
  * The aspect the mode was meant to fill, so `grid`'s circle is a circle on
  * the tube rather than in the framebuffer. Mirrors the player's mode table
- * (player/src/mode.rs) for the one era mode that is not 4:3; keep in step.
+ * (player-core/src/mode.rs) for the one era mode that is not 4:3; keep in step.
  */
 static double crtcal_display_aspect(int w, int h)
 {

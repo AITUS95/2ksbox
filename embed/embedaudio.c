@@ -7,7 +7,7 @@
  * fixed_settings (default) yields exactly one HWVoiceOut in that format. The
  * backend moves bytes and does not care which; the player asks for f32
  * because QEMU's s16 conversion saturates a mix that sums past full scale
- * and its float conversion does not (player/src/audio.rs has the limiter).
+ * and its float conversion does not (player-core/src/audio.rs has the limiter).
  *
  * Producer (QEMU main loop, BQL held, one mixer tick every timer-period =
  * 10 ms) advances wr; consumer (host audio thread, the DAC's clock) advances
@@ -46,7 +46,7 @@
  * fraction of a millisecond per tick, which no guest driver can tell from
  * its own clock. Starting a stream is the consumer's side: it waits until
  * the ring holds the cushion plus one of its own periods before it plays
- * (player/src/audio.rs), because this side will not hurry the guest to fill
+ * (player-core/src/audio.rs), because this side will not hurry the guest to fill
  * it.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
