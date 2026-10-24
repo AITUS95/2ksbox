@@ -220,7 +220,8 @@ VRAM's older frame. A count for the run: 31 times in eight Start menus.
 newest frame and gives one only when no other is free, and the
 overwrite puts that page's frame back into VRAM first (Direct3D 11:
 owed, the display waits; Direct3D 9: read back at once). The same run
-afterwards: 0. More frames now come through VRAM than before (a page
+afterwards: 0; the user on the machine itself: "now it works". More
+frames now come through VRAM than before (a page
 whose slot was taken is read back), the ring's price on a host whose
 player gives slots back late.
 On the way: KosmicKrisp's `vkCmdSetEvent2` ignores its dependency (a
