@@ -41,7 +41,7 @@
 #include <unistd.h>
 #endif
 
-#ifdef _WIN32
+#ifdef D3DPT_RING
 /* DXVK's d3d9 interop interfaces (third_party/dxvk/src/d3d9/d3d9_interfaces.h),
  * declared as DXVK declares them, in vtable order: the scanout ring (M26)
  * records its copies on DXVK's own queue */
@@ -419,7 +419,7 @@ struct Ddi {
      * holds the frame of the page at a VRAM offset, from which surface,
      * until VRAM has that surface's latest again */
     struct RingSlot {
-#ifdef _WIN32
+#ifdef D3DPT_RING
         VkImage img = VK_NULL_HANDLE;
         VkDeviceMemory mem = VK_NULL_HANDLE;
         VkCommandBuffer cb = VK_NULL_HANDLE;
@@ -431,7 +431,7 @@ struct Ddi {
     uint32_t ring_w = 0, ring_h = 0, ring_next = 0;
     struct Scan { uint32_t h, slot; };
     std::unordered_map<uint32_t, Scan> scans;
-#ifdef _WIN32
+#ifdef D3DPT_RING
     IUnknown *interop = nullptr;                /* DXVK's ID3D9VkInteropDevice */
     VkDevice vk = VK_NULL_HANDLE;
     VkQueue queue = VK_NULL_HANDLE;
@@ -3286,7 +3286,7 @@ struct Dp2 {
 /* The ring's images go, after the GPU is done with every copy into them */
 static void ring_drop(Ddi &d)
 {
-#ifdef _WIN32
+#ifdef D3DPT_RING
     for (Ddi::RingSlot &s : d.ring) {
         if (s.fence && s.used) d.vkWaitForFences(d.vk, 1, &s.fence, VK_TRUE, UINT64_MAX);
         if (s.fence) d.vkDestroyFence(d.vk, s.fence, nullptr);
@@ -3309,7 +3309,7 @@ int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t
     Ddi &d = *x.ddi;
     ring_drop(d);
     if (count <= 0 || !handles || !w || !h || !x.dev) return 0;
-#ifdef _WIN32
+#ifdef D3DPT_RING
     ID3D9VkInteropDevice *interop = nullptr;
     if (FAILED(x.dev->QueryInterface(__uuidof(ID3D9VkInteropDevice), (void **)&interop)) || !interop) {
         x.log("ddi: scanout ring: the device is not DXVK's (no Vulkan interop)");
@@ -3369,7 +3369,7 @@ int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t
  * not one for the ring. */
 static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
 {
-#ifdef _WIN32
+#ifdef D3DPT_RING
     if (d.ring.empty() || !s.rt || s.d.width != d.ring_w || s.d.height != d.ring_h ||
         (s.d.format != D3DFMT_X8R8G8B8 && s.d.format != D3DFMT_A8R8G8B8))
         return false;
@@ -3409,7 +3409,7 @@ static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
                            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { s.d.width, s.d.height, 1 } };
     d.vkCmdCopyImage(r.cb, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, r.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     /* the target back in the layout DXVK keeps it in; the slot in the
-     * general one the player's Direct3D 12 samples */
+     * general one the player samples (its Direct3D 12 or Metal) */
     VkImageMemoryBarrier post[2] = {
         { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, img, all },
@@ -3447,7 +3447,7 @@ int exec_ddi_ring_slot(Exec &x, uint32_t page, bool wait)
     Ddi &d = *x.ddi;
     auto it = d.scans.find(page);
     if (it == d.scans.end()) return -1;
-#ifdef _WIN32
+#ifdef D3DPT_RING
     Ddi::RingSlot &r = d.ring[it->second.slot];
     VkResult vr = wait ? d.vkWaitForFences(d.vk, 1, &r.fence, VK_TRUE, UINT64_MAX) : d.vkGetFenceStatus(d.vk, r.fence);
     return vr == VK_SUCCESS ? (int)it->second.slot : -2;

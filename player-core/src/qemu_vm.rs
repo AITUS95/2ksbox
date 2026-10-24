@@ -8,12 +8,18 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-/// What makes a scanout ring's images (Windows: `d3d12ring::alloc`, on
-/// the player's own device): width, height, count. Track M26.
+/// A scanout ring's image (track M26): a shared Direct3D 12 resource on
+/// Windows, a Metal heap on macOS.
 #[cfg(windows)]
-pub type RingAlloc = Arc<dyn Fn(u32, u32, usize) -> Result<Vec<crate::d3d12ring::Slot>, String> + Send + Sync>;
-/// No scanout ring off Windows yet (track M26's step 6).
-#[cfg(not(windows))]
+use crate::d3d12ring::Slot as RingSlot;
+#[cfg(target_os = "macos")]
+use crate::metalring::Slot as RingSlot;
+/// What makes a scanout ring's images (`d3d12ring::alloc`,
+/// `metalring::alloc`, on the player's own device): width, height, count.
+#[cfg(any(windows, target_os = "macos"))]
+pub type RingAlloc = Arc<dyn Fn(u32, u32, usize) -> Result<Vec<RingSlot>, String> + Send + Sync>;
+/// No scanout ring on Linux yet (track M26's step 6).
+#[cfg(not(any(windows, target_os = "macos")))]
 pub type RingAlloc = std::convert::Infallible;
 
 /// A backend ring slot offered for zero-copy import: a dma-buf (Linux,
@@ -221,8 +227,8 @@ struct Shared {
     // the scanout ring (M26): what makes its images, and the ones made,
     // kept for their handles while a device may open them
     ring_alloc: Option<RingAlloc>,
-    #[cfg(windows)]
-    ring: Vec<crate::d3d12ring::Slot>,
+    #[cfg(any(windows, target_os = "macos"))]
+    ring: Vec<RingSlot>,
     // the ring's slots we may still sample (bit n = slot n), which the
     // device's frames must not go into (embed v18): shown and not yet
     // replaced, or replaced and their last draw not finished on the GPU.
@@ -708,7 +714,7 @@ unsafe extern "C" fn on_scanout_ring(
     // a new ring (or none): the library holds nothing of it either
     s.slots_held = 0;
     s.slots_untaken = 0;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         s.ring.clear();
         let alloc = match &s.ring_alloc {
@@ -720,7 +726,7 @@ unsafe extern "C" fn on_scanout_ring(
                 for (i, slot) in slots.iter().enumerate() {
                     *handles.add(i) = slot.handle();
                     s.dmabufs.push(DmaBuf {
-                        slot: i,
+                        slot: SCANOUT_BASE + i,
                         fd: -1,
                         w: w as u32,
                         h: h as u32,
@@ -742,7 +748,7 @@ unsafe extern "C" fn on_scanout_ring(
             }
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (&mut s, w, h, count, handles);
         0
@@ -760,7 +766,8 @@ unsafe extern "C" fn on_scanout_slot(ud: *mut c_void, slot: c_int) {
     if slot < 0 {
         return;
     }
-    let bit = slot_bit(slot as usize);
+    let ext = SCANOUT_BASE + slot as usize;
+    let bit = slot_bit(ext);
     s.slots_untaken |= bit;
     if s.slots_held & bit == 0 {
         s.slots_held |= bit;
@@ -770,7 +777,7 @@ unsafe extern "C" fn on_scanout_slot(ud: *mut c_void, slot: c_int) {
     s.front_stale = true;
     s.scanout_shown = true;
     s.vga_dirty = false;
-    s.front.ext_slot = Some(slot as usize);
+    s.front.ext_slot = Some(ext);
     s.front.seq += 1;
     s.front.published = std::time::Instant::now();
     let waker = s.waker.clone();
@@ -780,9 +787,20 @@ unsafe extern "C" fn on_scanout_slot(ud: *mut c_void, slot: c_int) {
     }
 }
 
-/// A ring slot's bit in a held mask (embed v18); none past the mask's 32.
-pub fn slot_bit(slot: usize) -> u32 {
-    if slot < 32 { 1 << slot } else { 0 }
+/// Where the scanout ring's slots start among the frame's ring slots
+/// (`FrameRef::ext_slot`, the GPU side's imports): past the OpenGL
+/// pass-through's own ring (its dma-bufs or IOSurfaces, slots 0 to 2), which
+/// a macOS or Linux guest may have up beside a Direct3D one.
+pub const SCANOUT_BASE: usize = 8;
+
+/// The held-mask bit (embed v18) of the frame ring slot `ext`: the
+/// scanout ring's slot `ext - SCANOUT_BASE`; none for the OpenGL ring's,
+/// or past the mask's 32.
+pub fn slot_bit(ext: usize) -> u32 {
+    match ext.checked_sub(SCANOUT_BASE) {
+        Some(k) if k < 32 => 1 << k,
+        _ => 0,
+    }
 }
 
 /// The slots held, to the library: the device reads them before it puts a
@@ -1068,7 +1086,7 @@ pub fn start(
         scanout_shown: false,
         zero_copy,
         ring_alloc,
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         ring: Vec::new(),
         slots_held: 0,
         slots_untaken: 0,

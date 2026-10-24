@@ -146,6 +146,62 @@ item 1), 16 skipped.
 
 Open: step 6; the Win98 depth-texture failures above (outside M26).
 
+## State (2026-10-24, macOS)
+
+Step 6's macOS half on the Air (user: "implement the zero-copy here"):
+the same ring, the same executor code, a Metal heap per slot instead of
+a Direct3D 12 resource.
+
+- **What KosmicKrisp imports.** Its `VK_EXT_external_memory_metal`
+  takes an `MTLHeap` and nothing else: an `MTLTexture` or `MTLBuffer`
+  handle is `VK_ERROR_INVALID_EXTERNAL_HANDLE`, and
+  `vkGetPhysicalDeviceImageFormatProperties2` answers only the heap type
+  (importable and exportable). Its memory is all heaps: placement,
+  shared storage, untracked hazards, default CPU cache; an import puts a
+  buffer over the whole heap, so a private heap aborts in Metal's
+  validation (`not compatible with the heap's mode`).
+- **One texture, two descriptions.** A `VkImage` bound at offset 0 is a
+  texture KosmicKrisp makes on the heap from the image's description
+  (`kk_image_layout.c`: transfer source / sampled → shader read,
+  transfer destination → render target, `MUTABLE_FORMAT` → pixel-format
+  view, GPU-optimised contents). The player (`metalring.rs`) places its
+  own texture there with the same description, and the two are the same
+  pixels only because they agree. Measured with a probe (a pattern
+  uploaded on Vulkan, read back through the player's texture) at
+  640x480, 800x600, 1366x768, 1600x1200 and 3840x2160 on the M1: with
+  `MUTABLE_FORMAT` / `PixelFormatView` every pixel right (Metal's heap
+  size and Vulkan's requirement equal); without it every pixel wrong,
+  Metal sizing the heap larger (lossless compression, which a
+  pixel-format view turns off). The executor already asked for
+  `MUTABLE_FORMAT` (the Direct3D 12 resource is typeless), so its
+  `exec_vk_ring_image` differs only in the handle type and the import
+  structure. The player's sRGB view of the slot is a Metal texture view.
+- **DXVK enables the extension** (DXVK patch 19), as it enables
+  `VK_KHR_external_memory_win32` for itself; the executor finds the
+  Vulkan loader DXVK runs on among the process's images (`_dyld_*`),
+  whatever path DXVK opened it by.
+- **The player's slot numbers.** On macOS (and Linux) the OpenGL
+  pass-through's ring is in the same table of imported slots, numbered 0
+  to 2 like the scanout ring's, and an OpenGL title on d3dpt-vga can have
+  both up. The scanout ring's slots now sit at `SCANOUT_BASE` (8) and
+  up in the player (`qemu_vm.rs`), and `slot_bit` gives the OpenGL ring's
+  none, so one ring's slot going off show never releases the other's.
+  The device's numbering is unchanged.
+
+D3DGAME9 in exclusive fullscreen at 800x600 on 98 under TCG in
+`player-mitsuami` on the Air (`tools/win98-game-test.sh PLAYER=1`
+`PLAYER_BIN=player-mitsuami/...`, the launcher's `base98-us` with its
+Voodoo 2 in `EXTRA`, `PLAYER_PUBLISH_LOG=1`): `scanout ring: 3 images
+of 800x600` on both DXVK devices, 1500 frames in 26.5 s at 60.0 fps,
+1539 frames published from a slot, 4 readbacks in the run, the scene
+right in the player's shots (taken from the slot on show) and the
+desktop right after. A first run without the card in `EXTRA` lost the
+device after 36 frames: 3dfx's login job put its "Voodoo 2 driver is
+loading" box over the fullscreen game, then a Glide error box that held
+the power button (the image's, not the ring's).
+
+Open: step 6 on Linux.
+
 ## Steps
 
 1. **The ring in the player and the embed API.** Shared D3D12 textures
@@ -165,14 +221,14 @@ Open: step 6; the Win98 depth-texture failures above (outside M26).
 5. **The Direct3D 9 path** (`d3dpt_exec_ddi.cpp`, XP and 98 games on
    DXVK's d3d9) on the same ring.
 6. **Other hosts**: Linux (dma-buf / opaque fd into wgpu's Vulkan, as the
-   OpenGL ring), macOS (IOSurface or Metal shared events through
-   KosmicKrisp).
+   OpenGL ring); macOS done 2026-10-24 (Metal heaps through
+   KosmicKrisp's `VK_EXT_external_memory_metal`, above).
 
 ## Owns
 
 The ring on both sides: the embed API's new calls (`embed/`), the
-player's import (`player-core/src/` beside `dmabuf.rs` / `iosurface.rs`,
-`gpu.rs`), the executor's interop and copy (`d3dpt/exec/`, edited
+player's import (`player-core/src/` beside `dmabuf.rs` / `iosurface.rs`:
+`d3d12ring.rs`, `metalring.rs`, `gpu.rs`), DXVK patch 19, the executor's interop and copy (`d3dpt/exec/`, edited
 minimally as a shared file), the device's slot path in
 `d3dpt/hw/d3dpt_vga.c` (with M7), and this doc.
 

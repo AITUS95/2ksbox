@@ -88,10 +88,11 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
   whole every flip was the mode's size down to the player's texture
   (33 MB at 3840x2160; the desktop grew choppier with the window on a 4K
   screen, 2026-10-23, with QEMU patch 99's dirty log under WHPX).
-  **On a Windows host a flip's frame does not leave the GPU** (track
-  M26, `zero-copy`, on by default): the player makes a scanout ring,
-  three shared Direct3D 12 images of the mode's size (embed API v17,
-  QEMU patch 101), the executor imports them into DXVK's Vulkan device
+  **On a Windows or macOS host a flip's frame does not leave the GPU**
+  (track M26, `zero-copy`, on by default): the player makes a scanout
+  ring, three images of the mode's size (shared Direct3D 12 resources;
+  on macOS Metal heaps, KosmicKrisp's import; embed API v17, QEMU patch
+  101), the executor imports them into DXVK's Vulkan device
   (`d3dpt_exec_ring`) and copies a flip's `RES_SCANOUT` buffer into the
   next one on the GPU instead of reading it back, and the device shows
   that slot (`fb_ring_show`). VRAM and the shadow keep an older picture
@@ -204,7 +205,7 @@ is checked.
 | `host-vblank=off` | with `irq=on`, the vertical blank interrupt on the guest's clock alone. On (the default, 2026-10-10, track M20) it follows the host screen's blank, which the player sends (QEMU patch 90's `qemu_host_vblank`, at the rate it picked for the guest: 72 Hz on a 144 Hz screen, track M24), and the clock is only a watchdog two periods out; `FRAMES` (98 / XP) still counts on the clock |
 | `follow=off` | with `irq=on`, no `CAP_FOLLOW` (register set v12): the desktop keeps its size whatever the window's. On (the default, 2026-10-22, track M20) the WDDM driver's `FOLLOW`, written at the guest agent's first ask, makes the console take UI info, so the player sizes the guest to its window: `PREF_W` / `PREF_H` and `IRQ_DISPLAY` carry the window's size, the driver makes it a custom mode (also in the monitor's mode set) and the agent applies it ("The desktop following the window" below) |
 | `flip-push=off` | the console stands on VRAM and the display's tick polls it, as before 2026-10-10; on (the default) a flip copies the page it shows and pushes it at once (above) |
-| `zero-copy=off` | flips are read back into VRAM and pushed from there, as before 2026-10-23; on (the default) a Windows host's player gets them through its scanout ring on the GPU (M26, above) |
+| `zero-copy=off` | flips are read back into VRAM and pushed from there, as before 2026-10-23; on (the default) a Windows or macOS host's player gets them through its scanout ring on the GPU (M26, above) |
 
 The executor properties model hosts, not devices. The adapter only hands
 them to the loader (`d3dpt/hw/d3dpt_exec_load.c`).

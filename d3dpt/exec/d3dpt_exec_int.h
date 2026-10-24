@@ -21,10 +21,18 @@
 
 #include "d3dpt_exec.h"
 #include "../d3dpt_proto.h"
+/* the scanout ring (M26): the player's images on DXVK's Vulkan devices,
+ * shared Direct3D 12 resources on Windows, Metal heaps on macOS */
+#if defined(_WIN32) || defined(__APPLE__)
+#define D3DPT_RING 1
 #ifdef _WIN32
-/* the scanout ring (M26): the player's images on DXVK's Vulkan devices */
 #ifndef VK_USE_PLATFORM_WIN32_KHR
 #define VK_USE_PLATFORM_WIN32_KHR
+#endif
+#else
+#ifndef VK_USE_PLATFORM_METAL_EXT
+#define VK_USE_PLATFORM_METAL_EXT
+#endif
 #endif
 #include <vulkan/vulkan.h>
 #endif
@@ -194,7 +202,7 @@ int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t
 int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count);
 int exec_ddi_ring_slot(Exec &x, uint32_t page, bool wait);
 void exec_ddi_scanout_vram(Exec &x, uint32_t page);
-#ifdef _WIN32
+#ifdef D3DPT_RING
 bool exec_vk_procs(VkInstance inst, PFN_vkGetDeviceProcAddr *gdpa, PFN_vkGetPhysicalDeviceMemoryProperties *memprops);
 bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice phys, PFN_vkGetDeviceProcAddr gdpa,
                         PFN_vkGetPhysicalDeviceMemoryProperties memprops, void *handle, uint32_t w, uint32_t h,

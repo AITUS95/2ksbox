@@ -81,9 +81,10 @@ D3DPT_EXEC_API uint32_t d3dpt_exec_features(d3dpt_exec_t *x);
  * so the caller never blocks on the GPU. Returns how many readbacks are
  * still owed (0: VRAM is current). */
 D3DPT_EXEC_API int d3dpt_exec_settle(d3dpt_exec_t *x, int wait);
-/* Optional too, Windows (track M26): the scanout ring. `ring` imports the
- * front end's `count` images of w x h (NT handles to shared Direct3D 12
- * resources, BGRA8; the caller's still) and returns how many it took, 0
+/* Optional too, Windows and macOS (track M26): the scanout ring. `ring`
+ * imports the front end's `count` images of w x h (NT handles to shared
+ * Direct3D 12 resources on Windows, MTLHeaps on macOS, BGRA8; the
+ * caller's still) and returns how many it took, 0
  * for none (count 0 drops the ring); from then on a flip's frame
  * (D3DPT_D11_RES_SCANOUT) that fits goes into the next image on the GPU
  * instead of back into VRAM. `ring_slot`: the image holding the frame of

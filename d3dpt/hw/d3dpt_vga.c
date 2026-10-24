@@ -1938,7 +1938,7 @@ static const Property d3dpt_vga_properties[] = {
     DEFINE_PROP_BOOL("flip-push", D3dptVgaState, flip_push, true),
     /* with flip-push: a flipped frame the executor rendered is copied into
      * the front end's scanout ring on the GPU and shown from there instead
-     * of read back into VRAM (track M26, Windows hosts); off, the A/B */
+     * of read back into VRAM (track M26, Windows and macOS hosts); off, the A/B */
     DEFINE_PROP_BOOL("zero-copy", D3dptVgaState, zero_copy, true),
     /* an interrupt pin for the WDDM driver (M18, Windows 7) and the IRQ
      * registers behind it (register set v6: the vertical blank) */

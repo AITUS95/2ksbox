@@ -32,10 +32,10 @@
 #include "d3dpt_exec_int.h"
 #include <d3d11_1.h>
 #include <dxgi.h>
-#ifdef _WIN32
-/* the scanout ring (track M26): the player's Direct3D 12 images imported
- * as Vulkan images on DXVK's own device (d3dpt_exec_int.h's Vulkan), and
- * wrapped as d3d11 textures */
+#ifdef D3DPT_RING
+/* the scanout ring (track M26): the player's images (shared Direct3D 12
+ * resources, Metal heaps) imported as Vulkan images on DXVK's own device
+ * (d3dpt_exec_int.h's Vulkan), and wrapped as d3d11 textures */
 #include <d3d11_3.h>
 
 /* DXVK's interop interfaces (third_party/dxvk/src/dxgi/dxgi_interfaces.h),
@@ -76,6 +76,10 @@ __CRT_UUID_DECL(IDXGIVkInteropDevice1, 0xe2ef5fa5, 0xdc21, 0x4af7, 0x90, 0xc4, 0
 #include <dlfcn.h>
 #define D11_DLOPEN(p)     dlopen((p), RTLD_NOW | RTLD_LOCAL)
 #define D11_DLSYM(h, s)   dlsym((h), (s))
+#ifdef __APPLE__
+#include <cstring>
+#include <mach-o/dyld.h>        /* the scanout ring finds DXVK's Vulkan loader (exec_vk_procs) */
+#endif
 #endif
 
 namespace d3dpt {
@@ -154,7 +158,7 @@ struct D11 {
     struct Slot {
         ID3D11Texture2D *tex = nullptr;
         ID3D11Query *done = nullptr;            /* the last copy into it finished */
-#ifdef _WIN32
+#ifdef D3DPT_RING
         VkImage img = VK_NULL_HANDLE;
         VkDeviceMemory mem = VK_NULL_HANDLE;
 #endif
@@ -163,7 +167,7 @@ struct D11 {
     uint32_t ring_w = 0, ring_h = 0, ring_next = 0;
     struct Scan { uint32_t h; uint32_t slot; };
     std::unordered_map<uint32_t, Scan> scans;
-#ifdef _WIN32
+#ifdef D3DPT_RING
     VkDevice vk = VK_NULL_HANDLE;
     PFN_vkDestroyImage vkDestroyImage = nullptr;
     PFN_vkFreeMemory vkFreeMemory = nullptr;
@@ -2120,7 +2124,7 @@ static void ring_drop(D11 &d)
         while (s.done && d.ctx->GetData(s.done, nullptr, 0, 0) == S_FALSE) std::this_thread::yield();
         if (s.done) s.done->Release();
         if (s.tex) s.tex->Release();
-#ifdef _WIN32
+#ifdef D3DPT_RING
         if (s.img && d.vkDestroyImage) d.vkDestroyImage(d.vk, s.img, nullptr);
         if (s.mem && d.vkFreeMemory) d.vkFreeMemory(d.vk, s.mem, nullptr);
 #endif
@@ -2130,21 +2134,40 @@ static void ring_drop(D11 &d)
     d.ring_w = d.ring_h = d.ring_next = 0;
 }
 
-#ifdef _WIN32
+#ifdef D3DPT_RING
 /* The Vulkan loader DXVK runs on, and the two calls the ring needs of it
  * before it has a device's own */
 bool exec_vk_procs(VkInstance inst, PFN_vkGetDeviceProcAddr *gdpa, PFN_vkGetPhysicalDeviceMemoryProperties *memprops)
 {
+#ifdef _WIN32
     HMODULE loader = GetModuleHandleA("vulkan-1.dll");
     auto gipa = loader ? (PFN_vkGetInstanceProcAddr)(void *)GetProcAddress(loader, "vkGetInstanceProcAddr") : nullptr;
+#else
+    /* the loader image already in the process (DXVK's: the package's own
+     * beside it, DXVK patch 06, or the one by leaf name open_d3d9 probed),
+     * whatever path it came from */
+    void *loader = nullptr;
+    for (uint32_t i = 0, n = _dyld_image_count(); i < n && !loader; i++) {
+        const char *name = _dyld_get_image_name(i), *leaf = name ? strrchr(name, '/') : nullptr;
+        leaf = leaf ? leaf + 1 : name;
+        if (leaf && !strncmp(leaf, "libvulkan.", 10)) loader = dlopen(name, RTLD_NOW | RTLD_NOLOAD);
+    }
+    auto gipa = loader ? (PFN_vkGetInstanceProcAddr)dlsym(loader, "vkGetInstanceProcAddr") : nullptr;
+#endif
     *gdpa = gipa ? (PFN_vkGetDeviceProcAddr)gipa(inst, "vkGetDeviceProcAddr") : nullptr;
     *memprops = gipa ? (PFN_vkGetPhysicalDeviceMemoryProperties)gipa(inst, "vkGetPhysicalDeviceMemoryProperties") : nullptr;
     return *gdpa && *memprops;
 }
 
 /* One of the player's images (an NT handle to a shared Direct3D 12
- * resource, B8G8R8A8 typeless) as a Vulkan image on one of DXVK's devices
- * (its d3d11's or its d3d9's), a copy's source and destination. False,
+ * resource, B8G8R8A8 typeless; on macOS an MTLHeap, which KosmicKrisp's
+ * VK_EXT_external_memory_metal takes and its textures and buffers it does
+ * not) as a Vulkan image on one of DXVK's devices (its d3d11's or its
+ * d3d9's), a copy's source and destination. On the heap the image is
+ * KosmicKrisp's MTLTexture at offset 0, and the player's own texture
+ * there is the same one only as long as both describe it alike
+ * (player-core metalring.rs): MUTABLE_FORMAT, Metal's PixelFormatView,
+ * keeps it uncompressed, which both sides' layouts then agree on. False,
  * logged, on any refusal. */
 bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice phys, PFN_vkGetDeviceProcAddr gdpa,
                         PFN_vkGetPhysicalDeviceMemoryProperties memprops, void *handle, uint32_t w, uint32_t h,
@@ -2152,14 +2175,23 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
 {
 #define VKFN(n) auto n = (PFN_##n)gdpa(dev, #n)
     VKFN(vkCreateImage); VKFN(vkGetImageMemoryRequirements); VKFN(vkAllocateMemory);
-    VKFN(vkBindImageMemory); VKFN(vkGetMemoryWin32HandlePropertiesKHR);
+    VKFN(vkBindImageMemory);
+#ifdef _WIN32
+    VKFN(vkGetMemoryWin32HandlePropertiesKHR);
+    auto props = vkGetMemoryWin32HandlePropertiesKHR;
+    const char *ext_name = "VK_KHR_external_memory_win32";
+    const VkExternalMemoryHandleTypeFlagBits type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT;
+#else
+    VKFN(vkGetMemoryMetalHandlePropertiesEXT);      /* DXVK patch 19 enables the extension */
+    auto props = vkGetMemoryMetalHandlePropertiesEXT;
+    const char *ext_name = "VK_EXT_external_memory_metal";
+    const VkExternalMemoryHandleTypeFlagBits type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLHEAP_BIT_EXT;
+#endif
 #undef VKFN
-    if (!vkCreateImage || !vkGetImageMemoryRequirements || !vkAllocateMemory || !vkBindImageMemory ||
-        !vkGetMemoryWin32HandlePropertiesKHR) {
-        x.log("%s: scanout ring: DXVK's device has no VK_KHR_external_memory_win32", who);
+    if (!vkCreateImage || !vkGetImageMemoryRequirements || !vkAllocateMemory || !vkBindImageMemory || !props) {
+        x.log("%s: scanout ring: DXVK's device has no %s", who, ext_name);
         return false;
     }
-    const VkExternalMemoryHandleTypeFlagBits type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT;
     VkExternalMemoryImageCreateInfo ext = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO, nullptr, (VkExternalMemoryHandleTypeFlags)type };
     VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &ext };
     ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;     /* the resource is typeless */
@@ -2175,8 +2207,13 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
     ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     VkResult vr = vkCreateImage(dev, &ici, nullptr, img);
     if (vr != VK_SUCCESS) { x.log("%s: scanout ring: vkCreateImage %d", who, (int)vr); return false; }
+#ifdef _WIN32
     VkMemoryWin32HandlePropertiesKHR hp = { VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR };
-    vr = vkGetMemoryWin32HandlePropertiesKHR(dev, type, (HANDLE)handle, &hp);
+    vr = props(dev, type, (HANDLE)handle, &hp);
+#else
+    VkMemoryMetalHandlePropertiesEXT hp = { VK_STRUCTURE_TYPE_MEMORY_METAL_HANDLE_PROPERTIES_EXT };
+    vr = props(dev, type, handle, &hp);
+#endif
     if (vr != VK_SUCCESS) { x.log("%s: scanout ring: the handle's properties: %d", who, (int)vr); return false; }
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(dev, *img, &req);
@@ -2189,7 +2226,11 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
             if (type_index == UINT32_MAX || !(mp.memoryTypes[type_index].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
                 type_index = i;
     if (type_index == UINT32_MAX) { x.log("%s: scanout ring: no memory type takes the handle", who); return false; }
+#ifdef _WIN32
     VkImportMemoryWin32HandleInfoKHR imp = { VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR, nullptr, type, (HANDLE)handle, nullptr };
+#else
+    VkImportMemoryMetalHandleInfoEXT imp = { VK_STRUCTURE_TYPE_IMPORT_MEMORY_METAL_HANDLE_INFO_EXT, nullptr, type, handle };
+#endif
     VkMemoryDedicatedAllocateInfo ded = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, &imp, *img, VK_NULL_HANDLE };
     VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &ded, req.size, type_index };
     vr = vkAllocateMemory(dev, &mai, nullptr, mem);
@@ -2224,7 +2265,7 @@ int exec_d11_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t
     if (!d) return 0;
     ring_drop(*d);
     if (count <= 0 || !handles || !w || !h) return 0;
-#ifdef _WIN32
+#ifdef D3DPT_RING
     IDXGIVkInteropDevice1 *interop = nullptr;
     if (FAILED(d->dev->QueryInterface(__uuidof(IDXGIVkInteropDevice1), (void **)&interop)) || !interop) {
         x.log("d11: scanout ring: the device is not DXVK's (no Vulkan interop)");

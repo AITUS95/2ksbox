@@ -1255,7 +1255,8 @@ executor) asks the front end for images on that GPU (`alloc`) and shows
 one by number (`show`), so a flip's frame never leaves the GPU; `held`
 (2026-10-24, embed API v18) names the slots the front end may still be
 sampling, which the device's next frame skips. The embed
-library registers them (embed API v17); a plain qemu-system registers
+library registers them (embed API v17; the handles are shared Direct3D 12
+resources on Windows, `MTLHeap`s on macOS); a plain qemu-system registers
 none and devices keep their surfaces. Also `qemu_console_pixels_wanted()`,
 true during the device update a screendump schedules, so a device showing
 a slot reads its frame back onto the surface first. Applies after patch

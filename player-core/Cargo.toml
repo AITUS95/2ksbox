@@ -63,5 +63,7 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", 
 [target.'cfg(target_os = "macos")'.dependencies]
 # the window's screen (screen.rs); its rate and blank are Core Video's
 objc2 = "0.6"
-objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLTexture", "MTLPixelFormat", "objc2-io-surface"] }
+# MTLHeap, MTLResource, MTLTypes, MTLAllocation: the scanout ring's heaps (metalring.rs,
+# track M26)
+objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLTexture", "MTLPixelFormat", "objc2-io-surface", "MTLHeap", "MTLResource", "MTLTypes", "MTLAllocation"] }
 objc2-io-surface = { version = "0.3", features = ["IOSurfaceRef"] }

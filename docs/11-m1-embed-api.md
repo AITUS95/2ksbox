@@ -59,7 +59,7 @@ not block. Everything else may come from any thread.
 | 14 | `stopped_by_reset` gone again: QEMU patch 87 made the reset itself work under WHPX, so nothing runs with `-no-reboot` |
 | 15 | `set_refresh_rate`: the guest screen's refresh rate in mHz, carried with v9's size into the EDID (M24, below) |
 | 16 | `vblank`: a host vertical blank that starts a guest frame, to virtio-gpu's `host-vblank` (QEMU patch 90; M24, below) |
-| 17 | `on_scanout_ring`, `on_scanout_slot`: a scanout ring (Windows, track M26): a display device asks the player for images on the host's GPU (shared Direct3D 12 resources, their NT handles), fills them there and shows one by number, through QEMU patch 101's `qemu_scanout_ring` ops, which the library registers |
+| 17 | `on_scanout_ring`, `on_scanout_slot`: a scanout ring (Windows, track M26; macOS too since 2026-10-24, no version of its own): a display device asks the player for images on the host's GPU (shared Direct3D 12 resources and their NT handles; on macOS one placement `MTLHeap` each, the `id<MTLHeap>`), fills them there and shows one by number, through QEMU patch 101's `qemu_scanout_ring` ops, which the library registers |
 | 18 | `scanout_hold`: the ring slots the player may still sample (the one on show, one just taken off show until the GPU has finished drawing from it), which the device's frames skip (patch 101's `held`; a frame with every slot held is read back) |
 
 The OpenGL pass-through has no zero-copy slot on Windows; its 3D frames

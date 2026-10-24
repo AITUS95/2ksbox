@@ -67,9 +67,11 @@ CXX="${CXX:-c++}"
 CC="${CC:-cc}"
 if [ $WINE_ONLY = 0 ]; then
   if [ $IN_PROCESS = 1 ]; then
+    # DXVK's Vulkan headers: on macOS the scanout ring imports the player's
+    # Metal heaps on DXVK's own device (track M26); unused on Linux
     "$CXX" -std=c++17 -O2 -fPIC -fvisibility=hidden -Wall -Wno-unused-function "${SHARED[@]}" -o "$LIB" \
       "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp" \
-      -I"$DX" -I"$DX/windows" -I"$DX/directx" -ldl
+      -I"$DX" -I"$DX/windows" -I"$DX/directx" -I"$ROOT/third_party/dxvk/include/vulkan/include" -ldl
     echo "==> $LIB"
   else
     echo "==> the Intel build: no in-process executor (no Vulkan on an Intel Mac)"

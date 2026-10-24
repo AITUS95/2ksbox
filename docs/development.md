@@ -248,7 +248,7 @@ player [--shader <preset.slangp>] [--shader-params <k=v,...>]
 - `PLAYER_ZERO_COPY=0` refuses every dma-buf the backend offers, so 3D
   frames take the readback path instead of the ring (doc 12 §4). The
   readback copies under a lock, so a wrong picture that survives it is
-  not the ring's. On Windows it also makes no scanout ring (M26), so
+  not the ring's. On Windows and macOS it also makes no scanout ring (M26), so
   d3dpt-vga's flips are read back; `-global d3dpt-vga.zero-copy=off` is
   the same A/B from the machine's side.
 - `PLAYER_PUBLISH_LOG=1` prints a line per published frame naming its

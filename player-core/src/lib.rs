@@ -19,6 +19,8 @@ pub mod input;
 #[cfg(target_os = "macos")]
 pub mod iosurface;
 pub mod keys;
+#[cfg(target_os = "macos")]
+pub mod metalring;
 pub mod mode;
 // The host end of a gamepad (M13). Polled on the UI thread, once per
 // published guest frame (`Input::poll_pads`).
