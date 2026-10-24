@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["player", "player-core", "libdisc", "libsmb", "libsynth", "gamepad", "launcher-core", "launcher-capi", "qemu-embed", "shader-chain"]
+members = ["player-core", "libdisc", "libsmb", "libsynth", "gamepad", "launcher-core", "launcher-capi", "qemu-embed", "shader-chain"]
 # `launcher-capi` is deliberately not a *default* member: it builds a
 # `cdylib` and a `staticlib` of the whole launcher, which nobody needs
 # unless they are building a front end in another language.
@@ -9,12 +9,12 @@ members = ["player", "player-core", "libdisc", "libsmb", "libsynth", "gamepad", 
 # itself is `launcher-mitsuami/`, its own workspace so that nothing here
 # needs GTK (ADR-023); the egui front end that used to be a member here
 # was retired on 2026-09-13 (ADR-017), and the Qt one on 2026-10-02.
-default-members = ["player", "player-core", "libdisc", "libsmb", "libsynth", "gamepad", "launcher-core", "qemu-embed", "shader-chain"]
+default-members = ["player-core", "libdisc", "libsmb", "libsynth", "gamepad", "launcher-core", "qemu-embed", "shader-chain"]
 
 [workspace.package]
 version = "1.1.0"
 edition = "2021"
-# The default for crates that link QEMU (`player`, `qemu-embed`) or its
+# The default for crates that link QEMU (`player-core`, `qemu-embed`) or its
 # device model (`libdisc`, `libsynth`). `launcher-core` and
 # `shader-chain` opt out with `GPL-2.0-or-later` (ADR-009 in
 # docs/10-decisions.md).

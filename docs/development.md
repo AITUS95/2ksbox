@@ -89,15 +89,12 @@ scripts/prepare-qemu.sh      # overlay qemu-3dfx + embed/, the patch queue, sign
 scripts/configure-qemu.sh    # uv-managed Python; also builds libdisc and libsynth
 ninja -C build/qemu qemu-system-i386 qemu-system-x86_64 qemu-img qemu-io \
   libqemu-embed-i386.so libqemu-embed-x86_64.so   # .dylib on macOS, which has no x86_64 target
-cargo build --release        # default members; the player links libqemu-embed-i386
-cargo build --release -p player --features qemu-x86_64 --target-dir target/qemu-x86_64   # Windows 11's player (Linux)
+cargo build --release        # default members; qemu-embed links libqemu-embed-i386
 scripts/build-virtio-win.sh  # Windows 11's drivers disc (display and clipboard drivers, the agent), build/virtio-win/2ksbox-drivers-x64.iso
 scripts/build-edk2.sh        # its firmware (OVMF, with a screen on d3dpt-vga) into qemu/pc-bios
 # an Arm host (M20 step 4): ninja also builds qemu-system-aarch64 and libqemu-embed-aarch64, then
 scripts/build-edk2.sh        # Windows 11 on Arm's firmware into qemu/pc-bios
 scripts/build-virtio-win.sh  # there its drivers disc instead, build/virtio-win/2ksbox-drivers-arm64.iso
-cargo build --release -p player --features qemu-aarch64 --target-dir target/qemu-aarch64   # its player
-codesign --force --sign - --entitlements packaging/macos/hypervisor.entitlements target/qemu-aarch64/release/player   # a Mac: HVF
 cargo check --release --workspace          # launcher-capi, the one non-default member
 (cd launcher-mitsuami && cargo build --release)   # the launcher (build.sh's mitsuami stage)
 (cd player-mitsuami && cargo build --release)     # the player every package ships; Windows 11's with
@@ -171,8 +168,8 @@ What each stage needs to know:
 The player with no launcher:
 
 ```sh
-target/release/player        # no arguments: the test pattern (integer-scaled 4:3)
-target/release/player -- -L $PWD/qemu/pc-bios -machine pc -m 32 \
+player-mitsuami/target/release/player-mitsuami   # no arguments: the test pattern (integer-scaled 4:3)
+player-mitsuami/target/release/player-mitsuami -- -L $PWD/qemu/pc-bios -machine pc -m 32 \
   -drive file=path/to/floppy.img,format=raw,if=floppy -boot a -vga std -net none
 ```
 
@@ -273,30 +270,19 @@ player [--shader <preset.slangp>] [--shader-params <k=v,...>]
   the guest. `Ctrl+Alt+Shift+F` toggles borderless full screen on the
   window's monitor.
 - A close with Alt held (Alt+F4 while the host has its shortcuts) asks
-  first, in the window: Enter, Close or a second Alt+F4 stops the
-  machine; Esc or Back returns to it. The title bar's close button does
-  not ask.
+  first, in the platform's alert, and so does the title bar's close
+  button.
 - While the window has focus the host's shortcuts go to the guest, so
-  the Windows key opens the guest's Start menu. The mechanism is
-  Wayland's shortcut inhibitor, an X11 keyboard grab, or raw input with
-  `RIDEV_NOHOTKEYS` on Windows (the two Windows keys, every Win+
-  shortcut and Ctrl+Esc; Alt+Tab, Alt+F4, Ctrl+Alt+Del and Win+L are
-  system hotkeys no program gets), or the window server's hot keys off
-  on macOS (Cmd+Tab, Cmd+Space, Mission Control, Ctrl+arrows, the
-  screenshot chords; the app menu's Cmd+H and Cmd+Q taken too, and
-  Cmd+Q asks before it closes, like Alt+F4;
-  `PLAYER_KEYBOARD_MAC=presentation` uses the public presentation
-  options instead, which cover only Cmd+Tab and Cmd+H). `Ctrl+Alt+K` toggles
+  the Windows key opens the guest's Start menu. The grab is mitsuami's
+  `GpuSurface`'s: the window server's hot keys off on macOS (Cmd+Tab,
+  Cmd+Space, Mission Control, Ctrl+arrows, the screenshot chords), a
+  low-level keyboard hook on Windows, which takes Alt+Tab and the
+  Windows keys too (Ctrl+Alt+Del and Win+L no program gets). `Ctrl+Alt+K` toggles
   them between host and guest (the title says when they are the
   host's). `PLAYER_KEYBOARD_CAPTURE=0` starts with them the host's;
-  `scripts/test.sh` sets it. `PLAYER_KEYBOARD_LOG=1` prints what the
-  Windows or macOS side did: whether the raw-input registration or the
-  hot key mode was accepted, and what winit and the system each thought
-  about focus at every change. A shortcut that still reaches the host is
-  nearly always a window that was not in front. The one known exception is the Flatpak on a wlroots
-  compositor, where the sandbox never sees the inhibit protocol (doc 03,
-  "Flatpak" below). Design and measurements: doc 03 §"Input path",
-  `player/src/kbcapture.rs`.
+  `scripts/test.sh` sets it. A shortcut that still reaches the host is
+  nearly always a window that was not in front. Design and
+  measurements: doc 03 §"Input path".
 - `qemu-embed: input:` lines on stderr report the embed input queue's
   drain latency, zero-length presses and drops, only when something is
   off.
@@ -313,10 +299,9 @@ otherwise (Vulkan's frames never show on its child window). On macOS and
 Linux `build.sh mitsuami` builds it beside the launcher, with Windows
 11's (`--features qemu-x86_64` / `qemu-aarch64` into
 `player-mitsuami/target/qemu-<arch>`). Every package ships it as
-`2ksbox-player` (since 2026-10-07); the winit player is deprecated and
-builds only for `test.sh` and the tools until they move. It is the default player: once it
-is built, a launcher in the checkout starts it instead of the winit one
-(`launcherx --paths`; `LAUNCHER_PLAYER_BIN` overrides). Its chords are the winit player's, as menu shortcuts,
+`2ksbox-player` (since 2026-10-07), and a launcher in the checkout
+starts it (`launcherx --paths`; `LAUNCHER_PLAYER_BIN` overrides); the
+winit player was removed on 2026-10-24. Its chords are menu shortcuts,
 with Ctrl+Alt+Shift+P for Pause besides (which lets go of the mouse), and on macOS Cmd in place of
 Ctrl (⌥⌘G, ⌥⇧⌘P, ⌥⇧⌘D for Ctrl+Alt+Del; the title's notes say them
 the platform's way). The menus: Machine (Send Ctrl+Alt+Del, Send Shortcuts to Guest, Release Mouse,
@@ -366,8 +351,7 @@ and grab state, and `PLAYER_SURFACE_LOG=1` every size it reports.
 - `--window-state <file>` (after `--share`) opens the window at the
   content size in `<file>` (`width = …`, `height = …`, in points; 1280x960
   without it) and writes the new size there when the user resizes the
-  window (`player_core::window_state`; `player-mitsuami` only, the winit
-  player reads past it). Sizes of the first two seconds are the
+  window (`player_core::window_state`). Sizes of the first two seconds are the
   platform's opening (macOS shrinks a window too tall for its screen) and
   full screen's are not written. The launcher passes `<bundle>/window.toml`
   (`player::window_args`), so each machine keeps its own; a Windows 11
@@ -552,8 +536,7 @@ scripts/win-run.sh launcher                          # Windows, in MSYS2's MINGW
 ```
 
 It finds the player as every launcher does (doc 07: the mitsuami player
-when built, else the root `target/release`; `LAUNCHER_PLAYER_BIN`
-overrides).
+in `player-mitsuami/target/release`; `LAUNCHER_PLAYER_BIN` overrides).
 
 The toolkit-free debug verbs (`launcher_core::cli`: `--print-args`,
 `--print-player-args`, `--prepare` (a Windows 11 machine's firmware
@@ -808,8 +791,7 @@ short. A new component goes in its `COMPONENTS` table and in
 shipped workspace, regenerate the crate listing with `python3
 tools/third-party-notices.py list --write THIRD-PARTY-NOTICES.md`; it
 covers `libdisc` and `libsynth`, `launcher-mitsuami`, `player-mitsuami`
-and `guest-agent`, for every platform a package is built for, and not
-the deprecated winit `player`.
+and `guest-agent`, for every platform a package is built for.
 
 **If you package or redistribute the player, read this.** Its
 dependency tree contains **Apache-2.0-only** crates (`cpal`,

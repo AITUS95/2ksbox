@@ -7,7 +7,7 @@
 `list` prints the crate listing of THIRD-PARTY-NOTICES.md, one section per
 shipped binary, grouped by declared licence. It asks cargo for each
 workspace a package builds from, filtered to the platforms the packages
-are for, so a crate only the deprecated winit `player` uses is not in it.
+are for.
 `--write` replaces the file's listing (everything from its "## Crates"
 heading on) instead of printing. It needs the network the first time, to
 fetch the manifests of other platforms' crates.

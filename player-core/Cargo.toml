@@ -3,7 +3,7 @@ name = "player-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The player minus its window (doc 02/03): QEMU in-process, the picture through wgpu and the CRT chain, audio, gamepads. Shared by the winit player and the mitsuami one (track M22)."
+description = "The player minus its window (doc 02/03): QEMU in-process, the picture through wgpu and the CRT chain, audio, gamepads. Driven by player-mitsuami (track M22)."
 
 # The same switches the players had, forwarded by each front end. `gilrs`
 # reads real gamepads (on Linux it links libudev; a host or sandbox
@@ -44,7 +44,7 @@ libsmb = { path = "../libsmb" }
 [target.'cfg(target_os = "linux")'.dependencies]
 # which screen the window is on (screen.rs): Wayland's presentation
 # feedback on the toolkit's own connection, RandR on X11; the versions and
-# features mitsuami and winit already link, libwayland loaded at run time
+# features mitsuami already links, libwayland loaded at run time
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
 wayland-protocols = { version = "0.32", features = ["client"] }

@@ -52,7 +52,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLAYER = os.path.join(ROOT, "target/release/player")
+PLAYER = os.path.join(ROOT, "player-mitsuami/target/release/player-mitsuami")
 OUT = os.path.join(ROOT, "build/audio-glitch")
 RATE = 48000
 

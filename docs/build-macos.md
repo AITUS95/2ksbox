@@ -110,7 +110,7 @@ objects on both hosts.
 git clone --recurse-submodules --shallow-submodules git@github.com:Roboport-Tecnologia/2ksbox.git
 cd 2ksbox
 scripts/build.sh            # QEMU ~10–15 min on the Air, the Rust side ~1 min
-target/release/player       # the test pattern, through wgpu on Metal
+player-mitsuami/target/release/player-mitsuami   # the test pattern, through wgpu on Metal
 ```
 
 The pattern is colour bars, a 1-px white border and a white line
@@ -163,7 +163,7 @@ The player, as a machine runs it (`launcherx --print-args` prints the
 launcher's exact line):
 
 ```sh
-PLAYER_LATENCY=1 target/release/player --shader third_party/slang-shaders/crt/crt-lottes.slangp -- \
+PLAYER_LATENCY=1 player-mitsuami/target/release/player-mitsuami --shader third_party/slang-shaders/crt/crt-lottes.slangp -- \
   -L $PWD/qemu/pc-bios -machine pc,hpet=off -cpu pentium3 -m 256 -hda <overlay>.qcow2 \
   -vga none -device d3dpt-vga -net none -usb -device usb-tablet -device sb16,audiodev=embed0
 # XP: -m 512 -device AC97,audiodev=embed0
@@ -355,7 +355,7 @@ retries.
 Both send the host's shortcuts to the guest the same way, through the
 window server's private hot key mode (doc 03 "Input path"): UTM ships
 that symbol on the Mac App Store and it works inside the sandbox, so
-the App Store build is not held back to `PLAYER_KEYBOARD_MAC=presentation`
+the App Store build is not held back to the public presentation options
 (Cmd+Tab and Cmd+H only) unless review ever objects.
 
 Both come from the same script. `--community` adds

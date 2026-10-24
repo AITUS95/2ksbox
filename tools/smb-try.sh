@@ -20,7 +20,7 @@ cd "$ROOT"
 DIR="$(cd "$1" && pwd)"
 BASE="$(cd "${2:-build/w11d}" && pwd)"
 OUT="$ROOT/${OUT:-build/w11s}"
-PLAYER=target/qemu-aarch64/release/player
+PLAYER=player-mitsuami/target/qemu-aarch64/release/player-mitsuami
 for f in "$PLAYER" target/release/smbserve build/qemu/qemu-img "$BASE/disk.qcow2"; do
   [ -e "$f" ] || { echo "smb-try: no $f"; exit 1; }
 done

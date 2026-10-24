@@ -915,5 +915,4 @@ Unzip anywhere and run `2ksbox.exe`; machines, `discs.toml`, shader
 profiles and downloaded presets live in `%APPDATA%\2ksbox\data` (a Store
 install keeps them in `%USERPROFILE%\2ksbox` instead). When
 something misbehaves, run `2ksbox-debug.bat` and send
-`2ksbox-debug.log`. `PLAYER_KEYBOARD_LOG=1`
-adds the keyboard capture's decisions to `player.log`.
+`2ksbox-debug.log`.

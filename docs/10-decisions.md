@@ -909,8 +909,8 @@ Homebrew. Vintage work keeps its own tracks and its own order in doc 00.
 player"). Work in track M22. Until it runs on every host, `player/` (winit)
 ships. *(Since 2026-10-03 the Windows zip and MSIX ship `player-mitsuami`
 as `2ksbox-player.exe`; since 2026-10-07 every package ships it, and the
-winit player is deprecated (user): it builds only for `test.sh` and the
-tools until they move to `player-mitsuami`, then `player/` goes.)*
+winit player is deprecated (user), and on 2026-10-24 `player/` was
+removed (user), `test.sh` and the tools on `player-mitsuami`.)*
 
 **Decision.** The player gets a mitsuami front end, `player-mitsuami/`,
 its picture on mitsuami's `GpuSurface` (a desync Wayland subsurface or an

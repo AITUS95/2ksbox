@@ -1,24 +1,24 @@
 //! The player (doc 02) in a mitsuami window (track M22): one running
 //! machine per process, its picture on a `GpuSurface`, and the platform's
 //! own menus over it (with the machine's CD drive, `discs.rs`, and its
-//! shader profile, `shaders.rs`, when the launcher names the machine). Everything but the window is `player-core`'s, shared
-//! with the winit player (`player/`): the QEMU thread, the picture and its
-//! CRT chain, audio, gamepads, the keys the guest holds, the command line.
+//! shader profile, `shaders.rs`, when the launcher names the machine).
+//! Everything but the window is `player-core`'s: the QEMU thread, the
+//! picture and its CRT chain, audio, gamepads, the keys the guest holds,
+//! the command line.
 //!
-//! What the surface gives this player that the winit one does for itself:
-//! the keyboard grab (the host's shortcuts to the guest, `kbcapture.rs`
-//! there), the pointer lock with raw motion, the guest's cursor as the
-//! surface's, keys a host keymap moved read as the host reads them, full
-//! screen and the minimum size capped at the screen. The close question is
-//! the platform's alert, where the winit player draws its own.
+//! What the surface gives this player: the keyboard grab (the host's
+//! shortcuts to the guest), the pointer lock with raw motion, the guest's
+//! cursor as the surface's, keys a host keymap moved read as the host
+//! reads them, full screen and the minimum size capped at the screen. The
+//! close question is the platform's alert.
 //!
 //! The picture is drawn on a thread of its own when QEMU publishes
 //! (`render.rs`), so its wait for the screen is never the UI thread's; the
 //! UI thread hears of each draw (`wake.rs`) for the cursor, the pads and
 //! the window's floor. The surface is a
 //! desync Wayland subsurface on GTK, presented to in Mailbox: the spike
-//! (`track/player-gtk-spike`) measured that route at the winit window's
-//! latency, where GTK's own offload waited a refresh for its frame clock.
+//! (`track/player-gtk-spike`) measured that route at the latency of a
+//! winit window (the first player's), where GTK's own offload waited a refresh for its frame clock.
 //!
 //! It is **not** in the root workspace, like `launcher-mitsuami`: build it
 //! from this directory, so the root `cargo build` never needs GTK.
@@ -219,7 +219,7 @@ fn main() {
         })
         .unwrap_or(0);
     // QEMU's atexit handlers run here, after its thread has completed
-    // qemu_cleanup, as after the winit player's return from main.
+    // qemu_cleanup.
     std::process::exit(status);
 }
 
@@ -409,9 +409,9 @@ fn remember_size(p: &mut Player, size: (f32, f32), full: bool) {
     p.remembered = Some(size);
 }
 
-/// The menu bar. The chords are the winit player's: the window takes them
-/// first, and while the keyboard is grabbed they reach the surface, which
-/// answers the same ones (`chord`).
+/// The menu bar. The window takes its chords first, and while the
+/// keyboard is grabbed they reach the surface, which answers the same ones
+/// (`chord`).
 fn menus(w: Window_, discs: Option<discs::Discs>, shaders: Option<shaders::Shaders>) -> MenuBar {
     let primary_alt = |c: char| Shortcut::primary(Key::Char(c)).alt();
     // AppKit puts its own Enter Full Screen (Ctrl+Cmd+F) in a menu named
@@ -976,7 +976,7 @@ fn on_input(w: Window_, input: SurfaceInput) {
         // Except on macOS: there the raw counts are `GCMouse`'s, which
         // ignore the pointer's speed setting (the speed felt off, and a
         // drag with the trackpad pressed much faster, user), so the guest
-        // gets the cursor's moves, as the winit player does.
+        // gets the cursor's moves.
         SurfaceInput::RawMotion { dx, dy } if !cfg!(target_os = "macos") => {
             with(|p| p.raw_motion = true);
             relative(w, dx, dy);
@@ -1015,7 +1015,7 @@ fn relative(w: Window_, dx: f32, dy: f32) {
     }
 }
 
-/// The winit player's chords, for when the keyboard is grabbed and the
+/// The menus' chords, for when the keyboard is grabbed and the
 /// menus' shortcuts reach the surface: Ctrl+Alt+G lets go of the mouse,
 /// Ctrl+Alt+S shoots the guest's frame (with Shift, the window's),
 /// Ctrl+Alt+K gives the host its shortcuts back, Ctrl+Alt+Shift+F is full

@@ -18,7 +18,7 @@
 #      must answer, and setup's screen must come up (its background
 #      fills the screen; the firmware's and the shell's are black).
 #
-# Needs: target/release/launcherx and target/qemu-aarch64/release/player
+# Needs: target/release/launcherx and player-mitsuami/target/qemu-aarch64/release/player-mitsuami
 # (scripts/build.sh), Microsoft's Arm64 ISO (not in the repo; its download
 # page refuses scripts). A Mac on Apple Silicon, under HVF: about 1.5 min.
 set -u
@@ -31,7 +31,7 @@ esac
 ISO="${1:-${W11_ISO:-$(ls "$HOME"/Downloads/Windows11_Client_arm64_*.iso 2>/dev/null | head -1)}}"
 OUT="${OUT:-build/w11p}"
 LX=target/release/launcherx
-PLAYER=target/qemu-aarch64/release/player
+PLAYER=player-mitsuami/target/qemu-aarch64/release/player-mitsuami
 for f in "$LX" "$PLAYER" "$ISO"; do
   [ -n "$f" ] && [ -e "$f" ] || { echo "win11-boot-prompt-test: no ${f:-Windows 11 Arm64 ISO}"; exit 77; }
 done

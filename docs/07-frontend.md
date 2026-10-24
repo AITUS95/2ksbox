@@ -11,11 +11,10 @@ commands `docs/development.md` and `docs/build-macos.md` /
 
 ## Player
 
-- **Two front ends over one core** (ADR-025, track M22): `player-core/`
-  is everything but the window, under `player/` (winit) and
-  `player-mitsuami/` (the launcher's default when built, and what every
-  package ships as `2ksbox-player` since 2026-10-07; `player/` is
-  deprecated, user 2026-10-07).
+- **One core, one front end** (ADR-025, track M22): `player-core/`
+  is everything but the window, under `player-mitsuami/` (what every
+  package ships as `2ksbox-player` since 2026-10-07). The winit front
+  end, `player/`, was removed on 2026-10-24 (user).
 - **What it runs is a QEMU command line**, not a bundle:
   `player [--shader <preset>] [--shader-params k=v,…] [--pad <mode>]
   [--share <dir>] [--window-state <file>] -- <qemu args>` (in that order; `docs/development.md`
@@ -28,10 +27,7 @@ commands `docs/development.md` and `docs/build-macos.md` /
   bars. Ctrl+Alt+Shift+F is borderless full screen.
 - **Input** is doc 03's model (tablet or PS/2 grab, Ctrl+Alt+G,
   Ctrl+Alt+K, Ctrl+Alt+Shift+D for Ctrl+Alt+Del, Ctrl+Alt+S for a shot
-  of the guest's frame, Ctrl+Alt+Shift+S for one of the window's). Alt+F4 asks first. The winit
-  player draws the question over the picture (`player/src/prompt.rs`),
-  since it has no toolkit and Linux has no message box that works inside
-  the Flatpak and over a full-screen window; the mitsuami player uses the
+  of the guest's frame, Ctrl+Alt+Shift+S for one of the window's). Alt+F4 asks first, in the
   platform's alert. A gamepad (M13, `docs/tracks/m13-gamepads.md`)
   works whether or not the pointer is grabbed and never changes the grab.
 - **Audio.** QEMU's mixer writes f32 into a lock-free ring drained by
@@ -145,10 +141,7 @@ player line runs a machine with nothing else.
   does not say what ran.
 - **The player is found** at `LAUNCHER_PLAYER_BIN`, else the installed
   prefix's `2ksbox-player`, else, in a checkout, the mitsuami player
-  (M22, the default) when `player-mitsuami/target/<same profile>/` has
-  it, else the winit player beside the launcher, else the root
-  workspace's `target/<same profile>/player` (`launcher-mitsuami`
-  builds into its own `target/`, where no player sits).
+  in `player-mitsuami/target/<same profile>/` (M22).
   "Same profile" falls back to `release`: a debug launcher runs the
   release player `scripts/build.sh` made when no debug one is built.
   Another target's player follows the same order under

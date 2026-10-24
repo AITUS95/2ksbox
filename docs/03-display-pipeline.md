@@ -4,8 +4,8 @@ The player shades and shows exactly what the guest's video card outputs,
 at native guest resolution and correct geometry, with a CRT look close
 enough that a 1998 screenshot is hard to tell from a photo of the tube.
 We own this pipeline end to end (ADR-005): wgpu and librashader in
-`player-core/`, drawn into a winit window (`player/`) or a mitsuami
-`GpuSurface` (`player-mitsuami/`, ADR-025). This doc covers the stages, the pixel rules, mode analysis
+`player-core/`, drawn into a mitsuami `GpuSurface` (`player-mitsuami/`,
+ADR-025; a winit window, `player/`, until 2026-10-24). This doc covers the stages, the pixel rules, mode analysis
 and geometry, latency and input. How 3D frames reach the player is doc
 12, the reference CRT and its photo protocol doc 09, shader profiles doc
 07, and the player's flags and env knobs `docs/development.md`.
@@ -317,9 +317,15 @@ releases every key the guest still holds (`Input::lift_all`,
 the guest and its release to the next app, and the guest keeps Win down.
 
 **Host shortcuts go to the guest while the window has focus**, grabbed or
-not (`player/src/kbcapture.rs`). A Windows machine is on the tablet and
-never grabs, and its Start menu is the Windows key. winit has no keyboard
-grab, so each windowing system gets its own:
+not. A Windows machine is on the tablet and never grabs, and its Start
+menu is the Windows key. The grab is mitsuami's `GpuSurface`'s (the user
+checked it on every OS, 2026-10-07, M22 step 6). What follows is how the
+winit player did it (`player/src/kbcapture.rs`, removed with that player
+on 2026-10-24; winit had no keyboard grab, so each windowing system got
+its own), kept for its measurements. mitsuami takes the same road on
+macOS (`CGSSetGlobalHotKeyOperatingMode`); on Windows its grab is a
+`WH_KEYBOARD_LL` hook, the road the Windows item below measured going
+blind under winit's window:
 
 - **Wayland.** `zwp_keyboard_shortcuts_inhibit_manager_v1`, one inhibitor
   for the window's life. The compositor applies it only while the surface
@@ -345,7 +351,6 @@ grab, so each windowing system gets its own:
   down the same path as every other key. No program gets the system
   hotkeys (Alt+Tab, Alt+Esc, Alt+F4, Alt+Space, Ctrl+Alt+Del, Win+L), so
   they stay the host's. The user confirmed raw input on a real keyboard.
-  `PLAYER_KEYBOARD_LOG=1` prints the registration and every focus change.
   **Don't go back to a `WH_KEYBOARD_LL` hook.** Windows called it for
   every key except while the player's own window was focused (zero
   calls, not late ones), and blinded a third process's hook too. The
@@ -378,13 +383,11 @@ grab, so each windowing system gets its own:
   never the Ctrl+Up / Cmd+Tab / Cmd+Space key downs: the window server
   acts on the chord before any tap. The private call works inside the App
   Sandbox too (probed with an ad-hoc-signed sandboxed binary), so both
-  builds use it. `PLAYER_KEYBOARD_MAC=presentation` keeps the public
-  `NSApplicationPresentationOptions` route as the fallback should App
-  Store review ever refuse the symbol: `disableProcessSwitching` (Cmd+Tab)
+  builds use it. The public `NSApplicationPresentationOptions` route
+  (the winit player's `PLAYER_KEYBOARD_MAC=presentation`) is the
+  fallback should App Store review ever refuse the symbol: `disableProcessSwitching` (Cmd+Tab)
   and `disableHideApplication` (Cmd+H), which want the Dock auto-hidden
   while the app is active and cover nothing else, Ctrl+Up included.
-  `PLAYER_KEYBOARD_LOG=1` prints the road taken, the equivalents taken,
-  and every focus change with the mode read back.
 
   **Cmd+Q asks, and never `exit()`s under the QEMU thread.** winit's Quit
   item is `terminate:`, and its delegate answers no
@@ -416,14 +419,11 @@ window stays in front. Ctrl+Alt+K, and the same keys go to the host.
 released with D). **Ctrl+Alt+Shift+F** toggles windowed full screen
 (borderless, on the window's monitor). **A close with Alt held asks
 first**, since Alt+F4 reaches the player whenever the host has its
-shortcuts and a window close stops the machine. The winit player
-draws the question itself (`player/src/prompt.rs`, the VGA 8×16 font
-blended over the finished picture), because Linux has no message box that
-works in the Flatpak and over a full-screen window; the mitsuami player
-uses the platform's alert. Enter, Close or a second Alt+F4
-closes; Esc or Back returns; nothing reaches the guest while it is up.
-The winit player's title bar close button does not ask; the mitsuami
-player's asks like the rest (user, 2026-10-07).
+shortcuts and a window close stops the machine. The question is the
+platform's alert (the winit player drew its own over the picture, since
+Linux had no message box that worked in the Flatpak and over a
+full-screen window). The title bar's close button asks like the rest
+(user, 2026-10-07).
 
 ## 3D and the pipeline
 

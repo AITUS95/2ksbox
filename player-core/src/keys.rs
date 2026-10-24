@@ -1,9 +1,7 @@
 //! A host key, by where it sits on the keyboard, to an AT set-1 scancode
 //! (extended keys as 0xE0xx), the form `qemu_embed_atset1_to_qcode`
 //! expects. Keys are named by their W3C UI Events `code`, which is what
-//! both toolkits report: mitsuami's `KeyCode::name()`, and winit's
-//! `KeyCode` variants (which call the Windows keys `SuperLeft` and
-//! `SuperRight` where W3C says `MetaLeft` and `MetaRight`).
+//! mitsuami's `KeyCode::name()` reports.
 
 pub fn atset1(code: &str) -> Option<u32> {
     Some(match code {
@@ -119,8 +117,8 @@ pub fn atset1(code: &str) -> Option<u32> {
         "PageDown" => 0xE051,
         "Insert" => 0xE052,
         "Delete" => 0xE053,
-        "MetaLeft" | "SuperLeft" => 0xE05B,
-        "MetaRight" | "SuperRight" => 0xE05C,
+        "MetaLeft" => 0xE05B,
+        "MetaRight" => 0xE05C,
         "ContextMenu" => 0xE05D,
         _ => return None,
     })

@@ -71,8 +71,8 @@ DP2=build/d3dpt-dp2-test; [ "$OS" = Windows ] && DP2=build/win/d3dpt-dp2-test
 # LAUNCHER_* variables.
 [ "$OS" = Windows ] && OUT="$(cygpath -m "$OUT")"
 [ "$OS" = Windows ] && QSYS_PIPE="python3 tools/qmp-pipe.py $QSYS"
-LAUNCHERX=$TREL/launcherx; DISCX=$TREL/discx; SYNTHX=$TREL/synthx; PLAYER=$RREL/player
-[ "$OS" = Windows ] && PLAYER=player-mitsuami/target/release/player-mitsuami
+LAUNCHERX=$TREL/launcherx; DISCX=$TREL/discx; SYNTHX=$TREL/synthx
+PLAYER=player-mitsuami/target/release/player-mitsuami
 # Paths in one spelling. On Windows the launcher writes them its way
 # (C:/given/dir\joined\part, JSON's doubled backslashes) and bash its own
 # (/c/...): `normp` turns every backslash of a text into '/', `np` writes
@@ -107,7 +107,7 @@ else
   export D3DPT_DXVK_LIB="${D3DPT_DXVK_LIB:-$ROOT/build/dxvk/src/d3d9/libdxvk_d3d9.$SO$([ "$SO" = so ] && echo .0)}"
 fi
 # A player window the compositor focuses would otherwise take the desktop's
-# own shortcuts for the length of the run (player/src/kbcapture.rs).
+# own shortcuts for the length of the run (mitsuami's keyboard grab).
 export PLAYER_KEYBOARD_CAPTURE="${PLAYER_KEYBOARD_CAPTURE:-0}"
 if [ "$OS" = Darwin ]; then
   # The cargo builds below link for the same macOS as everything else
@@ -1007,7 +1007,7 @@ shaderdefaults_check() { # the first-run shader offer and its starter profiles (
   return $rc
 }
 # A subshell, not a group, like exec_wine_check: its XDG_RUNTIME_DIR (the
-# private Broadway display) once stayed set, and every winit player after it
+# private Broadway display) once stayed set, and every player after it
 # found no Wayland socket (`NoCompositor`: companions-env, mode-sweep).
 mitsuami_check() ( # the launcher's window, driven through its probes (doc 07, track M19)
   local rc=0 dir="$OUT/mitsuami" bin="$LAUNCHER_BIN" o broadway=""
@@ -2906,24 +2906,21 @@ host_stage() {
   # the player's display path without a guest: mode analysis, the geometry
   # stage and the CRT preset over every mode in the table (doc 03, M2)
   local preset=third_party/slang-shaders/crt/crt-guest-advanced.slangp
-  if have_display && [ -f "$preset" ]; then
-    # (Windows' player-mitsuami is build-windows.sh's mitsuami stage)
-    if [ "$PLAYER" != "$RREL/player" ] || "${CARGO[@]}" build "${CARGO_TGT[@]}" --release -p player -q 2>"$OUT/player-build.log"; then
-      run_check mode-sweep mode-sweep.log \
-        $PLAYER --shader "$preset" --mode-sweep "$OUT/mode-sweep" || true
-      # The chain's border sampling, from the run that just happened: the
-      # player names the *reason* it is off, and "although this adapter
-      # has it" is the one that is our own descriptor's fault. A device
-      # opened without `ADDRESS_MODE_CLAMP_TO_BORDER` makes librashader
-      # sample clamp-to-edge, and every curved preset then smears its
-      # outermost pixels over everything outside the tube.
-      if grep -q "clamp-to-border sampling: off although" "$OUT/mode-sweep.log"; then
-        FAIL+=(mode-sweep-border)
-        echo "  FAIL mode-sweep-border (the device dropped clamp-to-border)"
-      fi
-    else FAIL+=(mode-sweep); echo "  FAIL mode-sweep (build)"; tail -5 "$OUT/player-build.log"; fi
+  if have_display && [ -f "$preset" ] && [ -x $PLAYER ]; then
+    run_check mode-sweep mode-sweep.log \
+      $PLAYER --shader "$preset" --mode-sweep "$OUT/mode-sweep" || true
+    # The chain's border sampling, from the run that just happened: the
+    # player names the *reason* it is off, and "although this adapter
+    # has it" is the one that is our own descriptor's fault. A device
+    # opened without `ADDRESS_MODE_CLAMP_TO_BORDER` makes librashader
+    # sample clamp-to-edge, and every curved preset then smears its
+    # outermost pixels over everything outside the tube.
+    if grep -q "clamp-to-border sampling: off although" "$OUT/mode-sweep.log"; then
+      FAIL+=(mode-sweep-border)
+      echo "  FAIL mode-sweep-border (the device dropped clamp-to-border)"
+    fi
   else
-    skip mode-sweep "needs a display and the slang-shaders submodule"
+    skip mode-sweep "needs a display, the slang-shaders submodule and $PLAYER (scripts/build.sh mitsuami)"
   fi
 
   # the mitsuami player (M22) on a private headless sway: the mode sweep

@@ -7,4 +7,4 @@
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # PLAYER_OPTS: the player's own options, before the `--` (e.g. --share <dir>)
 # shellcheck disable=SC2086
-exec "${PLAYER:-$ROOT/target/qemu-aarch64/release/player}" ${PLAYER_OPTS:-} -- "$@"
+exec "${PLAYER:-$ROOT/player-mitsuami/target/qemu-aarch64/release/player-mitsuami}" ${PLAYER_OPTS:-} -- "$@"

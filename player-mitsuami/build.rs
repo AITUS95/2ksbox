@@ -1,7 +1,6 @@
 include!("../packaging/windows/win-icon.rs");
 
-// Where the binary finds libqemu-embed, as the winit player's build.rs
-// says it: `<prefix>/lib/2ksbox` once installed (origin-relative, first),
+// Where the binary finds libqemu-embed: `<prefix>/lib/2ksbox` once installed (origin-relative, first),
 // else the build directory it was linked from.
 fn main() {
     // On Windows the icon Explorer shows and the manifest: this crate

@@ -12,15 +12,9 @@ use std::path::PathBuf;
 use std::process::{Child, Stdio};
 
 /// The `player` binary: `bin/2ksbox-player` in an installed tree
-/// (`paths.rs`). In a checkout, the mitsuami player (track M22, the
-/// default player) wherever it is built, `player-mitsuami/target/<profile>`;
-/// otherwise the winit player beside the launcher's own executable (the
-/// workspace's binaries share `target/<profile>`), and failing that the
-/// workspace's own `target/<profile>`. That last case is a launcher
-/// outside the root workspace (`launcher-mitsuami`, so `cargo build`
-/// never needs its toolkits), which builds into its own
-/// `target/<profile>` with no player beside it. `LAUNCHER_PLAYER_BIN`
-/// overrides all of it.
+/// (`paths.rs`). In a checkout, the mitsuami player (track M22),
+/// `player-mitsuami/target/<profile>`. `LAUNCHER_PLAYER_BIN` overrides
+/// both.
 pub fn player_binary() -> PathBuf {
     if let Ok(p) = std::env::var("LAUNCHER_PLAYER_BIN") {
         return p.into();
@@ -33,20 +27,7 @@ pub fn player_binary() -> PathBuf {
         let name = if cfg!(windows) { "2ksbox-player.exe" } else { "2ksbox-player" };
         return crate::paths::bin_dir().join(name);
     }
-    if let Some(m) = mitsuami_player("") {
-        return m;
-    }
-    let name = if cfg!(windows) { "player.exe" } else { "player" };
-    let exe = std::env::current_exe().expect("current_exe");
-    let dir = exe.parent().expect("executable has a parent directory");
-    let beside = dir.join(name);
-    if beside.exists() {
-        return beside;
-    }
-    // The same profile first, not a baked-in `release`: a debug launcher
-    // finds the debug player, and the release one when that is all
-    // `scripts/build.sh` made.
-    in_profile(crate::paths::checkout("target"), name)
+    mitsuami_player("")
 }
 
 /// What this host's hardware virtualization is called, for the hint
@@ -233,10 +214,9 @@ pub fn machine_args(bundle: &std::path::Path) -> Vec<String> {
 /// the helpers when the image loads (doc 22 §5.0). So the era's machines
 /// run on [`player_binary`] and Windows 11 on the x86_64 build of the same
 /// player (track M20): `bin/2ksbox-player-x86_64` installed,
-/// `target/qemu-x86_64/<profile>/player` in a checkout (`scripts/build.sh`
-/// builds it there, with its own feature), the mitsuami player's
-/// `player-mitsuami/target/qemu-x86_64/<profile>` before it when built,
-/// `LAUNCHER_PLAYER_X86_64_BIN` over all of them.
+/// `player-mitsuami/target/qemu-x86_64/<profile>/player-mitsuami` in a
+/// checkout (`scripts/build.sh` builds it there, with its own feature),
+/// `LAUNCHER_PLAYER_X86_64_BIN` over both.
 pub fn player_binary_for(machine: &Machine) -> PathBuf {
     target_player_binary(machine.qemu_target())
 }
@@ -254,25 +234,21 @@ pub fn target_player_binary(target: &str) -> PathBuf {
     if crate::paths::install_prefix().is_some() {
         return crate::paths::bin_dir().join(format!("2ksbox-player-{target}{exe}"));
     }
-    if let Some(m) = mitsuami_player(&format!("qemu-{target}")) {
-        return m;
-    }
-    in_profile(crate::paths::checkout("target").join(format!("qemu-{target}")), &format!("player{exe}"))
+    mitsuami_player(&format!("qemu-{target}"))
 }
 
-/// The mitsuami player in a checkout, if it is built:
+/// The mitsuami player in a checkout:
 /// `player-mitsuami/target/<sub>/<profile>/player-mitsuami`, `sub` empty
-/// for the era's player and `qemu-<target>` for another target's (the
-/// winit player's layout, in mitsuami's own workspace), the profile as in
-/// [`in_profile`].
-fn mitsuami_player(sub: &str) -> Option<PathBuf> {
+/// for the era's player and `qemu-<target>` for another target's, the
+/// profile as in [`in_profile`] (where a player that is not built would
+/// be, for the error to name).
+fn mitsuami_player(sub: &str) -> PathBuf {
     let exe = if cfg!(windows) { "player-mitsuami.exe" } else { "player-mitsuami" };
     let mut p = crate::paths::checkout("player-mitsuami/target");
     if !sub.is_empty() {
         p.push(sub);
     }
-    let p = in_profile(p, exe);
-    p.exists().then_some(p)
+    in_profile(p, exe)
 }
 
 /// `dir/<profile>/name` for the cargo profile the launcher was built with

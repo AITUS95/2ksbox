@@ -19,25 +19,25 @@ over a window that is otherwise only the picture.
   (`sweep.rs`), what the guest holds (`input.rs`: keys, Ctrl+Alt+Del, the
   gamepad), the key table by W3C code (`keys.rs`), audio, companions,
   mode analysis, the command line (`startup`), and the close question's
-  sentences. Shared with `player/` (M2's and M13's files moved here; their
-  owners still own them).
+  sentences. M2's and M13's files moved here; their owners still own
+  them.
 - `player-mitsuami/` (its own cargo workspace, like `launcher-mitsuami`,
   so the root build never needs GTK): the window, its menus, the surface's
   input. `tools/player-mitsuami-test.sh` and its `scripts/test.sh` check.
-- `player/` keeps only winit: the window, `kbcapture.rs`, `keymap.rs`'s
-  keymap reading, the drawn close prompt.
+- `player/`, the winit front end (its window, `kbcapture.rs`,
+  `keymap.rs`, the drawn close prompt), was deleted on 2026-10-24
+  (step 6).
 
 ## Building
 
 ```sh
-cargo build --release -p player                    # the winit player, as before
-cd player-mitsuami && cargo build --release        # GTK 4 (4.10+)
+cd player-mitsuami && cargo build --release        # GTK 4 (4.10+); build.sh's mitsuami stage
 cargo build --release --no-default-features --features kde,gilrs --target-dir target/kde   # Kirigami (step 3)
 ```
 
 mitsuami comes from the same crates.io version as `launcher-mitsuami`; bump
 both together. `--features qemu-x86_64` (or `qemu-aarch64`) links the other
-embed library, as for the winit player, into a target dir of its own:
+embed library, into a target dir of its own:
 `--target-dir target/qemu-x86_64`, where the launcher looks for it.
 
 ## Test loop
@@ -59,14 +59,13 @@ embed library, as for the winit player, into a target dir of its own:
   seat has **no pointer**: clicks and the lock need a real desktop.
 - `PLAYER_INPUT_LOG=1` prints every `SurfaceInput` with the lock and grab
   state; `PLAYER_SURFACE_LOG=1` every size the surface reports. Every other
-  `PLAYER_*` knob is the core's and works as in the winit player.
-- It is the default player (user, 2026-10-02): a launcher in a checkout
-  (`launcher-mitsuami`, `launcherx`) starts it whenever
-  `player-mitsuami/target/<the launcher's profile>/player-mitsuami` is
-  built, and the winit player only when it is not (`launcherx --paths`
-  says which). `LAUNCHER_PLAYER_BIN` still overrides; the winit player is
-  one `LAUNCHER_PLAYER_BIN=target/release/player` away. Every package
-  ships `player-mitsuami` since 2026-10-07 (step 6, below).
+  `PLAYER_*` knob is the core's.
+- It is the only player: a launcher in a checkout (`launcher-mitsuami`,
+  `launcherx`) starts
+  `player-mitsuami/target/<the launcher's profile>/player-mitsuami`
+  (`launcherx --paths`; `LAUNCHER_PLAYER_BIN` overrides). Every package
+  ships it since 2026-10-07, and the winit player was deleted on
+  2026-10-24 (step 6, below).
 
 ## Steps
 
@@ -321,12 +320,18 @@ embed library, as for the winit player, into a target dir of its own:
    `2ksbox-player` (and `-aarch64` / `-x86_64`), and
    `gen-flatpak-cargo-sources.sh` reads its lock file too. **The winit
    player is deprecated** (user, 2026-10-07: "you can even remove it from
-   the builds"). Left: move `test.sh`'s `$PLAYER` checks, the tools that
-   name `target/*/release/player` (`audio-glitch-test.py`,
-   `pad-guest-test.py`, `win98-game-test.sh`, `clipboard-win11-test.sh`,
-   `smb-try.sh`, `player-as-qemu.sh`) and the Windows test build (GNU)
-   to `player-mitsuami`, then drop it from the `rust` stages and delete
-   `player/`.
+   the builds"). **`player/` deleted (2026-10-24, user: "remove the
+   winit player"):** `test.sh`'s `$PLAYER` is `player-mitsuami` on every
+   host (Windows' since 2026-10-11), and so are the tools that named
+   `target/*/release/player` (`audio-glitch-test.py`,
+   `pad-guest-test.py`, `win98-game-test.sh`, `win98-cursor-test.sh`,
+   `clipboard-win11-test.sh`, `win11-boot-prompt-test.sh`, `smb-try.sh`,
+   `player-as-qemu.sh`); the `rust` stage builds no player, the
+   launcher finds only `player-mitsuami`, and `player-core` lost what
+   only the winit front end used (the close prompt's overlay, winit's
+   `SuperLeft` key names). Checked on the Air: both workspaces
+   build, and `test.sh`'s host stage passes on `player-mitsuami`
+   (47 passed, mode-sweep, pad and companions-env among them).
 7. **Windows 11 on Arm's desktop (2026-10-08, user: "windows 11
    experience is pretty bad", then "very choppy and teary").** Measured
    first on the Air, the user's machine on an overlay in the app's

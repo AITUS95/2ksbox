@@ -53,9 +53,8 @@ Detail in each one's ADR (`docs/10-decisions.md`) or design doc.
   tried and rejected; never propose it again. The player is
   `player-core/` (everything but the window) in `player-mitsuami/`
   (ADR-025, track M22), its own workspace like `launcher-mitsuami`,
-  which every package ships since 2026-10-07. `player/` (winit) is
-  **deprecated** (user, 2026-10-07): it still builds for `test.sh` and
-  the tools until they move, then goes; never put it back in a package.
+  which every package ships since 2026-10-07. The winit player
+  (`player/`) was removed on 2026-10-24 (user); don't bring it back.
 - **One launcher library, thin front ends** (ADR-014, doc 07).
   `launcher-core/` decides everything: bundle format, library, disc
   shelf, snapshots, shader profiles, preview, **every window's state
@@ -196,7 +195,7 @@ Detail in each one's ADR (`docs/10-decisions.md`) or design doc.
   exceptions: `WINDOWS\V2START.LOG` (a login marker) and the per-game
   guest DLLs' logs next to the game's EXE.
 - Guest binaries are msvcrt-linked and `-march=pentium3`.
-- **Never run `cargo fmt` over a package**: `player/src/` is not
+- **Never run `cargo fmt` over a package**: `player-core/src/` is not
   rustfmt-clean, and a package-wide format buries the diff. Write new
   code in rustfmt style; `rustfmt <one file you authored whole>` is fine.
 - **Never sleep-poll beside a long job.** Start it in the background and

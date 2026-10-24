@@ -23,9 +23,6 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build --release
-      - name: player binary present
-        shell: bash
-        run: ls -la target/release/player*
 
   qemu-prepare:
     name: qemu prepare + configure (linux)

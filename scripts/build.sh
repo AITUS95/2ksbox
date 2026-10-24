@@ -22,7 +22,7 @@
 #   qemu    prepare-qemu.sh (overlay + patch queue) -> configure-qemu.sh
 #           -> ninja: qemu-system-i386, qemu-system-x86_64 (not on a Mac), qemu-img,
 #           qemu-io, libqemu-embed-{i386,x86_64}.{so,dylib} (x86_64 is
-#           Windows 11's, linked by a player of its own; see `rust`), and
+#           Windows 11's, linked by a player of its own; see `mitsuami`), and
 #           on an Arm host qemu-system-aarch64 and libqemu-embed-aarch64
 #           (Windows 11 on Arm)
 #   edk2    build-edk2.sh, Windows 11's firmware into qemu/pc-bios: on
@@ -36,18 +36,15 @@
 #           both with the 2ksbox agent) from a pinned download into
 #           build/virtio-win. Not on an Intel Mac. Needs xorriso and
 #           mingw-w64
-#   rust    cargo build --release: player, libdisc/discx, launcher-core
+#   rust    cargo build --release: player-core, libdisc/discx, launcher-core
 #           (with its `launcherx` verb binary), qemu-embed, shader-chain.
-#           Runs after `qemu`, because the player links libqemu-embed from
+#           Runs after `qemu`, because qemu-embed links libqemu-embed from
 #           build/qemu. Then `cargo check --release --workspace` keeps the
-#           one non-default member, `launcher-capi`, compiling. On Linux
-#           also Windows 11's player, into target/qemu-x86_64; on an Arm
-#           host Windows 11 on Arm's, into target/qemu-aarch64.
+#           one non-default member, `launcher-capi`, compiling.
 #   mitsuami cargo build --release in launcher-mitsuami/ and
 #           player-mitsuami/ (each its own workspace): the launcher and the
-#           player every package ships (ADR-023, ADR-025), on AppKit on a
-#           Mac and GTK 4 on Linux, with Windows 11's player as the `rust`
-#           stage builds the winit one (player-mitsuami/target/qemu-x86_64
+#           player (ADR-023, ADR-025), on AppKit on a Mac and GTK 4 on
+#           Linux, with Windows 11's player (player-mitsuami/target/qemu-x86_64
 #           on Linux, qemu-aarch64 on an Arm host). Linux needs GTK 4 (4.10+)
 #           development files; without them the stage is skipped and this
 #           host can build no package.
@@ -216,7 +213,7 @@ if [ "$(uname -s)" = Darwin ]; then
   # rustc's default, 11.0). A workspace this run will not rebuild is left
   # alone, since cleaning it would leave no binary at all (`build.sh guest`
   # once took the player with it).
-  for spec in "rust:$TD/player" "mitsuami:$LTD/launcher-mitsuami" "mitsuami:$PTD/player-mitsuami"; do
+  for spec in "rust:$TD/launcherx" "mitsuami:$LTD/launcher-mitsuami" "mitsuami:$PTD/player-mitsuami"; do
     bin=${spec#*:}
     want "${spec%%:*}" && [ -f "$bin" ] || continue
     built=$(otool -l "$bin" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
@@ -444,7 +441,7 @@ if want virtio; then
 fi
 
 # --- rust -------------------------------------------------------------
-# After qemu: the player links libqemu-embed with an rpath into
+# After qemu: qemu-embed links libqemu-embed with an rpath into
 # build/qemu, and qemu-embed/build.rs warns when qemu/embed/ is a stale
 # copy of embed/ (which is why prepare-qemu.sh ran first).
 if want rust; then
@@ -452,26 +449,6 @@ if want rust; then
   else
     say "rust: cargo build --release (default members)"
     cargo build --release ${CT[@]+"${CT[@]}"} ${JOBS[@]+"${JOBS[@]}"}
-    # The Windows 11 player (track M20): the same player linked to
-    # libqemu-embed-x86_64. A build of its own, in its own target
-    # directory, because a feature is shared by everything one cargo run
-    # builds. Linked rather than opened at run time for patch 63 (doc 22
-    # §5.0). Linux only for now: the family runs nowhere else yet.
-    if [ "$(uname -s)" = Linux ]; then
-      say "rust: the x86_64 player (Windows 11)"
-      cargo build --release -p player --features qemu-x86_64 --target-dir target/qemu-x86_64 ${JOBS[@]+"${JOBS[@]}"}
-    fi
-    # Windows 11 on Arm's player, where QEMU has the aarch64 target (an
-    # Arm host, configure-qemu.sh). On a Mac it needs Hypervisor.framework's
-    # entitlement even ad-hoc signed, and cargo's relink drops it, so it
-    # is signed again on every build.
-    if [ -f "build/qemu/libqemu-embed-aarch64.$SO" ] && [ -z "$ROSETTA" ]; then
-      say "rust: the aarch64 player (Windows 11 on Arm)"
-      cargo build --release -p player --features qemu-aarch64 --target-dir target/qemu-aarch64 ${JOBS[@]+"${JOBS[@]}"}
-      if [ "$(uname -s)" = Darwin ]; then
-        codesign --force --sign - --entitlements packaging/macos/hypervisor.entitlements target/qemu-aarch64/release/player
-      fi
-    fi
     # The member that is not a default member (Cargo.toml):
     # `launcher-capi`, a cdylib + staticlib of the whole launcher that
     # nothing installs. Checked rather than built, so it cannot rot. Once
@@ -500,8 +477,10 @@ if want mitsuami; then
     ( cd launcher-mitsuami && cargo build --release ${CT[@]+"${CT[@]}"} ${JOBS[@]+"${JOBS[@]}"} )
     say "mitsuami: cargo build --release (player-mitsuami)"
     ( cd player-mitsuami && cargo build --release ${CT[@]+"${CT[@]}"} ${JOBS[@]+"${JOBS[@]}"} )
-    # Windows 11's players, as the `rust` stage builds the winit ones: a
-    # second libqemu-embed is a second binary, in a target dir of its own.
+    # Windows 11's players (track M20): the same player linked to a
+    # second libqemu-embed, a second binary in a target dir of its own,
+    # because a feature is shared by everything one cargo run builds.
+    # Linked rather than opened at run time for patch 63 (doc 22 §5.0).
     if [ "$(uname -s)" = Linux ]; then
       say "mitsuami: the x86_64 player (Windows 11)"
       ( cd player-mitsuami && cargo build --release --features qemu-x86_64 --target-dir target/qemu-x86_64 ${JOBS[@]+"${JOBS[@]}"} )

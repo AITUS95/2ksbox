@@ -62,9 +62,9 @@ GPL-2.0 for everything that links it.
   at spawn; neither binary has an IPC channel of its own (doc 07, "How
   the launcher reaches a running machine").
 - **The player** is `player-core`, everything but the window, under
-  two front ends: `player/` on winit and `player-mitsuami/` on the
-  mitsuami toolkit (ADR-025, track M22). The Windows packages ship
-  `player-mitsuami` as `2ksbox-player.exe`. A guest of another
+  `player-mitsuami/` on the mitsuami toolkit (ADR-025, track M22; the
+  winit front end, `player/`, was removed on 2026-10-24). Every package
+  ships it as `2ksbox-player`. A guest of another
   architecture is another player binary (`--features qemu-x86_64` /
   `qemu-aarch64`), never a library opened at run time (doc 22 §5.0).
 - **Modern guests** (ADR-024, track M20) get a TPM 2.0 kept in QEMU's

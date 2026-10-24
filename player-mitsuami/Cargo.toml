@@ -4,8 +4,7 @@ version = "1.1.0"
 # mitsuami is edition 2024 and needs Rust 1.95; the root workspace's
 # `stable` toolchain is newer than both.
 edition = "2024"
-# It links QEMU (libqemu-embed, through player-core), as the winit player
-# does (ADR-009).
+# It links QEMU (libqemu-embed, through player-core) (ADR-009).
 license = "GPL-2.0-only"
 description = "The player (doc 02/03) in a mitsuami window: player-core's machine and picture on a GpuSurface, with the platform's menus (track M22)."
 

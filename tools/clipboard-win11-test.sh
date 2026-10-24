@@ -22,7 +22,7 @@
 # The host's clipboard is the user's own: its text is saved first and put
 # back at the end (anything that was not text is lost).
 #
-# Needs: target/qemu-<aarch64|x86_64>/release/player (scripts/build.sh
+# Needs: player-mitsuami/target/qemu-<aarch64|x86_64>/release/player-mitsuami (scripts/build.sh
 # rust) and the drivers disc with the agent (scripts/build-virtio-win.sh).
 # macOS on Apple Silicon, or Linux on x86_64 with KVM.
 set -u
@@ -34,7 +34,7 @@ case "$(uname -s)" in
 esac
 BASE="$(cd "${1:-$DEFBASE}" && pwd)"
 OUT="${OUT:-build/w11s}"
-PLAYER=target/qemu-$ARCH/release/player
+PLAYER=player-mitsuami/target/qemu-$ARCH/release/player-mitsuami
 DRIVERS=build/virtio-win/2ksbox-drivers-$DISC.iso
 for f in "$PLAYER" "$DRIVERS" "$BASE/disk.qcow2"; do
   [ -e "$f" ] || { echo "clipboard-win11-test: no $f"; exit 77; }

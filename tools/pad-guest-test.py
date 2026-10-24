@@ -65,7 +65,7 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLAYER = os.path.join(ROOT, "target/release/player")
+PLAYER = os.path.join(ROOT, "player-mitsuami/target/release/player-mitsuami")
 QEMU_IMG = os.path.join(ROOT, "build/qemu/qemu-img")
 QMPC = os.path.join(ROOT, "tools/qmpc.py")
 OUT = os.path.join(ROOT, "build/pad-guest")
@@ -644,7 +644,7 @@ def main():
     mode = args[0] if args and args[0] in ("dos", "xp", "win98") else "dos"
     os.makedirs(OUT, exist_ok=True)
     if not os.path.exists(PLAYER):
-        raise SystemExit("no %s — cargo build --release" % PLAYER)
+        raise SystemExit("no %s — scripts/build.sh mitsuami" % PLAYER)
     log = os.path.join(OUT, "%s-serial.log" % mode)
     plog = os.path.join(OUT, "%s-player.log" % mode)
     t0 = time.time()

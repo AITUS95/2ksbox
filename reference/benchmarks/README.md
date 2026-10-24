@@ -24,7 +24,7 @@ run (a uniform ~2×), so compare within one boot's pair, not across boots.
 The Air runs XP in the player:
 
 ```sh
-PLAYER_LATENCY=1 target/release/player --shader third_party/slang-shaders/crt/crt-lottes.slangp -- \
+PLAYER_LATENCY=1 player-mitsuami/target/release/player-mitsuami --shader third_party/slang-shaders/crt/crt-lottes.slangp -- \
   -L $PWD/qemu/pc-bios -machine pc -cpu pentium3 -m 512 -hda ~/vms/xp.qcow2 \
   -vga cirrus -net none -usb -device usb-tablet -device AC97,audiodev=embed0 \
   -cdrom ~/vms/bench.iso

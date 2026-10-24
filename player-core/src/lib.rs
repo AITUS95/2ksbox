@@ -1,8 +1,8 @@
 //! The player minus its window (doc 02): one running machine per process,
 //! QEMU in-process, the picture through wgpu and the CRT chain, audio and
 //! gamepads. A front end owns the window and its events and drives a
-//! [`Session`] and a [`Gpu`]: `player/` on winit, `player-mitsuami/` on
-//! mitsuami's `GpuSurface` (track M22). As with the launcher (ADR-014),
+//! [`Session`] and a [`Gpu`]: `player-mitsuami/` on mitsuami's
+//! `GpuSurface` (track M22). As with the launcher (ADR-014),
 //! what one front end could do differently from another lives here.
 
 pub mod audio;

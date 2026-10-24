@@ -1,8 +1,8 @@
 //! The picture (doc 03): the guest's frame (uploaded, or a zero-copy
 //! slot), the CRT chain, the geometry stage, and the blit into whatever
 //! surface the front end has. Nothing here knows the window: the front end
-//! makes the surface (`Gpu::new` takes any wgpu surface target, a winit
-//! window or a mitsuami `GpuSurface`'s handle), presents what `render`
+//! makes the surface (`Gpu::new` takes any wgpu surface target, a
+//! mitsuami `GpuSurface`'s handle), presents what `render`
 //! drew, and applies the minimum size `take_min_size` asks for.
 
 use crate::{mode, qemu_vm, shot_path};
@@ -33,11 +33,6 @@ pub struct Gpu {
     bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
-    /// `pipeline` with alpha blending, for an image over the picture (the
-    /// winit player's close prompt)
-    overlay_pipeline: wgpu::RenderPipeline,
-    /// that image while one is up
-    overlay: Option<Shown>,
     /// `pipeline` blending into a byte (non-sRGB) BGRA8 target: the guest
     /// cursor's sprite over a ring slot's frame, as `composite_cursor`
     /// blends it on the CPU
@@ -246,7 +241,6 @@ impl Gpu {
             })
         };
         let pipeline = make_pipeline("blit", config.format, None);
-        let overlay_pipeline = make_pipeline("overlay", config.format, Some(wgpu::BlendState::ALPHA_BLENDING));
         let cursor_pipeline = make_pipeline("cursor", wgpu::TextureFormat::Bgra8Unorm, Some(wgpu::BlendState::ALPHA_BLENDING));
 
         let adapter_info = adapter.get_info();
@@ -258,8 +252,6 @@ impl Gpu {
             bgl,
             sampler,
             pipeline,
-            overlay_pipeline,
-            overlay: None,
             cursor_pipeline,
             comp: None,
             comp_on: false,
@@ -714,10 +706,9 @@ impl Gpu {
 
     /// The window's picture into `view`: the chain's output (or the guest
     /// frame when no preset is loaded) in the geometry stage's viewport,
-    /// black around it, and the overlay over it when `overlay` is set.
-    /// `render` and `window_shot` both draw with this, so the shot is the
-    /// presented picture pixel for pixel.
-    fn draw_picture(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, overlay: bool) {
+    /// black around it. `render` and `window_shot` both draw with this, so
+    /// the shot is the presented picture pixel for pixel.
+    fn draw_picture(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         let bg: &wgpu::BindGroup = match (&self.chain, &self.chain_bg) {
             (Some(_), Some((bg, _, _))) => bg,
             _ => &self.current().unwrap().1,
@@ -743,15 +734,6 @@ impl Gpu {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, bg, &[]);
         pass.draw(0..3, 0..1);
-        if !overlay {
-            return;
-        }
-        if let (Some((_, obg, _, _)), Some((ox, oy, ow, oh))) = (&self.overlay, self.overlay_rect()) {
-            pass.set_viewport(ox, oy, ow, oh, 0.0, 1.0);
-            pass.set_pipeline(&self.overlay_pipeline);
-            pass.set_bind_group(0, obg, &[]);
-            pass.draw(0..3, 0..1);
-        }
     }
 
     /// Write what the window shows as a PNG: the picture after the geometry
@@ -788,7 +770,7 @@ impl Gpu {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("window shot"),
             });
-        self.draw_picture(&mut encoder, &view, false);
+        self.draw_picture(&mut encoder, &view);
         self.queue.submit(Some(encoder.finish()));
         let (w, h, rgb) = shader_chain::read_texture(&self.device, &self.queue, &tex);
         let path = shot_path()?;
@@ -835,69 +817,6 @@ impl Gpu {
                 depth_or_array_layers: 1,
             },
         );
-    }
-
-    /// Put a BGRA image over the finished picture, centred; `None` takes it
-    /// off. The winit player's close prompt.
-    pub fn set_overlay(&mut self, img: Option<(&[u8], u32, u32)>) {
-        let Some((px, w, h)) = img else {
-            self.overlay = None;
-            return;
-        };
-        if !matches!(&self.overlay, Some((_, _, ow, oh)) if *ow == w && *oh == h) {
-            // the guest framebuffer's rule, for the same reason
-            let format = if self.config.format.is_srgb() {
-                wgpu::TextureFormat::Bgra8UnormSrgb
-            } else {
-                wgpu::TextureFormat::Bgra8Unorm
-            };
-            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("overlay"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            let bg = self.make_bind_group(&tex);
-            self.overlay = Some((tex, bg, w, h));
-        }
-        let (tex, _, _, _) = self.overlay.as_ref().unwrap();
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            px,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: Some(h),
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-
-    /// Where the overlay goes, in physical pixels: centred, and never past
-    /// the surface (a viewport outside the target is a validation error).
-    pub fn overlay_rect(&self) -> Option<(f32, f32, f32, f32)> {
-        let (_, _, w, h) = self.overlay.as_ref()?;
-        let (w, h) = ((*w).min(self.config.width), (*h).min(self.config.height));
-        let x = (self.config.width - w) / 2;
-        let y = (self.config.height - h) / 2;
-        Some((x as f32, y as f32, w as f32, h as f32))
     }
 
     /// Largest rect of the mode's own display aspect that fits the surface,
@@ -1169,7 +1088,7 @@ impl Gpu {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
-        self.draw_picture(&mut encoder, &view, true);
+        self.draw_picture(&mut encoder, &view);
         self.queue.submit(Some(encoder.finish()));
     }
 

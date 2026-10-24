@@ -12,7 +12,7 @@
 # (RAW=, kept; the image is never written). TCG, about 5 minutes.
 #
 # Env: RAW= (default build/w98cursor/guest.raw), OUT= (build/w98cursor).
-# Needs: sway, mtools, target/release/player, build/cursors/cursors.exe
+# Needs: sway, mtools, player-mitsuami/target/release/player-mitsuami, build/cursors/cursors.exe
 # (guest-tools/build-wrappers.sh builds it into the ISO tree; this builds
 # its own copy when i686-w64-mingw32-gcc is there).
 set -u
