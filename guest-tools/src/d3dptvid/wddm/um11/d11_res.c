@@ -319,7 +319,7 @@ static void APIENTRY d11_create_resource(D3D10DDI_HDEVICE h, const D3D11DDIARG_C
     {
         static ULONG logged;
 
-        if (logged < 64 || FAILED(hr)) {
+        if (FAILED(hr) || (g_d11_verbose && logged < 64)) {
             logged++;
             umd_log("d3d11: CreateResource 0x%08x: dim %u fmt %u %ux%ux%u mips %u array %u usage %u bind 0x%x cpu 0x%x misc 0x%x%s%s",
                     hr, c->ResourceDimension, c->Format, r->r.width, r->r.height, r->r.depth, r->r.mips, r->r.array, c->Usage,
@@ -427,7 +427,10 @@ static void APIENTRY d11_open_resource(D3D10DDI_HDEVICE h, const D3D10DDIARG_OPE
         r->sub[0].row_pitch = a->pitch;
         r->sub[0].depth_pitch = a->pitch * a->h;
     }
-    umd_log("d3d11: OpenResource %ux%u fmt %u (Direct3D 9 format %u, caps 0x%x)", r->r.width, r->r.height, r->r.format, a->format, a->caps);
+    if (g_d11_verbose) {
+        umd_log("d3d11: OpenResource %ux%u fmt %u (Direct3D 9 format %u, caps 0x%x)", r->r.width, r->r.height, r->r.format, a->format,
+                a->caps);
+    }
     res_create_tok(d, r);
 }
 

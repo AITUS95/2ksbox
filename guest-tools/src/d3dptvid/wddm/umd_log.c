@@ -18,7 +18,7 @@
 /* this process in a list of executable names under HKLM\SOFTWARE\2ksbox
  * (REG_MULTI_SZ; "*" for every process): D3D11Exclude keeps a process on
  * Direct3D 9's driver (d3d10level9), D3D11Trace logs every call,
- * D3D9Trace lifts the Direct3D 9 driver's line cap,
+ * D3D9Trace logs the Direct3D 9 driver's routine lines and lifts its cap,
  * D3D11Win7 offers only the Windows 7 interface (an A/B for the 11.1 one) */
 #ifndef RRF_SUBKEY_WOW6464KEY
 #define RRF_SUBKEY_WOW6464KEY 0x00010000          /* winreg.h after the EWDK's 10.0.19041 */

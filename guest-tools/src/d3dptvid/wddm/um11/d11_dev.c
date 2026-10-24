@@ -22,7 +22,9 @@ static void APIENTRY d11_destroy_device(D3D10DDI_HDEVICE h)
 { D11_TRACE("d11_destroy_device");
     D11_DEV *d = DEV(h);
 
-    umd_log("d3d11: DestroyDevice");
+    if (g_d11_verbose) {
+        umd_log("d3d11: DestroyDevice");
+    }
     cmd_flush(d);
     d11_pipe_destroy(d);
     if (d->ctx) {
@@ -150,7 +152,7 @@ static HRESULT APIENTRY dxgi_present(DXGI_DDI_ARG_PRESENT *p)
     pc.pDXGIContext = p->pDXGIContext;
     pc.hContext = d->ctx;
     hr = d->dxgi->pfnPresentCb(d->rt.handle, &pc);
-    if (logged < 16 || FAILED(hr)) {
+    if (FAILED(hr) || (g_d11_verbose && logged < 16)) {
         logged++;
         umd_log("d3d11: Present flags 0x%x src %p (%ux%u fmt %u) sub %u dst %p interval %u -> 0x%08x", p->Flags.Value, src,
                 src ? src->r.width : 0, src ? src->r.height : 0, src ? src->r.format : 0, p->SrcSubResourceIndex, dst,
@@ -179,7 +181,9 @@ static HRESULT APIENTRY dxgi_set_display_mode(DXGI_DDI_ARG_SETDISPLAYMODE *m)
     ZeroMemory(&s, sizeof(s));
     s.hPrimaryAllocation = r ? r->kmt : 0;
     hr = d->kt->pfnSetDisplayModeCb(d->rt.handle, &s);
-    umd_log("d3d11: SetDisplayMode %ux%u fmt %u -> 0x%08x", r ? r->r.width : 0, r ? r->r.height : 0, r ? r->r.format : 0, hr);
+    if (FAILED(hr) || g_d11_verbose) {
+        umd_log("d3d11: SetDisplayMode %ux%u fmt %u -> 0x%08x", r ? r->r.width : 0, r ? r->r.height : 0, r ? r->r.format : 0, hr);
+    }
     return hr;
 }
 
@@ -238,7 +242,7 @@ static HRESULT APIENTRY dxgi_blt(DXGI_DDI_ARG_BLT *b)
     d3dpt_d11_blt *t = (d3dpt_d11_blt *)tok(d, D3DPT_D11_BLT, sizeof(*t), 2);
     static ULONG logged;
 
-    if (logged++ < 16) {
+    if (g_d11_verbose && logged++ < 16) {
         umd_log("d3d11: Blt flags 0x%x %u,%u..%u,%u rotate %u", b->Flags.Value, b->DstLeft, b->DstTop, b->DstRight, b->DstBottom,
                 b->Rotate);
     }
@@ -346,7 +350,9 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     HRESULT hr;
     UINT ten = d10_interface(c->Interface);
 
-    umd_log("d3d11: CreateDevice interface 0x%x version 0x%x flags 0x%x", c->Interface, c->Version, c->Flags);
+    if (g_d11_verbose) {
+        umd_log("d3d11: CreateDevice interface 0x%x version 0x%x flags 0x%x", c->Interface, c->Version, c->Flags);
+    }
     if (c->Interface != D3D11_0_7_DDI_INTERFACE_VERSION && c->Interface != D3D11_1_DDI_INTERFACE_VERSION && !ten) {
         return E_INVALIDARG;
     }
@@ -370,8 +376,10 @@ HRESULT APIENTRY d11_create_device(D3D10DDI_HADAPTER h, D3D10DDIARG_CREATEDEVICE
     cc.pPrivateDriverData = &priv;
     cc.PrivateDriverDataSize = sizeof(priv);
     hr = d->kt->pfnCreateContextCb(d->rt.handle, &cc);
-    umd_log("d3d11: context 0x%08x -> 0x%08x, buffer %u bytes, lists %u / %u", d->host_ctx, hr, cc.CommandBufferSize,
-            cc.AllocationListSize, cc.PatchLocationListSize);
+    if (FAILED(hr) || g_d11_verbose) {
+        umd_log("d3d11: context 0x%08x -> 0x%08x, buffer %u bytes, lists %u / %u", d->host_ctx, hr, cc.CommandBufferSize,
+                cc.AllocationListSize, cc.PatchLocationListSize);
+    }
     if (FAILED(hr)) {
         return hr;
     }

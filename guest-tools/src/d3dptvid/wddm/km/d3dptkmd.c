@@ -219,6 +219,12 @@ typedef struct D3DPT_ALLOC {
  * moves the pixels itself, and the frame rates are the same (track M25,
  * "GDI-compatible textures"). */
 static ULONG g_gdi_accel = 0;
+/* The service key's Trace = 1: the routine lines (allocations, devices,
+ * contexts, submissions, presents, VidPn negotiation, the 5 s packet and
+ * RenderKm tallies). 0, the default: only the device's start and stop,
+ * failures and refusals, since a line is one DEBUG register write a
+ * character, each an exit to the host (a VM exit under HVF). */
+static ULONG g_trace = 0;
 /* The service key's GdiCpuVisible = 0: redirection bitmaps (TEXTURE) the
  * CPU cannot see, which a blt-model present copies straight into, where a
  * CPU-visible one gets a STAGING copy the CPU moves (track M25, "Where the
@@ -286,13 +292,14 @@ static void dbg_line(const char *s)
     dbg_puts("\n");
 }
 
-/* The first `max` times a site logs, then nothing: a line is one register
- * write per character, each an exit to the host (a VM exit under HVF on
- * Apple Silicon, track M25), and allocations, modes and adapter queries
- * come by the thousand once a desktop runs. Failures log every time. */
+/* Traced (g_trace), the first `max` times a site logs, then nothing: a
+ * line is one register write per character, each an exit to the host (a
+ * VM exit under HVF on Apple Silicon, track M25), and allocations, modes
+ * and adapter queries come by the thousand once a desktop runs. Failures
+ * log every time, traced or not. */
 static BOOLEAN log_few(volatile LONG *n, LONG max)
 {
-    return *n < max && InterlockedIncrement(n) <= max;
+    return g_trace && *n < max && InterlockedIncrement(n) <= max;
 }
 
 /* The command window's doorbell: the host runs the batch inside this
@@ -546,9 +553,11 @@ static VOID follow_tick(PKDPC dpc, PVOID ctx, PVOID a1, PVOID a2)
     }
     InterlockedExchange(&a->win_w, (LONG)a->regs[D3DPT_FB_REG_PREF_W / 4]);
     InterlockedExchange(&a->win_h, (LONG)a->regs[D3DPT_FB_REG_PREF_H / 4]);
-    dbg_hex("d3dptkmd: the window is ", (ULONG)a->win_w);
-    dbg_hex(" x ", (ULONG)a->win_h);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: the window is ", (ULONG)a->win_w);
+        dbg_hex(" x ", (ULONG)a->win_h);
+        dbg_puts("\n");
+    }
     if (a->follow_event) {
         KeSetEvent(a->follow_event, 0, FALSE);
     }
@@ -1134,7 +1143,7 @@ static VOID d3dpt_dpc(IN_CONST_PVOID ctx)
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)ctx;
     static ULONG logged;
 
-    if (logged < 4) {
+    if (g_trace && logged < 4) {
         logged++;
         dbg_hex("d3dptkmd: DPC, fence ", (ULONG)a->fence_notify);
         dbg_puts("\n");
@@ -1220,8 +1229,10 @@ static NTSTATUS d3dpt_query_child_status(IN_CONST_PVOID ctx, INOUT_PDXGK_CHILD_S
 {
     UNREFERENCED_PARAMETER(ctx);
     UNREFERENCED_PARAMETER(non_destructive);
-    dbg_hex("d3dptkmd: QueryChildStatus type=", (ULONG)st->Type);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: QueryChildStatus type=", (ULONG)st->Type);
+        dbg_puts("\n");
+    }
     switch (st->Type) {
     case StatusConnection:
         st->HotPlug.Connected = TRUE;
@@ -1284,9 +1295,11 @@ static NTSTATUS d3dpt_query_device_descriptor(IN_CONST_PVOID ctx, IN_ULONG uid,
 
     UNREFERENCED_PARAMETER(ctx);
     UNREFERENCED_PARAMETER(uid);
-    dbg_hex("d3dptkmd: QueryDeviceDescriptor offset ", desc->DescriptorOffset);
-    dbg_hex(" length ", desc->DescriptorLength);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: QueryDeviceDescriptor offset ", desc->DescriptorOffset);
+        dbg_hex(" length ", desc->DescriptorLength);
+        dbg_puts("\n");
+    }
     if (desc->DescriptorOffset >= sizeof(edid_block)) {
         return STATUS_MONITOR_NO_MORE_DESCRIPTOR_DATA;
     }
@@ -1399,8 +1412,10 @@ static void add_monitor_mode(D3DPT_ADAPTER *a, ULONG w, ULONG h, ULONG mhz)
         if (!NT_SUCCESS(st)) {          /* the monitor has it already */
             si->pfnReleaseModeInfo(hset, m);
         }
-        dbg_hex("d3dptkmd: the window's mode added to the monitor's: ", st);
-        dbg_puts("\n");
+        if (g_trace) {
+            dbg_hex("d3dptkmd: the window's mode added to the monitor's: ", st);
+            dbg_puts("\n");
+        }
     }
     mi->pfnReleaseMonitorSourceModeSet(a->dxgk.DeviceHandle, hset);
 }
@@ -1493,7 +1508,7 @@ static NTSTATUS APIENTRY d3dpt_set_pointer_shape(IN_CONST_HANDLE h, IN_CONST_PDX
     PULONG img;
     static ULONG logged;
 
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         logged++;
         dbg_hex("d3dptkmd: SetPointerShape flags=", s->Flags.Value);
         dbg_hex(" ", w);
@@ -1588,7 +1603,9 @@ static NTSTATUS APIENTRY d3dpt_create_device(IN_CONST_HANDLE h, INOUT_PDXGKARG_C
         c->pInfo->PatchLocationListSize = D3DPT_PATCH_LIST;
         c->pInfo->Flags.Value = 0;
     }
-    dbg_line("CreateDevice");
+    if (g_trace) {
+        dbg_line("CreateDevice");
+    }
     return STATUS_SUCCESS;
 }
 
@@ -1620,9 +1637,11 @@ static NTSTATUS APIENTRY d3dpt_create_context(IN_CONST_HANDLE h, INOUT_PDXGKARG_
     c->ContextInfo.DmaBufferPrivateDataSize = 0;
     c->ContextInfo.AllocationListSize = D3DPT_ALLOC_LIST;
     c->ContextInfo.PatchLocationListSize = D3DPT_PATCH_LIST;
-    dbg_hex("d3dptkmd: CreateContext node=", c->NodeOrdinal);
-    dbg_hex(" flags=", c->Flags.Value);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: CreateContext node=", c->NodeOrdinal);
+        dbg_hex(" flags=", c->Flags.Value);
+        dbg_puts("\n");
+    }
     return STATUS_SUCCESS;
 }
 
@@ -2574,15 +2593,20 @@ static void run_d3d(D3DPT_ADAPTER *a, const PKT_D3D_T *p)
 /* Execute one submission: every packet from start to end, in order. */
 /* where the guest's CPU goes in the packets (track M20: the System
  * process at 73% of a CPU while a game ran): per packet kind, the
- * microseconds of the last 5 s, the first few periods logged */
+ * microseconds of the last 5 s, the first few periods logged; traced
+ * only (g_trace), the clock unread otherwise */
 static LONGLONG g_pkt_us[16], g_pkt_t0;
 static ULONG g_pkt_n[16], g_pkt_logs;
 
 static void pkt_time(ULONG op, LARGE_INTEGER t0)
 {
-    LARGE_INTEGER f, t1 = KeQueryPerformanceCounter(&f);
+    LARGE_INTEGER f, t1;
     ULONG i;
 
+    if (!g_trace) {
+        return;
+    }
+    t1 = KeQueryPerformanceCounter(&f);
     if (op < 16) {
         g_pkt_us[op] += (t1.QuadPart - t0.QuadPart) * 1000000 / f.QuadPart;
         g_pkt_n[op]++;
@@ -2806,8 +2830,9 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
 
     while (off + sizeof(PKT_HDR) <= len) {
         const PKT_HDR *hd = (const PKT_HDR *)(p + off);
-        LARGE_INTEGER t0 = KeQueryPerformanceCounter(NULL);
+        LARGE_INTEGER t0;
 
+        t0.QuadPart = g_trace ? KeQueryPerformanceCounter(NULL).QuadPart : 0;
         if (hd->magic != D3DPT_PKT_MAGIC || hd->size < sizeof(*hd) || hd->size > len - off) {
             dbg_hex("d3dptkmd: bad packet at ", off);
             dbg_hex(" magic ", hd->magic);
@@ -2824,7 +2849,7 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
             if (t->al && t->al->d.kind == D3DPT_ALLOC_GDI && t->offset == 0) {
                 static ULONG logged;
 
-                if (logged < 64) {
+                if (g_trace && logged < 64) {
                     logged++;
                     dbg_hex("d3dptkmd: a GDI surface paged, type ", t->al->d.source);
                     dbg_hex(" ", t->al->d.w);
@@ -2912,8 +2937,9 @@ static void run(D3DPT_ADAPTER *a, PUCHAR p, ULONG len)
         off += hd->size;
     }
     if (a->d3d) {                   /* one doorbell per submission */
-        LARGE_INTEGER t0 = KeQueryPerformanceCounter(NULL);
+        LARGE_INTEGER t0;
 
+        t0.QuadPart = g_trace ? KeQueryPerformanceCounter(NULL).QuadPart : 0;
         d3dpt_enc_flush(&a->enc);
         pkt_time(15, t0);           /* the doorbell: the host runs the batch inside it */
     }
@@ -3137,7 +3163,7 @@ static NTSTATUS APIENTRY d3dpt_build_paging_buffer(IN_CONST_HANDLE h, IN_PDXGKAR
                       b->Transfer.Source.pMdl, b->Transfer.TransferOffset, b->Transfer.MdlOffset);
         transfer_side(&p->dst, b->Transfer.Destination.SegmentId, b->Transfer.Destination.SegmentAddress,
                       b->Transfer.Destination.pMdl, b->Transfer.TransferOffset, b->Transfer.MdlOffset);
-        if (logged < 16) {          /* what TransferOffset and MdlOffset hold, the first few times */
+        if (g_trace && logged < 16) {   /* what TransferOffset and MdlOffset hold, the first few times */
             logged++;
             dbg_hex("d3dptkmd: transfer ", p->bytes);
             dbg_hex(" seg ", p->src.seg);
@@ -3244,7 +3270,7 @@ static NTSTATUS APIENTRY d3dpt_present(IN_CONST_HANDLE h, INOUT_PDXGKARG_PRESENT
     ULONG room, n, total, i;
 
     UNREFERENCED_PARAMETER(h);
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         logged++;
         dbg_hex("d3dptkmd: Present flags=", p->Flags.Value);
         dbg_hex(" subrects ", p->SubRectCnt);
@@ -3299,7 +3325,7 @@ static NTSTATUS APIENTRY d3dpt_present(IN_CONST_HANDLE h, INOUT_PDXGKARG_PRESENT
         (p->Flags.Blt && !add_patch(p, (PUCHAR)k, &k->src)) || !add_patch(p, (PUCHAR)k, &k->dst)) {
         return STATUS_GRAPHICS_INSUFFICIENT_DMA_BUFFER;
     }
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         dbg_hex("d3dptkmd: Present source in segment ", k->src.seg);
         dbg_hex(" at ", k->src.addr);
         dbg_hex(", destination in ", k->dst.seg);
@@ -3387,6 +3413,9 @@ static void gdi_census(const DXGKARG_RENDER *r, const DXGK_RENDERKM_COMMAND *c)
     UINT si = ~0u, di = ~0u;
     const RECT *d = NULL;
 
+    if (!g_trace) {
+        return;
+    }
     switch (c->OpCode) {
     case DXGK_GDIOP_BITBLT:
         rop = c->Command.BitBlt.Rop == DXGK_GDIROP_ROP3 ? c->Command.BitBlt.Rop3 : c->Command.BitBlt.Rop;
@@ -3863,7 +3892,7 @@ static NTSTATUS APIENTRY d3dpt_render(IN_CONST_HANDLE h, INOUT_PDXGKARG_RENDER r
             *(ULONG *)((PUCHAR)r->pDmaBuffer + fix->e[i].off) = fix->e[i].al ? fix->e[i].al->handle : 0;
         }
     }
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         logged++;
         dbg_hex("d3dptkmd: Render records ", count);
         dbg_hex(" bytes ", rec_bytes);
@@ -3886,7 +3915,7 @@ static NTSTATUS APIENTRY d3dpt_patch(IN_CONST_HANDLE h, IN_CONST_PDXGKARG_PATCH 
     static ULONG logged;
 
     UNREFERENCED_PARAMETER(h);
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         logged++;
         dbg_hex("d3dptkmd: Patch fence ", p->SubmissionFenceId);
         dbg_hex(" patches ", p->PatchLocationListSubmissionLength);
@@ -3960,7 +3989,7 @@ static NTSTATUS APIENTRY d3dpt_submit_command(IN_CONST_HANDLE h, IN_CONST_PDXGKA
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
     static ULONG logged;
 
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         logged++;
         dbg_hex("d3dptkmd: SubmitCommand fence ", s->SubmissionFenceId);
         dbg_hex(" flags ", s->Flags.Value);
@@ -4165,8 +4194,10 @@ static NTSTATUS APIENTRY d3dpt_recommend_monitor_modes(IN_CONST_HANDLE h,
             mi->pfnReleaseModeInfo(r->hMonitorSourceModeSet, m);
         }
     }
-    dbg_hex("d3dptkmd: RecommendMonitorModes added ", added);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: RecommendMonitorModes added ", added);
+        dbg_puts("\n");
+    }
     return STATUS_SUCCESS;
 }
 
@@ -4386,7 +4417,9 @@ static NTSTATUS APIENTRY d3dpt_recommend_functional_vidpn(IN_CONST_HANDLE h,
 {
     UNREFERENCED_PARAMETER(h);
     UNREFERENCED_PARAMETER(r);
-    dbg_line("RecommendFunctionalVidPn: none");
+    if (g_trace) {
+        dbg_line("RecommendFunctionalVidPn: none");
+    }
     return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
 }
 
@@ -4396,7 +4429,9 @@ static NTSTATUS APIENTRY d3dpt_recommend_vidpn_topology(IN_CONST_HANDLE h,
 {
     UNREFERENCED_PARAMETER(h);
     UNREFERENCED_PARAMETER(r);
-    dbg_line("RecommendVidPnTopology: none");
+    if (g_trace) {
+        dbg_line("RecommendVidPnTopology: none");
+    }
     return STATUS_GRAPHICS_NO_RECOMMENDED_VIDPN_TOPOLOGY;
 }
 
@@ -4441,10 +4476,12 @@ static NTSTATUS APIENTRY d3dpt_commit_vidpn(IN_CONST_HANDLE h, IN_CONST_PDXGKARG
         a->regs[D3DPT_FB_REG_BPP / 4] = 32;
         a->regs[D3DPT_FB_REG_PITCH / 4] = a->cur_pitch;
         a->regs[D3DPT_FB_REG_HZ / 4] = (a->cur_mhz + 500) / 1000;  /* the device's own timer's */
-        dbg_hex("d3dptkmd: CommitVidPn ", w);
-        dbg_hex(" x ", ht);
-        dbg_hex(" pitch ", a->cur_pitch);
-        dbg_puts("\n");
+        if (g_trace) {
+            dbg_hex("d3dptkmd: CommitVidPn ", w);
+            dbg_hex(" x ", ht);
+            dbg_hex(" pitch ", a->cur_pitch);
+            dbg_puts("\n");
+        }
         si->pfnReleaseModeInfo(hsrc, m);
     } else {
         dbg_line("CommitVidPn: no pinned source mode (the source is off)");
@@ -4486,7 +4523,7 @@ static NTSTATUS APIENTRY d3dpt_set_vidpn_source_address(IN_CONST_HANDLE h,
         }
         a->shown_pa = (ULONGLONG)s->PrimaryAddress.QuadPart;
     }
-    if (logged < 16 || !s->Flags.FlipOnNextVSync) {
+    if (g_trace && (logged < 16 || !s->Flags.FlipOnNextVSync)) {
         logged++;
         dbg_hex("d3dptkmd: SetVidPnSourceAddress segment ", s->PrimarySegment);
         dbg_hex(" at ", s->PrimaryAddress.LowPart);
@@ -4503,8 +4540,10 @@ static NTSTATUS APIENTRY d3dpt_set_vidpn_source_visibility(IN_CONST_HANDLE h,
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
 
     a->regs[D3DPT_FB_REG_ENABLE / 4] = v->Visible ? 1 : 0;
-    dbg_hex("d3dptkmd: SetVidPnSourceVisibility ", (ULONG)v->Visible);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: SetVidPnSourceVisibility ", (ULONG)v->Visible);
+        dbg_puts("\n");
+    }
     return STATUS_SUCCESS;
 }
 
@@ -4541,7 +4580,7 @@ static NTSTATUS APIENTRY d3dpt_update_active_vidpn_present_path(IN_CONST_HANDLE 
         dbg_puts("\n");
         return STATUS_SUCCESS;
     }
-    if (logged < 8) {
+    if (g_trace && logged < 8) {
         logged++;
         dbg_hex("d3dptkmd: gamma ramp type ", (ULONG)g->Type);
         dbg_hex(", 128 -> ", a->regs[D3DPT_FB_REG_GAMMA / 4 + 128]);
@@ -4581,7 +4620,7 @@ static BOOLEAN notify_vsync(PVOID ctx)
         static ULONG blanks, flips, logs;
 
         flips += a->flip_pending;
-        if (++blanks == 300 && logs < 8) {  /* the first few: how many of 300 vertical blanks showed a flip */
+        if (++blanks == 300 && g_trace && logs < 8) {  /* the first few: how many of 300 vertical blanks showed a flip */
             logs++;
             dbg_hex("d3dptkmd: flips shown in 300 vertical blanks: ", flips);
             dbg_hex(" submitted ", (ULONG)InterlockedExchange(&g_flips_submitted, 0));
@@ -4645,14 +4684,16 @@ static NTSTATUS APIENTRY d3dpt_control_interrupt(IN_CONST_HANDLE h,
     LARGE_INTEGER due;
     ULONG mhz = a->cur_mhz ? a->cur_mhz : 60000, period_ms = 1000000 / mhz;
 
-    dbg_hex("d3dptkmd: ControlInterrupt type=", (ULONG)type);
-    dbg_hex(" enable=", (ULONG)enable);
-    dbg_puts("\n");
+    if (g_trace) {
+        dbg_hex("d3dptkmd: ControlInterrupt type=", (ULONG)type);
+        dbg_hex(" enable=", (ULONG)enable);
+        dbg_puts("\n");
+    }
     if (type != DXGK_INTERRUPT_CRTC_VSYNC) {
         return STATUS_NOT_SUPPORTED;
     }
     if (!enable) {
-        if (a->vsync_irq) {
+        if (g_trace && a->vsync_irq) {
             dbg_hex("d3dptkmd: vertical blank interrupts taken: ", a->vsync_isr);
             dbg_puts("\n");
         }
@@ -4689,13 +4730,13 @@ static void note_init_status(PUNICODE_STRING reg, ULONG st)
     note_value(L"InitStatus", REG_DWORD, &st, sizeof(st));
 }
 
-/* The service key's GdiAcceleration (default 0), GdiCpuVisible and Cached
- * (default 1) (REG_DWORD, 0: off), read once */
+/* The service key's GdiAcceleration and Trace (default 0), GdiCpuVisible
+ * and Cached (default 1) (REG_DWORD, 0: off), read once */
 static void read_settings(PUNICODE_STRING reg)
 {
-    RTL_QUERY_REGISTRY_TABLE q[4];
+    RTL_QUERY_REGISTRY_TABLE q[5];
     WCHAR path[260];
-    ULONG v = 0, cv = 1, ca = 1, def = 1, def0 = 0, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
+    ULONG v = 0, cv = 1, ca = 1, tr = 0, def = 1, def0 = 0, n = reg && reg->Buffer ? reg->Length / sizeof(WCHAR) : 0;
 
     if (!n || n >= RTL_NUMBER_OF(path)) {
         return;
@@ -4716,10 +4757,14 @@ static void read_settings(PUNICODE_STRING reg)
     q[2] = q[1];
     q[2].Name = L"Cached";
     q[2].EntryContext = &ca;
+    q[3] = q[0];
+    q[3].Name = L"Trace";
+    q[3].EntryContext = &tr;
     if (NT_SUCCESS(RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, path, q, NULL, NULL))) {
         g_gdi_accel = v != 0;
         g_gdi_cpu_visible = cv != 0;
         g_cached = ca != 0;
+        g_trace = tr != 0;
     }
 }
 

@@ -4,7 +4,11 @@ Opened 2026-10-23 (user: the desktop of Windows 11 on our adapter grows
 choppier with the window on a 4K screen; after the dirty-log and
 changed-row work, "it doesn't affect anything that changes the whole
 screen, like playing a video in full screen. ... That's the real
-optimization"). Branch `track/m26-zero-copy`, Windows host first.
+optimization"). Branch `track/m26-zero-copy`, Windows host first;
+merged to `main` 2026-10-24 and deleted (user: "probably good enough to
+merge to main already"), with the Windows build of the commits after the
+Linux half not built or run on the PC, and Linux not through `test.sh
+all` since its merge.
 
 ## Why
 
@@ -144,7 +148,10 @@ The three loose ends of the Windows path (user: "go 1, 2 and 3"):
 (`win98-winetest`, the same three keys as the morning's run before them,
 item 1), 16 skipped.
 
-Open: step 6; the Win98 depth-texture failures above (outside M26).
+Open: step 6 (since done, below). The Win98 depth-texture failures
+above were fixed on `main` the same day (`dc695835`: the depth formats
+claim no wrap or mips, as the rig's GeForce 6200; Wine's d3d9 device
+test no longer crashes, and the two `2D` keys joined `w98-driver.txt`).
 
 ## State (2026-10-24, macOS)
 

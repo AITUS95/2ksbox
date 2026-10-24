@@ -237,7 +237,7 @@ static HRESULT APIENTRY d11_adapter_caps(D3D10DDI_HADAPTER h, const D3D10_2DDIAR
     static ULONG logged;
 
     (void)h;
-    if (logged++ < 16) {
+    if (g_d11_verbose && logged++ < 16) {
         umd_log("d3d11: GetCaps type %u size %u", g->Type, g->DataSize);
     }
     if (g->pData && g->DataSize) {
@@ -320,7 +320,7 @@ HRESULT cmd_flush(D11_DEV *d)
     r.NumPatchLocations = d->pl_n;
     r.hContext = d->ctx;
     hr = d->kt->pfnRenderCb(d->rt.handle, &r);
-    if (logged < 8 || FAILED(hr)) {
+    if (FAILED(hr) || (g_d11_verbose && logged < 8)) {
         logged++;
         umd_log("d3d11: Render %u records, %u bytes, %u allocations, %u patches -> 0x%08x", d->count, d->used, d->al_n,
                 d->pl_n, hr);

@@ -98,7 +98,9 @@ build-wddm.cmd` alone) and installed by `wddm-install.ps1`.
   dozen processes, and their lines interleaved by the character.
   `HKLM\SOFTWARE\2ksbox` `D3D11Trace` (REG_MULTI_SZ, executable names)
   logs every DDI call of those processes, with each format and
-  multisample answer; every process logs each entry's first two calls.
+  multisample answer. Elsewhere (since 2026-10-23) the user-mode drivers
+  log only what went wrong (a failed call, a refusal, a `todo`) and the
+  process's OpenAdapter line; the entry traces cost one flag read.
 - DXVK writes `player-mitsuami_d3d11.log` / `_dxgi.log` in the player's
   working directory (the checkout): what it refused, by name.
 - `New-Item -Force` on a registry key that exists empties it (it took
@@ -709,7 +711,8 @@ DriverEntry) and a census of RenderKm: every 5 s a `RenderKm in 5 s:`
 line per operation, ROP and surface kinds (kind * 16 + GDI type: 0x51 a
 redirection bitmap, 0x52 / 0x53 the staging ones, 0x54 the lookup
 table, 0x40 a Direct3D allocation), with the first one's sizes and host
-handles; and a line per GDI surface paged (the first 64).
+handles; and a line per GDI surface paged (the first 64). (Both need
+the service key's `Trace` = 1 since 2026-10-23.)
 
 - **CPU-visible** (the default): RenderKm carries almost nothing (two
   copies in 5 s, into ClearType's lookup table). GDI draws with the CPU,
@@ -1081,6 +1084,19 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   drivers' 4000 lines a process) slowed it (user): the kernel driver's
   per-event lines now log their first 8 to 32 (`log_few`), and the
   user-mode drivers 400 lines a process (`D3D11Trace` still lifts it).
+  Still hundreds of lines in seconds (user, 2026-10-23: each entry's
+  first two calls, each resource and present, in a dozen processes), so
+  the routine lines of both user-mode drivers now need `D3D11Trace` /
+  `D3D9Trace`; without them only failures and refusals are logged. The
+  kernel driver's per-event lines went the same way (user, the same
+  day): `log_few` and every routine line (devices, contexts, allocations,
+  submissions, presents, VidPn negotiation, interrupt control, the 5 s
+  packet timings and RenderKm census, whose clock reads and bookkeeping
+  stop too) need the service key's `Trace` = 1
+  (`HKLM\SYSTEM\CurrentControlSet\Services\d3dptkmd`, REG_DWORD, read
+  at DriverEntry, so a restart or a disable / enable of the adapter);
+  the device's start and stop, failures, refusals, TDR dumps and the
+  user-mode drivers' relayed lines log without it.
   Unigine Heaven runs there in Direct3D 9; in Direct3D 11 it stops on its
   loading screen (user, 2026-10-20), every GetData of one of its queries
   answered `E_INVALIDARG` by the host (token 57). DXVK's immediate
@@ -1125,7 +1141,12 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   maps), never uploaded from VRAM; a host that refuses one gets the plain
   depth surface. No new wire: the host reads the caps it already had.
   The user ran the game's hardware shadows on Windows 11 and on XP
-  (2026-10-20); open: the vendors' raw-depth FOURCCs
+  (2026-10-20). Since 2026-10-24 they carry
+  `D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP` as NVIDIA's do (no wrap, no mip
+  chain): Win98's runtime refuses a depth texture without
+  `D3DUSAGE_DEPTHSTENCIL`, as on the rig, and Wine's d3d9 device test,
+  told `QUERY_WRAPANDMIP` passed, made one with usage 0 and crashed
+  (`win98-winetest`; doc 15 "Depth textures"). Open: the vendors' raw-depth FOURCCs
   (INTZ, DF24, DF16; not Direct3D 9's own formats), a probe of our own.
 - **Unigine Heaven in Direct3D 9** (2026-10-19, on an overlay of the
   user's machine, High, 1920x1200 full screen). With the depth textures
@@ -1145,4 +1166,6 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   textures and its own memory together; and the XP and 9x drivers'
   memory has no paging at all.
 - `HKLM\SOFTWARE\2ksbox` `D3D9Trace` (executables, as `D3D11Trace`)
-  lifts the Direct3D 9 driver's 4000-line log cap for those processes.
+  turns on the Direct3D 9 user-mode driver's routine lines (resources,
+  targets, blits, submissions) and lifts its 400-line log cap for those
+  processes; without it only failures are logged.

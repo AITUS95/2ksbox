@@ -275,7 +275,7 @@ static DWORD __stdcall WaitForVerticalBlank32(d3dpt_ddhal_waitvb *d)
 
 static DWORD __stdcall CanCreateSurface32(d3dpt_ddhal_cancreatesurface *d)
 {
-    static int said;
+    static int said, refused;
 
     if (said < 48) {
         said++;
@@ -296,6 +296,16 @@ static DWORD __stdcall CanCreateSurface32(d3dpt_ddhal_cancreatesurface *d)
     if (core.d3d && d->lpDDSurfaceDesc && pf_format(&d->lpDDSurfaceDesc->ddpfPixelFormat) != 0) {
         d->ddRVal = DD_OK;
         return DDHAL_DRIVER_HANDLED;
+    }
+    /* a refused surface is a game's software fallback: which format, the
+     * first few (NT's DdCanCreateSurface) */
+    if (refused < 8 && d->lpDDSurfaceDesc) {
+        refused++;
+        dbg_hex(&core, "d3dpthal: refused pixel format, flags ", d->lpDDSurfaceDesc->ddpfPixelFormat.dwFlags);
+        dbg_hex(&core, " fourcc ", d->lpDDSurfaceDesc->ddpfPixelFormat.dwFourCC);
+        dbg_hex(&core, " bits ", d->lpDDSurfaceDesc->ddpfPixelFormat.dwRGBBitCount);
+        dbg_hex(&core, " caps ", d->lpDDSurfaceDesc->ddsCaps.dwCaps);
+        dbg_puts(&core, "\n");
     }
     d->ddRVal = DDERR_INVALIDPIXELFORMAT;
     return DDHAL_DRIVER_HANDLED;

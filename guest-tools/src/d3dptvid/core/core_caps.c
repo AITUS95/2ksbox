@@ -494,10 +494,17 @@ void d3d_caps_init(d3dpt_core *p)
      * succeeds and a sample compares against the depth (the host's
      * D3DUSAGE_DEPTHSTENCIL texture, DXVK's depth compare). Without it a
      * Direct3D 9 game on Windows 11 said "hardware shadows are not
-     * supported" (2026-10-19) */
-    fmt8_add(D3DFMT_D16_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_);
-    fmt8_add(D3DFMT_D24X8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_);
-    fmt8_add(D3DFMT_D24S8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_);
+     * supported" (2026-10-19). No wrap and no mip chain, as NVIDIA's:
+     * QUERY_WRAPANDMIP fails, so nothing takes one for a plain texture.
+     * Win98's runtime refuses a depth texture without DEPTHSTENCIL (the
+     * rig's too), and Wine's d3d9 device test, told it could wrap and
+     * mip one, made it without and crashed on the texture it never got */
+    fmt8_add(D3DFMT_D16_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_ |
+                              D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP_);
+    fmt8_add(D3DFMT_D24X8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_ |
+                                D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP_);
+    fmt8_add(D3DFMT_D24S8_, D3DFORMAT_OP_ZSTENCIL_ | D3DFORMAT_OP_ZSTENCIL_WITH_ARBITRARY_COLOR_DEPTH_ | D3DFORMAT_OP_TEXTURE_ |
+                                D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP_);
     if (!(ddflags(p) & DDF_NO_MSAA)) {
         /* multisampling (v13): 2 and 4 samples on the render-target and depth
          * formats, full screen only. MultiSampleCaps shares the green-mask

@@ -1614,7 +1614,16 @@ layer since M16 step 5, doc 19).
   DXVK's depth compare (the era's NVIDIA shadow maps) and never uploaded
   from VRAM. D3DFEAT9's row G fills one as a pass's depth buffer and
   samples it from a ps_2_0, byte for byte as natively through XP's and
-  Win98's own `d3d9.dll` (2026-10-22, M16's track doc).
+  Win98's own `d3d9.dll` (2026-10-22, M16's track doc). The three carry
+  `D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP` too (2026-10-24), as NVIDIA's do:
+  `CheckDeviceFormat(D3DUSAGE_QUERY_WRAPANDMIP)` fails on them. Win98's
+  runtime refuses a depth texture made without `D3DUSAGE_DEPTHSTENCIL`
+  before the driver is asked (the 9x HAL's CanCreateSurface logs what it
+  refuses, and logged nothing), as on the rig's GeForce 6200: Wine's
+  d3d8 `device.c:9939` and d3d9 `device.c:13843`, "2D 2" and "2D 9", are
+  in `w98-driver.txt` for it. Wine's d3d9 device test, told it could wrap
+  and mip one, made a D16 texture with usage 0 and crashed on the texture
+  it never got.
 - **Lazy targets.** `d3d9.dll` sends a SetRenderTarget and the viewport
   it resets at the next draw or clear, not when called. A surface
   released while still the context's target is forgotten by the context

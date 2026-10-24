@@ -50,7 +50,9 @@ static SIZE_T APIENTRY vpe_size(D3D10DDI_HDEVICE h, CONST D3D11_1DDIARG_CREATEVI
 static HRESULT APIENTRY vpe_create(D3D10DDI_HDEVICE h, CONST D3D11_1DDIARG_CREATEVIDEOPROCESSORENUM *c, D3D11_1DDI_HVIDEOPROCESSORENUM e, D3D11_1DDI_HRTVIDEOPROCESSORENUM rt)
 { D11_TRACE("vpe_create");
     (void)h; (void)e; (void)rt;
-    umd_log("d3d11: CreateVideoProcessorEnum %ux%u -> %ux%u", c->Desc.InputWidth, c->Desc.InputHeight, c->Desc.OutputWidth, c->Desc.OutputHeight);
+    if (g_d11_verbose) {
+        umd_log("d3d11: CreateVideoProcessorEnum %ux%u -> %ux%u", c->Desc.InputWidth, c->Desc.InputHeight, c->Desc.OutputWidth, c->Desc.OutputHeight);
+    }
     return S_OK;
 }
 static VOID APIENTRY vpe_destroy(D3D10DDI_HDEVICE h, D3D11_1DDI_HVIDEOPROCESSORENUM e) { D11_TRACE("vpe_destroy"); (void)h; (void)e; }
