@@ -785,6 +785,14 @@ void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool sca
 {
     uint32_t off, bytes;
     if (scanout && (sub == 0 || sub == ~0u) && ring_take(x, d, h, r)) return;
+    /* VRAM gets the latest now, not a ring slot: a slot that held an older
+     * frame of this allocation must not be shown for it. A flip read back
+     * because the player held every slot left that entry, and the page's
+     * next show took the slot, DWM's frame from two or three flips before
+     * (a Start menu's animation with echoes of itself, on the Mac, where
+     * the player gives slots back later; the Direct3D 9 side's readback
+     * forgets them too) */
+    scans_forget(d, h);
     /* one still owed: this copy is newer where it covers it */
     for (const D11::Owed &o : d.owed)
         if (o.h == h) {

@@ -200,6 +200,22 @@ device after 36 frames: 3dfx's login job put its "Voodoo 2 driver is
 loading" box over the fullscreen game, then a Glide error box that held
 the power button (the image's, not the ring's).
 
+Windows 11 on Arm under HVF on the same ring, the user's machine
+(the Start menu's animation "has echoes of previous frames"): a Direct3D
+11 flip read back because the player held every slot (on the Mac its
+GPU gives a slot back later than the PC's, so this happens several times
+an animation) left the page's entry in `scans`, which named the slot of
+DWM's frame from two or three flips before, and the page's next show
+took that slot. The readback forgets the page's slots now
+(`res_readback`), as the Direct3D 9 side's always did. A count added for
+one run (the machine on a copy, logged in, the Start menu opened four
+times): 13 such entries, 12 at a flip, each an old frame shown before.
+On the way: KosmicKrisp's `vkCmdSetEvent2` ignores its dependency (a
+one-thread compute write), suspected of showing a slot before its copy
+was done; a probe (40 copies of a 3840x2160 image, then the event) had
+it set after the copies every time, 0.05 ms before the fence, so the
+Direct3D 11 event query stays.
+
 Open: nothing of step 6 (Linux below).
 
 ## State (2026-10-24, Linux)
