@@ -1132,7 +1132,12 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   maps), never uploaded from VRAM; a host that refuses one gets the plain
   depth surface. No new wire: the host reads the caps it already had.
   The user ran the game's hardware shadows on Windows 11 and on XP
-  (2026-10-20); open: the vendors' raw-depth FOURCCs
+  (2026-10-20). Since 2026-10-24 they carry
+  `D3DFORMAT_OP_NOTEXCOORDWRAPNORMIP` as NVIDIA's do (no wrap, no mip
+  chain): Win98's runtime refuses a depth texture without
+  `D3DUSAGE_DEPTHSTENCIL`, as on the rig, and Wine's d3d9 device test,
+  told `QUERY_WRAPANDMIP` passed, made one with usage 0 and crashed
+  (`win98-winetest`; doc 15 "Depth textures"). Open: the vendors' raw-depth FOURCCs
   (INTZ, DF24, DF16; not Direct3D 9's own formats), a probe of our own.
 - **Unigine Heaven in Direct3D 9** (2026-10-19, on an overlay of the
   user's machine, High, 1920x1200 full screen). With the depth textures

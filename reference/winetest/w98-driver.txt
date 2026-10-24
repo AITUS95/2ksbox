@@ -33,6 +33,7 @@ d3d8_test_device device.c:8852 5
 d3d8_test_device device.c:8906 2
 d3d8_test_device device.c:9748 1
 d3d8_test_device device.c:9754 1
+d3d8_test_device device.c:9939 2  # 2D 2, 9: a depth texture without DEPTHSTENCIL, Win98's runtime refuses it as on the rig (2026-10-24)
 d3d8_test_visual visual.c:12377 1
 d3d8_test_visual visual.c:9850 3
 d3d9_test_device device.c:11324 1
@@ -44,6 +45,7 @@ d3d9_test_device device.c:12444 5
 d3d9_test_device device.c:12482 5
 d3d9_test_device device.c:12532 2
 d3d9_test_device device.c:13049 1
+d3d9_test_device device.c:13843 2  # the same as d3d8's device.c:9939, as on the rig (2026-10-24)
 d3d9_test_device device.c:1741 1
 d3d9_test_device device.c:1743 1
 d3d9_test_device device.c:1747 1

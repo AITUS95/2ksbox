@@ -97,7 +97,9 @@ for t in ${WT_TESTS:-d3d9:visual d3d9:stateblock d3d9:d3d9ex d3d8:visual d3d8:st
 done
 CMD+='echo WTALL > COM1'
 
-GUEST_CMD="$CMD" UNTIL=WTALL RUN_SECS="${RUN_SECS:-21600}" SHOTS="${SHOTS:-300}" \
+# FRESH= so a FRESH=1 run keeps the copy made and staged above (passed on,
+# it converted the image again and the guest ran RUN.BAT with no C:\WT)
+FRESH= GUEST_CMD="$CMD" UNTIL=WTALL RUN_SECS="${RUN_SECS:-21600}" SHOTS="${SHOTS:-300}" \
   "$ROOT/tools/win98-game-test.sh" "$IMG" winetest
 
 rm -rf "$OUT/winetest"; mkdir -p "$OUT/winetest"
