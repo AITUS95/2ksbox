@@ -256,6 +256,11 @@ second late, so the wait stays as the GPU's back-pressure. The ring-off
 run's own pace looked perfect only because that path republishes the
 surface at every tick: compare flips, not publishes.
 `PLAYER_PUBLISH_LOG` lines carry milliseconds since.
+The user, with Windows' transparency effects off (Settings >
+Personalization > Colors): "it gets smoother", which settles it as the
+acrylic blur's GPU cost through DXVK and KosmicKrisp. Where that time
+goes on the GPU (a Metal capture of a Start menu frame, DXVK's HUD) is
+the next question, outside the ring.
 
 Open: nothing of step 6 (Linux below).
 
