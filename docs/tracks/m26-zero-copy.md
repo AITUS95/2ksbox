@@ -230,6 +230,33 @@ was done; a probe (40 copies of a 3840x2160 image, then the event) had
 it set after the copies every time, 0.05 ms before the fence, so the
 Direct3D 11 event query stays.
 
+Smoothness at a large size (the user: the desktop "not smooth enough
+when using a large resolution here"), measured on the user's machine
+(a copy) at 2560x1676, the Start menu opened and closed twelve times,
+DWM's own flips timed at the device's register:
+
+| | flips/s in an animation | interval p90 | frames from a slot |
+|---|---|---|---|
+| ring off (readback) | 38.0 | 33 ms | 0 % |
+| ring, 3 slots | 39.6 | 33 ms | 49 % |
+| ring, 5 slots | 42.6 | 31 ms | 100 % |
+
+The ring is not what holds the desktop back: DWM makes about 40 frames
+a second at that size either way, its GPU work through DXVK and
+KosmicKrisp a median 5 to 8 ms a frame and over 30 ms on heavy ones (the
+Start menu's acrylic blur), which a flip's show waits for. Five slots
+are the default since (`ring-slots`, 2 to 8): with three, half the
+frames were read back (every slot held, or the free one another page's
+newest), with five none. Tried and dropped on the way: DXVK's tiler mode
+off (`DXVK_CONFIG="dxvk.tilerMode = False"`, which ignores an explicit
+flush after a multisampled pass): no change; a flip that never waits for
+its copy (retrying on the timer past the 20 tries): the guest queued
+frames faster than the GPU finished them, p90 111 ms and one flip a
+second late, so the wait stays as the GPU's back-pressure. The ring-off
+run's own pace looked perfect only because that path republishes the
+surface at every tick: compare flips, not publishes.
+`PLAYER_PUBLISH_LOG` lines carry milliseconds since.
+
 Open: nothing of step 6 (Linux below).
 
 ## State (2026-10-24, Linux)

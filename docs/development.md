@@ -253,7 +253,9 @@ player [--shader <preset.slangp>] [--shader-params <k=v,...>]
   the same A/B from the machine's side.
 - `PLAYER_PUBLISH_LOG=1` prints a line per published frame naming its
   source (which ring slot, the readback path, the VGA surface, the
-  cursor's republish) and a line per presented frame. Two sources taking
+  cursor's republish) and a line per presented frame, each with the
+  milliseconds since the first, which a frame's pace is read off (the
+  first 100,000 publishes). Two sources taking
   turns is a flicker the picture alone does not show. Pair the presented
   slot with `PLAYER_SHOT_EVERY=1`'s shots.
 - `PLAYER_CURSOR_LOG=1` prints every shape the guest defines, with its

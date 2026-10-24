@@ -166,6 +166,7 @@ struct D3dptVgaState {
      * reading it back, and which the console shows by number */
     bool zero_copy;             /* property */
     int ring_n;                 /* images in the ring (0: none) */
+    uint32_t ring_slots;        /* property: how many to ask for (2 to 8) */
     uint32_t ring_w, ring_h;
     bool ring_refused;          /* this size could not have one: not asked again */
     bool shadow_stale;          /* a slot had the screen since the shadow last did */
@@ -655,7 +656,7 @@ static bool fb_settled(D3dptVgaState *s, bool wait)
  * an older picture, `shadow_stale`, until something must show or read
  * them (the CPU drew on the page, a screendump), which reads the page
  * back first (d3dpt_exec_scanout_vram). */
-#define D3DPT_RING_SLOTS 3
+#define D3DPT_RING_SLOTS_MAX 8
 
 static void fb_ring_drop(D3dptVgaState *s)
 {
@@ -678,7 +679,8 @@ static void fb_ring_drop(D3dptVgaState *s)
 static bool fb_ring_ready(D3dptVgaState *s, const D3dptLinearMode *m)
 {
     const QemuScanoutRingOps *ops = qemu_scanout_ring();
-    void *handles[D3DPT_RING_SLOTS];
+    void *handles[D3DPT_RING_SLOTS_MAX];
+    int want = MAX(2, MIN((int)s->ring_slots, D3DPT_RING_SLOTS_MAX));
     int n, took;
 
     if (!s->zero_copy || !s->exec || !s->lib->ring || !s->lib->ring_slot ||
@@ -695,7 +697,7 @@ static bool fb_ring_ready(D3dptVgaState *s, const D3dptLinearMode *m)
     fb_ring_drop(s);
     s->ring_w = m->w;
     s->ring_h = m->h;
-    n = ops->alloc(s->vga.con, m->w, m->h, D3DPT_RING_SLOTS, handles);
+    n = ops->alloc(s->vga.con, m->w, m->h, want, handles);
     took = 0;
     if (n > 0) {
         qemu_mutex_lock(&s->exec_lock);
@@ -1941,6 +1943,11 @@ static const Property d3dpt_vga_properties[] = {
      * of read back into VRAM (track M26, Windows, macOS and Linux hosts); off,
      * the A/B */
     DEFINE_PROP_BOOL("zero-copy", D3dptVgaState, zero_copy, true),
+    /* the scanout ring's images (2 to 8). A flip that finds every one
+     * the front end may sample held, or that would take another page's
+     * newest frame, costs a readback: with 3, Windows 11's DWM at
+     * 2560x1676 on the Mac read back half its frames, with 5 none (M26) */
+    DEFINE_PROP_UINT32("ring-slots", D3dptVgaState, ring_slots, 5),
     /* an interrupt pin for the WDDM driver (M18, Windows 7) and the IRQ
      * registers behind it (register set v6: the vertical blank) */
     DEFINE_PROP_BOOL("irq", D3dptVgaState, irq, false),

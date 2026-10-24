@@ -681,9 +681,16 @@ fn publish_trace(tag: &std::fmt::Arguments) {
         return;
     }
     let n = N.fetch_add(1, Ordering::Relaxed);
-    if n < 5000 {
-        eprintln!("[pub] {n} {tag}");
+    if n < 100_000 {
+        eprintln!("[pub] {n} {} {tag}", trace_ms());
     }
+}
+
+/// Milliseconds since the first publish or present trace line: a frame's
+/// pace is read off them (`PLAYER_PUBLISH_LOG`).
+pub(crate) fn trace_ms() -> u128 {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    T0.get_or_init(std::time::Instant::now).elapsed().as_millis()
 }
 
 /// A ring slot holds a complete frame: publish by reference.

@@ -1256,8 +1256,8 @@ pub(crate) fn present_guest_frame(
         *last_seq = f.seq;
         if std::env::var_os("PLAYER_PUBLISH_LOG").is_some() {
             match f.ext_slot {
-                Some(s) => eprintln!("[present] seq {} slot {s}", f.seq),
-                None => eprintln!("[present] seq {} surface {}x{} {:?}", f.seq, f.width, f.height, f.dirty),
+                Some(s) => eprintln!("[present] seq {} {} slot {s}", f.seq, qemu_vm::trace_ms()),
+                None => eprintln!("[present] seq {} {} surface {}x{} {:?}", f.seq, qemu_vm::trace_ms(), f.width, f.height, f.dirty),
             }
         }
         match f.ext_slot {

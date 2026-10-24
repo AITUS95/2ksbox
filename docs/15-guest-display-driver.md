@@ -207,6 +207,7 @@ is checked.
 | `follow=off` | with `irq=on`, no `CAP_FOLLOW` (register set v12): the desktop keeps its size whatever the window's. On (the default, 2026-10-22, track M20) the WDDM driver's `FOLLOW`, written at the guest agent's first ask, makes the console take UI info, so the player sizes the guest to its window: `PREF_W` / `PREF_H` and `IRQ_DISPLAY` carry the window's size, the driver makes it a custom mode (also in the monitor's mode set) and the agent applies it ("The desktop following the window" below) |
 | `flip-push=off` | the console stands on VRAM and the display's tick polls it, as before 2026-10-10; on (the default) a flip copies the page it shows and pushes it at once (above) |
 | `zero-copy=off` | flips are read back into VRAM and pushed from there, as before 2026-10-23; on (the default) a Windows, macOS or Linux host's player gets them through its scanout ring on the GPU (M26, above) |
+| `ring-slots=N` | the scanout ring's images, 2 to 8 (5): a flip finding every one held by the player, or one holding another page's newest frame, is read back; with 3, Windows 11's DWM at 2560x1676 on the Mac read half its frames back (M26) |
 
 The executor properties model hosts, not devices. The adapter only hands
 them to the loader (`d3dpt/hw/d3dpt_exec_load.c`).
