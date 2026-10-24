@@ -411,12 +411,13 @@ static bool open_native(Exec *x)
 #endif
 }
 
-int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count)
+int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count, uint32_t latest)
 {
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t k = (next + i) % count;
-        if (k >= 32 || !(x.ring_held & (1u << k))) return (int)k;
-    }
+    for (int pass = 0; pass < 2; pass++)
+        for (uint32_t i = 0; i < count; i++) {
+            uint32_t k = (next + i) % count, bit = k < 32 ? 1u << k : 0;
+            if (!(x.ring_held & bit) && (pass || !(latest & bit))) return (int)k;
+        }
     return -1;
 }
 

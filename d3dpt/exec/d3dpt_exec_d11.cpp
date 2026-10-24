@@ -661,6 +661,7 @@ uint8_t *vram_of(Exec &x, uint32_t h, uint32_t &off, uint32_t &bytes)
 }
 
 void owed_settle(Exec &x, D11 &d, uint32_t h, bool wait, bool drop = false);
+void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool scanout, bool ring);
 
 /* the ring's slots no longer hold the allocation's latest (its VRAM is,
  * or it went) */
@@ -685,15 +686,29 @@ bool ring_take(Exec &x, D11 &d, uint32_t h, D11Res &r)
         r.d.samples > 1 || (r.d.format != 87 && r.d.format != 91) || r.layout.empty() || !r.res ||
         !exec_ddi_vram_offset(x, h, &off))
         return false;
-    /* the next slot the player does not hold (all held: read back) */
-    int pick = exec_ring_pick(x, d.ring_next, (uint32_t)d.ring.size());
+    /* the next slot the player does not hold (all held: read back), one
+     * with another page's newest frame in it last */
+    uint32_t page = off + r.layout[0].offset, latest = 0;
+    for (const auto &kv : d.scans)
+        if (kv.first != page && kv.second.slot < 32) latest |= 1u << kv.second.slot;
+    int pick = exec_ring_pick(x, d.ring_next, (uint32_t)d.ring.size(), latest);
     if (pick < 0) return false;
-    uint32_t page = off + r.layout[0].offset, k = (uint32_t)pick;
+    uint32_t k = (uint32_t)pick;
     D11::Slot &s = d.ring[k];
     d.ring_next = (k + 1) % (uint32_t)d.ring.size();
     owed_settle(x, d, h, false, true);          /* a readback owed for it is older */
-    for (auto it = d.scans.begin(); it != d.scans.end();)   /* the slot's last frame is overwritten */
-        it = it->second.slot == k ? d.scans.erase(it) : std::next(it);
+    /* the slot's last frame is overwritten: one that was another page's
+     * newest goes back into VRAM first (owed, the display waits for it) */
+    std::vector<uint32_t> evicted;
+    for (auto it = d.scans.begin(); it != d.scans.end();) {
+        if (it->second.slot != k) { ++it; continue; }
+        if (it->first != page) evicted.push_back(it->second.h);
+        it = d.scans.erase(it);
+    }
+    for (uint32_t e : evicted) {
+        auto er = d.res.find(e);
+        if (er != d.res.end() && er->second.newer && er->second.res) res_readback(x, d, e, er->second, ~0u, true, false);
+    }
     d.ctx->CopySubresourceRegion(s.tex, 0, 0, 0, 0, r.res, 0, nullptr);
     d.ctx->End(s.done);
     d.ctx->Flush();                             /* submitted now: the display polls it */
@@ -781,10 +796,10 @@ void owed_settle(Exec &x, D11 &d, uint32_t h, bool wait, bool drop)
  * (d3dpt_exec_settle): the Map waits for the GPU to finish the frame,
  * 2-4 ms of the executor's at each of DWM's compositions with every guest
  * submission queued behind it (track M25) */
-void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool scanout = false)
+void res_readback(Exec &x, D11 &d, uint32_t h, D11Res &r, uint32_t sub, bool scanout = false, bool ring = true)
 {
     uint32_t off, bytes;
-    if (scanout && (sub == 0 || sub == ~0u) && ring_take(x, d, h, r)) return;
+    if (scanout && ring && (sub == 0 || sub == ~0u) && ring_take(x, d, h, r)) return;
     /* VRAM gets the latest now, not a ring slot: a slot that held an older
      * frame of this allocation must not be shown for it. A flip read back
      * because the player held every slot left that entry, and the page's

@@ -3385,7 +3385,10 @@ static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
     if (FAILED(hr) || !img) return false;
     /* the next slot the player does not hold: one it may still be
      * sampling is never written (all held: read back) */
-    int pick = exec_ring_pick(x, d.ring_next, (uint32_t)d.ring.size());
+    uint32_t latest = 0;                        /* other pages' newest frames: overwritten last */
+    for (const auto &kv : d.scans)
+        if (kv.first != s.d.offset && kv.second.slot < 32) latest |= 1u << kv.second.slot;
+    int pick = exec_ring_pick(x, d.ring_next, (uint32_t)d.ring.size(), latest);
     if (pick < 0) return false;
     uint32_t k = (uint32_t)pick;
     Ddi::RingSlot &r = d.ring[k];
@@ -3431,8 +3434,18 @@ static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
     }
     r.used = true;
     d.ring_next = (k + 1) % (uint32_t)d.ring.size();
-    for (auto it = d.scans.begin(); it != d.scans.end();)   /* the slot's last frame is overwritten */
-        it = it->second.slot == k ? d.scans.erase(it) : std::next(it);
+    /* the slot's last frame is overwritten: one that was another page's
+     * newest goes back into VRAM (exec_ring_pick) */
+    std::vector<uint32_t> evicted;
+    for (auto it = d.scans.begin(); it != d.scans.end();) {
+        if (it->second.slot != k) { ++it; continue; }
+        if (it->first != s.d.offset) evicted.push_back(it->second.h);
+        it = d.scans.erase(it);
+    }
+    for (uint32_t e : evicted) {
+        auto es = d.surfs.find(e);
+        if (es != d.surfs.end() && es->second.rendered) readback(x, d, es->second);
+    }
     d.scans[s.d.offset] = { s.d.handle, k };
     return true;
 #else

@@ -199,8 +199,12 @@ void exec_d11_scanout_vram(Exec &x, uint32_t page);
 int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t h);
 /* the ring's next slot for a frame, from `next` on: the first one the
  * front end does not hold, -1 when it holds them all (the frame is read
- * back instead) */
-int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count);
+ * back instead). One in `latest` (the only place another page's newest
+ * frame is, its VRAM older) only when no other is free: the caller then
+ * puts that frame back into VRAM before the slot is overwritten, or a flip
+ * still to show that page (its copy not done, the device's retry) finds no
+ * slot and shows VRAM's older frame (M26) */
+int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count, uint32_t latest);
 int exec_ddi_ring_slot(Exec &x, uint32_t page, bool wait);
 void exec_ddi_scanout_vram(Exec &x, uint32_t page);
 #ifdef D3DPT_RING

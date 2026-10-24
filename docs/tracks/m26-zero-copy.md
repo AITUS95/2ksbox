@@ -210,6 +210,19 @@ took that slot. The readback forgets the page's slots now
 (`res_readback`), as the Direct3D 9 side's always did. A count added for
 one run (the machine on a copy, logged in, the Start menu opened four
 times): 13 such entries, 12 at a flip, each an old frame shown before.
+Less, but still there (the user): a second cause. A page's newest
+frame copied into a slot (VRAM older, on purpose) and its flip not shown
+yet (the copy not done, the device's retry) lost that slot to the next
+frame of another page: the player held the other two, the one free was
+it. The page's entry went with it, and the flip found no slot and showed
+VRAM's older frame. A count for the run: 31 times in eight Start menus.
+`exec_ring_pick` now takes a mask of the slots holding another page's
+newest frame and gives one only when no other is free, and the
+overwrite puts that page's frame back into VRAM first (Direct3D 11:
+owed, the display waits; Direct3D 9: read back at once). The same run
+afterwards: 0. More frames now come through VRAM than before (a page
+whose slot was taken is read back), the ring's price on a host whose
+player gives slots back late.
 On the way: KosmicKrisp's `vkCmdSetEvent2` ignores its dependency (a
 one-thread compute write), suspected of showing a slot before its copy
 was done; a probe (40 copies of a 3840x2160 image, then the event) had
