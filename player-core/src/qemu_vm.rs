@@ -223,6 +223,12 @@ struct Shared {
     ring_alloc: Option<RingAlloc>,
     #[cfg(windows)]
     ring: Vec<crate::d3d12ring::Slot>,
+    // the ring's slots we may still sample (bit n = slot n), which the
+    // device's frames must not go into (embed v18): shown and not yet
+    // replaced, or replaced and their last draw not finished on the GPU.
+    // `slots_untaken`: shown since the render thread last took a frame
+    slots_held: u32,
+    slots_untaken: u32,
     dmabufs: Vec<DmaBuf>,
     // QEMU's main loop has returned; the handle must not be used any more
     stopped: bool,
@@ -240,6 +246,8 @@ struct Shared {
     // relative mouse, a grab)
     cursor_x: i32,
     cursor_y: i32,
+    // the UI draws the sprite into the frame (`cursor_sprite`)
+    sprite_wanted: bool,
 }
 unsafe impl Send for Shared {}
 
@@ -315,6 +323,15 @@ impl Display {
             return None;
         }
         let dirty = s.front.pending.take();
+        // slots shown since the last take and replaced before it, never
+        // drawn: the device may have them back now (M26)
+        let newest = s.front.ext_slot.map_or(0, slot_bit);
+        let superseded = s.slots_untaken & !newest;
+        s.slots_untaken = 0;
+        if superseded & s.slots_held != 0 {
+            s.slots_held &= !superseded;
+            push_held(&s);
+        }
         let fr = &s.front;
         Some(f(FrameRef {
             ext_slot: fr.ext_slot,
@@ -325,6 +342,18 @@ impl Display {
             seq: fr.seq,
             published: fr.published,
         }))
+    }
+
+    /// Scanout ring slots whose last draw the GPU has finished go back to
+    /// the device (M26), except `keep` (the one on show) and any shown
+    /// again since, which the render thread has not taken yet.
+    pub fn release_slots(&self, slots: u32, keep: u32) {
+        let mut s = self.0.lock().unwrap();
+        let rel = slots & !keep & !s.slots_untaken & s.slots_held;
+        if rel != 0 {
+            s.slots_held &= !rel;
+            push_held(&s);
+        }
     }
 
     /// dma-buf slots offered since the last call (import them on the GPU thread).
@@ -361,10 +390,13 @@ impl Display {
     }
 
     /// The sprite to composite: the shape and the hot spot's guest position,
-    /// while the guest shows a hardware cursor.
-    pub fn cursor_sprite(&self) -> Option<(Arc<CursorImage>, i32, i32)> {
-        let s = self.0.lock().unwrap();
-        if s.cursor_visible != Some(true) {
+    /// while the guest shows a hardware cursor and the UI `wanted` it (the
+    /// host cursor cannot stand in). Remembered, so a move alone republishes
+    /// a ring slot's frame only when the sprite is drawn into it.
+    pub fn cursor_sprite(&self, wanted: bool) -> Option<(Arc<CursorImage>, i32, i32)> {
+        let mut s = self.0.lock().unwrap();
+        s.sprite_wanted = wanted;
+        if !wanted || s.cursor_visible != Some(true) {
             return None;
         }
         s.cursor.clone().map(|c| (c, s.cursor_x, s.cursor_y))
@@ -463,8 +495,10 @@ unsafe extern "C" fn on_mouse_set(ud: *mut c_void, x: c_int, y: c_int, on: bool)
     s.cursor_y = y;
     // a move alone republishes the frame: the UI composites the sprite at
     // the new place when it has to (no cost when the host cursor is used,
-    // since the copy happens only if the UI takes the frame)
-    if changed && s.cursor.is_some() && s.front.width != 0 && s.front.ext_slot.is_none() {
+    // since the copy happens only if the UI takes the frame). A ring
+    // slot's frame only while the sprite is drawn into it: taken again, it
+    // runs the whole chain
+    if changed && s.cursor.is_some() && s.front.width != 0 && (s.front.ext_slot.is_none() || s.sprite_wanted) {
         publish_trace(&format_args!("cursor"));
         s.front.seq += 1;
     }
@@ -671,6 +705,9 @@ unsafe extern "C" fn on_scanout_ring(
 ) -> c_int {
     let shared = &*(ud as *const Mutex<Shared>);
     let mut s = shared.lock().unwrap();
+    // a new ring (or none): the library holds nothing of it either
+    s.slots_held = 0;
+    s.slots_untaken = 0;
     #[cfg(windows)]
     {
         s.ring.clear();
@@ -714,12 +751,20 @@ unsafe extern "C" fn on_scanout_ring(
 
 /// v17 (M26): a ring slot holds the screen's whole frame. The surface did
 /// not get it, so `front` is not the picture any more: the next surface
-/// frame is copied whole.
+/// frame is copied whole. v18: held from here, before the device (under
+/// the same BQL) can put another frame into it, until the render thread
+/// is done with it (`take_newer`, `release_slots`).
 unsafe extern "C" fn on_scanout_slot(ud: *mut c_void, slot: c_int) {
     let shared = &*(ud as *const Mutex<Shared>);
     let mut s = shared.lock().unwrap();
     if slot < 0 {
         return;
+    }
+    let bit = slot_bit(slot as usize);
+    s.slots_untaken |= bit;
+    if s.slots_held & bit == 0 {
+        s.slots_held |= bit;
+        push_held(&s);
     }
     publish_trace(&format_args!("scanout slot {slot}"));
     s.front_stale = true;
@@ -732,6 +777,19 @@ unsafe extern "C" fn on_scanout_slot(ud: *mut c_void, slot: c_int) {
     drop(s);
     if let Some(w) = waker {
         w();
+    }
+}
+
+/// A ring slot's bit in a held mask (embed v18); none past the mask's 32.
+pub fn slot_bit(slot: usize) -> u32 {
+    if slot < 32 { 1 << slot } else { 0 }
+}
+
+/// The slots held, to the library: the device reads them before it puts a
+/// frame into the ring.
+fn push_held(s: &Shared) {
+    if let Some(vm) = s.vm.as_ref() {
+        vm.scanout_hold(s.slots_held);
     }
 }
 
@@ -1012,6 +1070,8 @@ pub fn start(
         ring_alloc,
         #[cfg(windows)]
         ring: Vec::new(),
+        slots_held: 0,
+        slots_untaken: 0,
         dmabufs: Vec::new(),
         stopped: false,
         released: false,
@@ -1020,6 +1080,7 @@ pub fn start(
         cursor_visible: None,
         cursor_x: 0,
         cursor_y: 0,
+        sprite_wanted: false,
     }));
     // Leak one strong ref for the C side; the process holds one VM for life.
     let ud = Arc::into_raw(shared.clone()) as usize;

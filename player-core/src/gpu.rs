@@ -38,6 +38,16 @@ pub struct Gpu {
     overlay_pipeline: wgpu::RenderPipeline,
     /// that image while one is up
     overlay: Option<Shown>,
+    /// `pipeline` blending into a byte (non-sRGB) BGRA8 target: the guest
+    /// cursor's sprite over a ring slot's frame, as `composite_cursor`
+    /// blends it on the CPU
+    cursor_pipeline: wgpu::RenderPipeline,
+    /// a ring slot's frame with the cursor sprite blended in (and that
+    /// texture's byte view to draw the sprite through), on show instead of
+    /// the slot while `comp_on`; the sprite's texture
+    comp: Option<(Shown, wgpu::TextureView)>,
+    comp_on: bool,
+    sprite: Option<Shown>,
     fb_tex: Option<Shown>,
     /// `fb_tex` does not hold the published frame (new, or the cursor
     /// sprite drawn into it): the next upload is whole, not what changed
@@ -45,6 +55,9 @@ pub struct Gpu {
     /// zero-copy 3D frames: imported dma-buf ring slots and the one on show
     ext: Vec<Option<Shown>>,
     ext_current: Option<usize>,
+    /// scanout ring slots taken off show whose last draw the GPU has
+    /// finished since (bit n = slot n), for the device to have back (M26)
+    slots_done: std::sync::Arc<std::sync::atomic::AtomicU32>,
     zero_copy: bool,
     adapter_info: wgpu::AdapterInfo,
     pub(crate) chain: Option<shader_chain::Chain>,
@@ -205,7 +218,7 @@ impl Gpu {
         });
         // one shader, two pipelines: the picture, and an image blended
         // over it
-        let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>| {
+        let make_pipeline = |label: &str, format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
@@ -222,7 +235,7 @@ impl Gpu {
                     module: &shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format,
+                        format,
                         blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -232,8 +245,9 @@ impl Gpu {
                 cache: None,
             })
         };
-        let pipeline = make_pipeline("blit", None);
-        let overlay_pipeline = make_pipeline("overlay", Some(wgpu::BlendState::ALPHA_BLENDING));
+        let pipeline = make_pipeline("blit", config.format, None);
+        let overlay_pipeline = make_pipeline("overlay", config.format, Some(wgpu::BlendState::ALPHA_BLENDING));
+        let cursor_pipeline = make_pipeline("cursor", wgpu::TextureFormat::Bgra8Unorm, Some(wgpu::BlendState::ALPHA_BLENDING));
 
         let adapter_info = adapter.get_info();
         Self {
@@ -246,10 +260,15 @@ impl Gpu {
             pipeline,
             overlay_pipeline,
             overlay: None,
+            cursor_pipeline,
+            comp: None,
+            comp_on: false,
+            sprite: None,
             fb_tex: None,
             fb_whole: true,
             ext: Vec::new(),
             ext_current: None,
+            slots_done: Default::default(),
             zero_copy,
             adapter_info,
             chain: None,
@@ -495,6 +514,7 @@ impl Gpu {
     /// Show an imported slot (Some) or the CPU-uploaded framebuffer (None).
     fn use_slot(&mut self, slot: Option<usize>) {
         let before = self.shown_size();
+        self.comp_on = false;
         self.ext_current = match slot {
             Some(s) if self.ext.get(s).map(|e| e.is_some()).unwrap_or(false) => Some(s),
             _ => None,
@@ -504,6 +524,134 @@ impl Gpu {
         if self.shown_size() != before {
             self.guest_surface_changed();
         }
+    }
+
+    /// A slot just taken off show goes back to the device once the GPU
+    /// has finished everything submitted so far, the last draws that
+    /// sampled it among them (M26).
+    fn release_after_gpu(&self, slot: usize) {
+        let done = self.slots_done.clone();
+        let bit = qemu_vm::slot_bit(slot);
+        self.queue.on_submitted_work_done(move || {
+            done.fetch_or(bit, std::sync::atomic::Ordering::AcqRel);
+        });
+    }
+
+    /// The guest's cursor over the ring slot on show, where the host
+    /// cursor cannot stand in for it (a relative mouse, a grab): the slot
+    /// copied on the GPU into a texture of ours, the sprite's part inside
+    /// the frame blended into that through its byte view (the CPU path's
+    /// blend, `composite_cursor`), and the copy shown instead of the slot
+    /// until the next frame. The slot itself is never written: the device
+    /// owns what is in it. A frame in another format (an imported dma-buf
+    /// that is not BGRA) shows without the sprite, as before.
+    fn composite_slot_cursor(&mut self, c: &qemu_vm::CursorImage, x: i32, y: i32) {
+        let Some(slot) = self.ext_current else { return };
+        let Some((src, _, w, h)) = self.ext[slot].as_ref() else { return };
+        let (src, w, h) = (src.clone(), *w, *h);
+        let format = src.format();
+        let bytes = format.remove_srgb_suffix();
+        if bytes != wgpu::TextureFormat::Bgra8Unorm {
+            return;
+        }
+        // the sprite's part inside the frame
+        let (x0, y0) = (x - c.hot_x as i32, y - c.hot_y as i32);
+        let (cx0, cy0) = (x0.max(0), y0.max(0));
+        let cx1 = (x0 + c.width as i32).min(w as i32);
+        let cy1 = (y0 + c.height as i32).min(h as i32);
+        if cx0 >= cx1 || cy0 >= cy1 {
+            return;
+        }
+        let (sw, sh) = ((cx1 - cx0) as u32, (cy1 - cy0) as u32);
+        let mut px = Vec::with_capacity((sw * sh) as usize);
+        for yy in cy0..cy1 {
+            let row = (yy - y0) as usize * c.width as usize;
+            px.extend_from_slice(&c.argb[row + (cx0 - x0) as usize..row + (cx1 - x0) as usize]);
+        }
+        let size = |w, h| wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 };
+        if !matches!(&self.comp, Some(((t, _, cw, ch), _)) if *cw == w && *ch == h && t.format() == format) {
+            let view_formats = [bytes];
+            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("slot with cursor"),
+                size: size(w, h),
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                // COPY_SRC: Ctrl+Alt+S reads the frame on show back
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: if bytes != format { &view_formats } else { &[] },
+            });
+            let bg = self.make_bind_group(&tex);
+            let draw = tex.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(bytes),
+                ..Default::default()
+            });
+            self.comp = Some(((tex, bg, w, h), draw));
+        }
+        if !matches!(&self.sprite, Some((_, _, pw, ph)) if *pw == sw && *ph == sh) {
+            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("cursor sprite"),
+                size: size(sw, sh),
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                // 0xAARRGGBB little-endian: B, G, R, A, straight alpha
+                format: wgpu::TextureFormat::Bgra8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let bg = self.make_bind_group(&tex);
+            self.sprite = Some((tex, bg, sw, sh));
+        }
+        let ((comp, _, _, _), draw) = self.comp.as_ref().unwrap();
+        let (sprite, sprite_bg, _, _) = self.sprite.as_ref().unwrap();
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: sprite,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&px),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(sw * 4),
+                rows_per_image: Some(sh),
+            },
+            size(sw, sh),
+        );
+        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("slot with cursor"),
+        });
+        enc.copy_texture_to_texture(src.as_image_copy(), comp.as_image_copy(), size(w, h));
+        {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("cursor sprite"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: draw,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_viewport(cx0 as f32, cy0 as f32, sw as f32, sh as f32, 0.0, 1.0);
+            pass.set_pipeline(&self.cursor_pipeline);
+            pass.set_bind_group(0, sprite_bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        self.queue.submit(Some(enc.finish()));
+        self.comp_on = true;
     }
 
     /// The size of the texture on show, if there is one.
@@ -519,6 +667,7 @@ impl Gpu {
     /// The texture currently on show: an imported 3D slot or the upload.
     fn current(&self) -> Option<&Shown> {
         match self.ext_current {
+            Some(_) if self.comp_on => self.comp.as_ref().map(|(c, _)| c),
             Some(s) => self.ext[s].as_ref(),
             None => self.fb_tex.as_ref(),
         }
@@ -946,9 +1095,10 @@ impl Gpu {
                     label: Some("shader"),
                 });
             // field-level borrows: `chain` is borrowed mutably above
-            let input: &wgpu::Texture = match self.ext_current {
-                Some(s) => &self.ext[s].as_ref().unwrap().0,
-                None => &self.fb_tex.as_ref().unwrap().0,
+            let input: &wgpu::Texture = match (self.ext_current, &self.comp) {
+                (Some(_), Some((c, _))) if self.comp_on => &c.0,
+                (Some(s), _) => &self.ext[s].as_ref().unwrap().0,
+                (None, _) => &self.fb_tex.as_ref().unwrap().0,
             };
             match chain.run(&self.device, &mut enc, input, vw, vh) {
                 Ok((out, _)) => {
@@ -1074,10 +1224,18 @@ pub(crate) fn present_guest_frame(
     for d in display.take_dmabufs() {
         gpu.import_slot(&d);
     }
+    // scanout ring slots the GPU has finished drawing from go back to the
+    // device, all but the one on show (M26)
+    let _ = gpu.device.poll(wgpu::PollType::Poll);
+    let done = gpu.slots_done.swap(0, std::sync::atomic::Ordering::AcqRel);
+    if done != 0 {
+        display.release_slots(done, gpu.ext_current.map_or(0, qemu_vm::slot_bit));
+    }
+    let shown_before = gpu.ext_current;
     // the guest's hardware cursor as a sprite in the frame, where the host
     // cursor cannot stand in for it (a relative mouse, a grab); asked
     // before the frame is lent, which holds the same lock
-    let sprite = if composite_cursor { display.cursor_sprite() } else { None };
+    let sprite = display.cursor_sprite(composite_cursor);
     display.take_newer(*last_seq, |f| {
         *last_seq = f.seq;
         if std::env::var_os("PLAYER_PUBLISH_LOG").is_some() {
@@ -1087,7 +1245,12 @@ pub(crate) fn present_guest_frame(
             }
         }
         match f.ext_slot {
-            Some(s) => gpu.use_slot(Some(s)),
+            Some(s) => {
+                gpu.use_slot(Some(s));
+                if let Some((c, x, y)) = &sprite {
+                    gpu.composite_slot_cursor(c, *x, *y);
+                }
+            }
             None => {
                 gpu.use_slot(None);
                 let (w, h) = (f.width as u32, f.height as u32);
@@ -1108,6 +1271,9 @@ pub(crate) fn present_guest_frame(
                     }
                 }
             }
+        }
+        if let Some(p) = shown_before.filter(|p| gpu.ext_current != Some(*p)) {
+            gpu.release_after_gpu(p);
         }
         f.published
     })

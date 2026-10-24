@@ -8,7 +8,7 @@
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::ptr;
 
-pub const API_VERSION: u32 = 17;
+pub const API_VERSION: u32 = 18;
 
 /// The system emulator this build links (`qemu-x86_64` feature: Windows
 /// 11, `qemu-aarch64`: Windows 11 on Arm; track M20), and so QEMU's own
@@ -114,6 +114,7 @@ extern "C" {
     fn qemu_embed_display_follows_window(e: *mut qemu_embed_t) -> bool;
     fn qemu_embed_set_refresh_rate(e: *mut qemu_embed_t, mhz: u32);
     fn qemu_embed_vblank(e: *mut qemu_embed_t);
+    fn qemu_embed_scanout_hold(e: *mut qemu_embed_t, slots: u32);
     fn qemu_embed_set_audio_ring(
         base: *mut c_void,
         bytes: usize,
@@ -295,6 +296,12 @@ impl Qemu {
     /// thread.
     pub fn vblank(&self) {
         unsafe { qemu_embed_vblank(self.0) }
+    }
+    /// The scanout ring slots (bit n = slot n) the player may still
+    /// sample, replacing the last call's (v18, track M26): the device's
+    /// frames go into the others. Any thread.
+    pub fn scanout_hold(&self, slots: u32) {
+        unsafe { qemu_embed_scanout_hold(self.0, slots) }
     }
     /// Whether the adapter on show takes [`Self::set_window_size`], so
     /// the window should not be held to the guest's mode (v9).

@@ -104,7 +104,15 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
   images too, and the executor records the copy on DXVK's queue itself
   (`ring_copy`; d3d9 has no way to wrap an outside image); D3DGAME9 in
   exclusive fullscreen at 1600x1200 on XP under WHPX: 75 flips a second
-  (the mode's rate), 4 readbacks in 16 s where there was one a frame.
+  (the mode's rate), 4 readbacks in 16 s where there was one a frame;
+  on 98 under TCG at 800x600, 60 a second and 3 readbacks in 25 s
+  (2026-10-24). A slot the player may still be sampling is never
+  written (embed API v18, patch 101's `held`): the player holds the slot
+  on show, and one it just took off show until the GPU has finished the
+  draws that sampled it; the device hands that mask to the executor
+  under its lock before each batch (`d3dpt_exec_ring_held`), the show
+  happens under the same lock, and a frame with every slot held is read
+  back instead.
   With `flip-push=off` a 32 bpp mode with no gamma ramp is shown
   straight from VRAM (`qemu_create_displaysurface_from`), the old way. The player's upload of the dirty rectangle is the one copy
   left; zero-copy from guest RAM to the GPU is impossible with a

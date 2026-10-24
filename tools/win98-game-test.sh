@@ -367,7 +367,13 @@ MACHINE=(-L "$ROOT/qemu/pc-bios" -machine "${BOARD:-pc-i440fx-9.2},hpet=off" -m 
 if [ "${PLAYER:-0}" = 1 ]; then
   # This checkout's player and this checkout's wrapper (CLAUDE.md: a build
   # is never borrowed). The embed library appends -display none itself.
-  PLAYER_BIN="$ROOT/target/release/player"
+  # On Windows the one there is, player-mitsuami (the winit player has no
+  # Windows build), which also carries the scanout ring (track M26).
+  if [ "$GW_WIN" = 1 ]; then
+    PLAYER_BIN="${PLAYER_BIN:-$ROOT/player-mitsuami/target/release/player-mitsuami.exe}"
+  else
+    PLAYER_BIN="${PLAYER_BIN:-$ROOT/target/release/player}"
+  fi
   [ -x "$PLAYER_BIN" ] || { echo "no player at $PLAYER_BIN (cargo build --release)"; exit 1; }
   export PLAYER_SHOT_DIR="$OUT/shots" PLAYER_SHOT_EVERY="${PLAYER_SHOT_EVERY:-300}" PLAYER_AUDIO_NULL=1
   "$PLAYER_BIN" -- "${MACHINE[@]}" > "$OUT/qemu.log" 2>&1 &

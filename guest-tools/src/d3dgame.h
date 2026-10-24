@@ -14,6 +14,8 @@
  * -fs         exclusive fullscreen (mode change), -w W -h H size (640x480)
  * -bpp16      16-bit back buffer (565) instead of X8R8G8B8
  * -novsync    D3DPRESENT_INTERVAL_IMMEDIATE
+ * -cursor     keep the arrow in fullscreen (hidden there by default): the
+ *             guest's hardware cursor over flipped frames (track M26)
  * -shader     (d3d9) SM1.1 vs/ps for the cubes when D3DX is available
  *             (HLSL; d3dx9_33+ refuse ps_1_1, leaving vs_1_1 + the fixed
  *             pixel stage; kept that way on purpose, the golden set has it)
@@ -43,7 +45,7 @@
 #define BARS 64
 
 struct opts {
-    int w, h, fullscreen, bpp16, novsync, shader, frames;
+    int w, h, fullscreen, bpp16, novsync, shader, frames, cursor;
     int dump_frame;
     char dump_file[MAX_PATH];
     char log_file[MAX_PATH];
@@ -134,6 +136,7 @@ static void opts_parse(struct opts *o, int argc, char **argv)
         else if (!strcmp(argv[i], "-bpp16")) o->bpp16 = 1;
         else if (!strcmp(argv[i], "-novsync")) o->novsync = 1;
         else if (!strcmp(argv[i], "-shader")) o->shader = 1;
+        else if (!strcmp(argv[i], "-cursor")) o->cursor = 1;
         else if (!strcmp(argv[i], "-w") && i + 1 < argc) o->w = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-h") && i + 1 < argc) o->h = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-frames") && i + 1 < argc) o->frames = atoi(argv[++i]);
@@ -512,7 +515,7 @@ static LRESULT CALLBACK game_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         break;
     case WM_SETCURSOR:
-        if (g && g->o.fullscreen) { SetCursor(NULL); return TRUE; }
+        if (g && g->o.fullscreen && !g->o.cursor) { SetCursor(NULL); return TRUE; }
         break;
     }
     return DefWindowProcA(h, m, w, l);

@@ -676,7 +676,10 @@ bool ring_take(Exec &x, D11 &d, uint32_t h, D11Res &r)
         r.d.samples > 1 || (r.d.format != 87 && r.d.format != 91) || r.layout.empty() || !r.res ||
         !exec_ddi_vram_offset(x, h, &off))
         return false;
-    uint32_t page = off + r.layout[0].offset, k = d.ring_next;
+    /* the next slot the player does not hold (all held: read back) */
+    int pick = exec_ring_pick(x, d.ring_next, (uint32_t)d.ring.size());
+    if (pick < 0) return false;
+    uint32_t page = off + r.layout[0].offset, k = (uint32_t)pick;
     D11::Slot &s = d.ring[k];
     d.ring_next = (k + 1) % (uint32_t)d.ring.size();
     owed_settle(x, d, h, false, true);          /* a readback owed for it is older */

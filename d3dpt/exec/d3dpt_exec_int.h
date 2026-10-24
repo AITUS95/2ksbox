@@ -94,6 +94,7 @@ struct Exec {
     struct Ddi *ddi = nullptr;
     void *d11 = nullptr;            /* M25: the Direct3D 11 side (d3dpt_exec_d11.cpp), made at its first record */
     bool settles = false;           /* v28: the device calls d3dpt_exec_settle before its display reads VRAM */
+    uint32_t ring_held = 0;         /* M26: scanout ring slots the front end may still sample (d3dpt_exec_ring_held) */
 
     /* A scene, opened by the executor rather than by whatever it is
      * executing. The display driver's DP2 stream carries no scene at all
@@ -187,6 +188,10 @@ int exec_d11_ring_slot(Exec &x, uint32_t page, bool wait);
 void exec_d11_scanout_vram(Exec &x, uint32_t page);
 /* the same for the Direct3D 9 device's flips (D3DPT_OP_SCANOUT, v30) */
 int exec_ddi_ring(Exec &x, void *const *handles, int count, uint32_t w, uint32_t h);
+/* the ring's next slot for a frame, from `next` on: the first one the
+ * front end does not hold, -1 when it holds them all (the frame is read
+ * back instead) */
+int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count);
 int exec_ddi_ring_slot(Exec &x, uint32_t page, bool wait);
 void exec_ddi_scanout_vram(Exec &x, uint32_t page);
 #ifdef _WIN32

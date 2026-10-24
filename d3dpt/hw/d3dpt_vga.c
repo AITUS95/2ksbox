@@ -764,8 +764,24 @@ static int fb_ring_show(D3dptVgaState *s, const D3dptLinearMode *m, bool wait)
             return 0;
         }
     }
+    /* Shown under the executor's lock, so the front end holds the slot
+     * (embed v18) before the next batch reads what it holds and no frame
+     * goes into it while it may be sampled; the slot asked again there, as
+     * a batch since the first ask may have put another frame into it.
+     * Only the ask and the show: the dirty snapshot above may wait for the
+     * vCPU (with the BQL let go), whose next flip waits for this lock. */
+    if (wait) {
+        qemu_mutex_lock(&s->exec_lock);
+    } else if (qemu_mutex_trylock(&s->exec_lock) != 0) {
+        return -1;
+    }
+    if (s->lib->ring_slot(s->exec, m->offset, false) != slot) {
+        qemu_mutex_unlock(&s->exec_lock);
+        return -1;
+    }
     s->shadow_stale = true;
     qemu_scanout_ring()->show(s->vga.con, slot);
+    qemu_mutex_unlock(&s->exec_lock);
     if (!s->ring_shows++) {
         info_report("d3dpt-vga: flips show their ring slot (zero-copy)");
     }
@@ -1092,6 +1108,11 @@ static void d3d_doorbell(D3dptVgaState *s)
             bql_unlock();
         }
         qemu_mutex_lock(&s->exec_lock);
+        if (s->ring_n && s->lib->ring_held && qemu_scanout_ring() && qemu_scanout_ring()->held) {
+            /* the ring's slots the front end may still sample (M26): the
+             * batch's flips go into the others */
+            s->lib->ring_held(s->exec, qemu_scanout_ring()->held(s->vga.con));
+        }
         err = s->lib->submit(s->exec, win, D3DPT_SHM_SIZE);
         qemu_mutex_unlock(&s->exec_lock);
         if (unlock) {

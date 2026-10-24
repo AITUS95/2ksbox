@@ -1252,7 +1252,9 @@ The scanout ring's registry (track M26, 2026-10-23): `qemu_scanout_ring_register
 / `qemu_scanout_ring()` in `ui/console.c`, ops through which a display
 device whose frames are rendered on the host's GPU (d3dpt-vga's Direct3D
 executor) asks the front end for images on that GPU (`alloc`) and shows
-one by number (`show`), so a flip's frame never leaves the GPU. The embed
+one by number (`show`), so a flip's frame never leaves the GPU; `held`
+(2026-10-24, embed API v18) names the slots the front end may still be
+sampling, which the device's next frame skips. The embed
 library registers them (embed API v17); a plain qemu-system registers
 none and devices keep their surfaces. Also `qemu_console_pixels_wanted()`,
 true during the device update a screendump schedules, so a device showing

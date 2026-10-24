@@ -30,6 +30,7 @@ typedef struct D3dptExecLib {
     int (*ring)(d3dpt_exec_t *x, void *const *handles, int count, uint32_t w, uint32_t h);
     int (*ring_slot)(d3dpt_exec_t *x, uint32_t vram_offset, int wait);
     void (*scanout_vram)(d3dpt_exec_t *x, uint32_t vram_offset);
+    void (*ring_held)(d3dpt_exec_t *x, uint32_t held);  /* the front end's slots, before a batch */
     const char *name;   /* what was opened, for the log */
 } D3dptExecLib;
 

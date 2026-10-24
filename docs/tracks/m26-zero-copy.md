@@ -86,10 +86,65 @@ F9 goldens on v30); D3DGAME9 in exclusive fullscreen at 1600x1200 on XP
 under WHPX in the player: 75 flips/s (the mode's rate), 4 readbacks in
 16 s, the picture right, the desktop right after.
 
-Open: the guest cursor sprite is not composited into a slot (a grabbed
-mouse); three slots and no release from the player (no tearing seen);
-98's driver on the ring checked only by its build (test.sh's Win98
-Direct3D checks need `build-winetests.sh` output on this PC); step 6.
+## State (2026-10-24)
+
+The three loose ends of the Windows path (user: "go 1, 2 and 3"):
+
+1. **98's driver on the ring.** D3DGAME9 in exclusive fullscreen at
+   800x600 on 98 under TCG in `player-mitsuami`
+   (`tools/win98-game-test.sh PLAYER=1`, which runs that player on
+   Windows since this day, the winit one having no Windows build):
+   `scanout ring of 3 at 800x600`, 1603 presents from a slot, 60 flips a
+   second, 3 readbacks in 25 s, the scene right in the shots and
+   Windows back to its desktop after. test.sh's Win98 checks ran here for
+   the first time the same morning: `win98-dx9` passes every line;
+   `win98-winetest` is 3 keys worse than `w98-driver.txt`, none of them
+   the ring's (they run on a bare QEMU, no player, no ring): a depth
+   texture made without `D3DUSAGE_DEPTHSTENCIL` fails with
+   `D3DERR_DRIVERINTERNALERROR` in the guest before the host sees it
+   (d3d8 `device.c:9939` tests 2D 2 and 9, d3d9 `device.c:8059`, after
+   which Wine's test dereferences the texture it did not get and
+   crashes). The tests only reach that since 2026-10-19's depth
+   textures on the 9x driver (`d32b1212`), after the baseline (09-27).
+   The rig fails 9939 too (`rig-98.txt`, 4 times). Open, not M26's.
+2. **A release from the player** (embed API v18, patch 101's `held`,
+   `d3dpt_exec_ring_held`): the device never writes a slot the player
+   may still sample. The player holds a slot from its `on_scanout_slot`
+   (under the BQL, before the device's next show) until a newer frame
+   replaced it: at once if it was never drawn, else once the GPU has
+   finished everything submitted when it went off show
+   (`on_submitted_work_done`). The mask goes to the executor under
+   `exec_lock` before each batch, and the device shows a slot under the
+   same lock (asking the executor again there that the slot still holds
+   the page), so no batch runs between a slot's show and its hold. Only
+   the ask and the show: the first version also took the page's dirty
+   snapshot under the lock, and on 98 under TCG the main loop then waited
+   for the vCPU (the BQL let go) while holding the lock the vCPU's next
+   flip wanted, a hang four flips in (gdb's stacks: the main loop in a
+   condition wait, the vCPU on a mutex). A
+   frame with every slot held (a player that takes nothing, its window
+   occluded) is read back as without a ring.
+3. **The guest cursor over a slot** (a relative mouse or a grab, where
+   the host cursor cannot stand in): the player copies the slot on the
+   GPU into a texture of its own and blends the sprite into that through
+   a byte view, the CPU path's blend; the copy shows instead of the slot
+   until the next frame, and a move republishes a slot's frame only while
+   the sprite is drawn into it. The OpenGL ring's BGRA slots (Linux,
+   macOS) get it too. Checked on Windows 11 at 3840x2160 under WHPX with
+   no usb-tablet (the PS/2 mouse is relative, so the sprite is always
+   drawn): the arrow over the Start menu's animation in the shots taken
+   while a slot was on show, 490 slot presents in the run. Not on 98 or
+   XP: there the device hides the hardware cursor while a DirectDraw flip
+   chain has the screen (a game draws its own), so a slot frame there
+   never has one; D3DGAME9's `-cursor` (the arrow kept in fullscreen)
+   showed that, and the 98 run with it (relative mouse moving) is the
+   release's check: 1601 slot presents, 60 frames/s, no stall.
+
+`test.sh all` on the PC with all three: 68 passed, 1 failed
+(`win98-winetest`, the same three keys as the morning's run before them,
+item 1), 16 skipped.
+
+Open: step 6; the Win98 depth-texture failures above (outside M26).
 
 ## Steps
 

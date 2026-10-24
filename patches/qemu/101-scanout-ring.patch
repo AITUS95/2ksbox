@@ -8,13 +8,15 @@ plain qemu-system registers none and every device keeps its surface.
 Applies after patch 096, the other ui/console.c one.
 Never upstream: the ops are the embed library's contract.
 A screendump's update raises qemu_console_pixels_wanted(), so a device
-showing a slot puts the frame on its surface first.
+showing a slot puts the frame on its surface first. `held` names the
+slots the front end may still be sampling, which the device's next
+frame must not go into.
 
 diff --git a/include/ui/console.h b/include/ui/console.h
-index 65ddb4c..b1de473 100644
+index 65ddb4c..c6d7943 100644
 --- a/include/ui/console.h
 +++ b/include/ui/console.h
-@@ -458,6 +458,31 @@ void qemu_host_vblank(void);
+@@ -458,6 +458,34 @@ void qemu_host_vblank(void);
   */
  void qemu_host_set_refresh_mhz(uint32_t mhz);
  uint32_t qemu_host_refresh_mhz(void);
@@ -26,7 +28,9 @@ index 65ddb4c..b1de473 100644
 + * fills `handles` (on Windows, NT handles to shared D3D12 resources, the
 + * front end's; count 0 releases the ring); it returns how many it made,
 + * 0 for no ring. `show` puts slot `slot` on `con` as its whole frame,
-+ * the slot's GPU work already finished. Main loop or vCPU thread, BQL
++ * the slot's GPU work already finished. `held` (any thread): bit n set
++ * while the front end may still sample slot n (shown, and not given
++ * back), which the device must not write. Main loop or vCPU thread, BQL
 + * held. None registered (a plain qemu-system): devices keep their
 + * surfaces.
 + */
@@ -34,6 +38,7 @@ index 65ddb4c..b1de473 100644
 +    int (*alloc)(QemuConsole *con, int width, int height, int count,
 +                 void **handles);
 +    void (*show)(QemuConsole *con, int slot);
++    uint32_t (*held)(QemuConsole *con);
 +} QemuScanoutRingOps;
 +void qemu_scanout_ring_register(const QemuScanoutRingOps *ops);
 +const QemuScanoutRingOps *qemu_scanout_ring(void);

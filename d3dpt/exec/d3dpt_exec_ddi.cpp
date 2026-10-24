@@ -3383,7 +3383,11 @@ static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
     HRESULT hr = tex->GetVulkanImageInfo(&img, &layout, nullptr);
     tex->Release();
     if (FAILED(hr) || !img) return false;
-    uint32_t k = d.ring_next;
+    /* the next slot the player does not hold: one it may still be
+     * sampling is never written (all held: read back) */
+    int pick = exec_ring_pick(x, d.ring_next, (uint32_t)d.ring.size());
+    if (pick < 0) return false;
+    uint32_t k = (uint32_t)pick;
     Ddi::RingSlot &r = d.ring[k];
     if (r.used) {
         d.vkWaitForFences(d.vk, 1, &r.fence, VK_TRUE, UINT64_MAX);    /* three flips ago: long done */

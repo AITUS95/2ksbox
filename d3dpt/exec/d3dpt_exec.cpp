@@ -411,6 +411,15 @@ static bool open_native(Exec *x)
 #endif
 }
 
+int exec_ring_pick(const Exec &x, uint32_t next, uint32_t count)
+{
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t k = (next + i) % count;
+        if (k >= 32 || !(x.ring_held & (1u << k))) return (int)k;
+    }
+    return -1;
+}
+
 } // namespace d3dpt
 
 extern "C" {
@@ -539,6 +548,12 @@ int d3dpt_exec_ring_slot(d3dpt_exec_t *xp, uint32_t vram_offset, int wait)
         int slot = exec_d11_ring_slot(*x, vram_offset, wait != 0);
         return slot != -1 ? slot : exec_ddi_ring_slot(*x, vram_offset, wait != 0);
     } catch (...) { return -1; }
+}
+
+void d3dpt_exec_ring_held(d3dpt_exec_t *xp, uint32_t held)
+{
+    Exec *x = (Exec *)xp;
+    if (x) x->ring_held = held;
 }
 
 void d3dpt_exec_scanout_vram(d3dpt_exec_t *xp, uint32_t vram_offset)

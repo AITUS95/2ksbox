@@ -79,6 +79,7 @@ struct qemu_embed {
     bool win_seen;          /* the console was told a size at least once */
     bool ui_supported;      /* the console took UI info at the last refresh (a device may start
                                to later: d3dpt-vga once its driver follows the window) */
+    uint32_t ring_held;     /* v18: scanout ring slots the frontend holds (atomic) */
 
     QemuMutex in_lock;
     in_event in_q[IN_QUEUE_LEN];
@@ -610,6 +611,7 @@ static int embed_ring_alloc(QemuConsole *con, int width, int height, int count,
     if (!e || !e->cb.on_scanout_ring || !e->cb.on_scanout_slot) {
         return 0;
     }
+    qatomic_set(&e->ring_held, 0);      /* a new ring (or none): nothing of it is on show */
     return e->cb.on_scanout_ring(e->ud, width, height, count, handles);
 }
 
@@ -622,9 +624,27 @@ static void embed_ring_show(QemuConsole *con, int slot)
     }
 }
 
+/* v18: the slots the frontend may still sample, which the device's next
+ * frame must not go into. The frontend holds a slot inside
+ * on_scanout_slot, under the BQL the device writes under too, and gives
+ * it back from any thread (qemu_embed_scanout_hold). */
+static uint32_t embed_ring_held(QemuConsole *con)
+{
+    qemu_embed_t *e = fx_instance;
+
+    (void)con;
+    return e ? qatomic_read(&e->ring_held) : 0;
+}
+
+void qemu_embed_scanout_hold(qemu_embed_t *e, uint32_t slots)
+{
+    qatomic_set(&e->ring_held, slots);
+}
+
 static const QemuScanoutRingOps embed_ring_ops = {
     .alloc = embed_ring_alloc,
     .show = embed_ring_show,
+    .held = embed_ring_held,
 };
 
 int qemu_embed_run(qemu_embed_t *e)

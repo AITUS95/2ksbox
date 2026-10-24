@@ -87,7 +87,10 @@ typedef struct qemu_embed_display_cb {
        releases the ring. Main loop, BQL held. */
     int (*on_scanout_ring)(void *ud, int width, int height, int count, void **handles);
     /* v17: the image in `slot` (its GPU work finished) is the screen's
-       whole frame, until the next on_scanout_slot or a surface update. */
+       whole frame, until the next on_scanout_slot or a surface update.
+       v18: a frontend that will sample it holds it before returning
+       (qemu_embed_scanout_hold); the device puts no frame into a held
+       slot. */
     void (*on_scanout_slot)(void *ud, int slot);
 } qemu_embed_display_cb;
 
@@ -202,6 +205,12 @@ QEMU_EMBED_API void qemu_embed_vblank(qemu_embed_t *e);
 /* v9: whether the console on show takes the window's size, so the window
  * should not be held to the guest's mode. Any thread. */
 QEMU_EMBED_API bool qemu_embed_display_follows_window(qemu_embed_t *e);
+/* v18 (track M26): the scanout ring slots (bit n = slot n) the frontend
+ * may still sample, replacing the last call's: one on show, and one a
+ * newer frame replaced whose last draw the GPU has not finished. The
+ * device's frames go into the others, and are read back when none is
+ * free. A new ring starts with none held. Any thread. */
+QEMU_EMBED_API void qemu_embed_scanout_hold(qemu_embed_t *e, uint32_t slots);
 
 /* v11: the clipboard (track M23), through QEMU's own clipboard, which
  * `-chardev qemu-vdagent,clipboard=on` connects to a guest agent (the
@@ -222,7 +231,7 @@ QEMU_EMBED_API void qemu_embed_clipboard_set_text(qemu_embed_t *e, const char *u
 
 /* Library version of the embed API, for the bindings to sanity-check. */
 QEMU_EMBED_API uint32_t qemu_embed_api_version(void);
-#define QEMU_EMBED_API_VERSION 17
+#define QEMU_EMBED_API_VERSION 18
 
 #ifdef __cplusplus
 }

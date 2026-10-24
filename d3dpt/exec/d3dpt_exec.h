@@ -94,6 +94,10 @@ D3DPT_EXEC_API int d3dpt_exec_settle(d3dpt_exec_t *x, int wait);
 D3DPT_EXEC_API int d3dpt_exec_ring(d3dpt_exec_t *x, void *const *handles, int count, uint32_t w, uint32_t h);
 D3DPT_EXEC_API int d3dpt_exec_ring_slot(d3dpt_exec_t *x, uint32_t vram_offset, int wait);
 D3DPT_EXEC_API void d3dpt_exec_scanout_vram(d3dpt_exec_t *x, uint32_t vram_offset);
+/* Optional too: the ring's images the front end may still be sampling
+ * (bit n = image n), set before each batch; a frame goes into one it does
+ * not hold, or is read back when it holds them all. */
+D3DPT_EXEC_API void d3dpt_exec_ring_held(d3dpt_exec_t *x, uint32_t held);
 D3DPT_EXEC_API int d3dpt_exec_shared_alloc(const char *name, uint64_t size, uint64_t *offset);
 D3DPT_EXEC_API void d3dpt_exec_shared_map(uint64_t offset, void *ptr);
 
