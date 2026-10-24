@@ -80,6 +80,11 @@ __CRT_UUID_DECL(IDXGIVkInteropDevice1, 0xe2ef5fa5, 0xdc21, 0x4af7, 0x90, 0xc4, 0
 #include <cstring>
 #include <mach-o/dyld.h>        /* the scanout ring finds DXVK's Vulkan loader (exec_vk_procs) */
 #endif
+#ifdef __linux__
+#include <cerrno>               /* the scanout ring dups the player's fds (exec_vk_ring_image) */
+#include <cstring>
+#include <unistd.h>
+#endif
 #endif
 
 namespace d3dpt {
@@ -2137,11 +2142,20 @@ static void ring_drop(D11 &d)
 #ifdef D3DPT_RING
 /* The Vulkan loader DXVK runs on, and the two calls the ring needs of it
  * before it has a device's own */
+#ifdef __linux__
+/* the instance's, for exec_vk_ring_image's device check (set with the rest) */
+static PFN_vkGetPhysicalDeviceProperties2 vk_props2;
+#endif
+
 bool exec_vk_procs(VkInstance inst, PFN_vkGetDeviceProcAddr *gdpa, PFN_vkGetPhysicalDeviceMemoryProperties *memprops)
 {
 #ifdef _WIN32
     HMODULE loader = GetModuleHandleA("vulkan-1.dll");
     auto gipa = loader ? (PFN_vkGetInstanceProcAddr)(void *)GetProcAddress(loader, "vkGetInstanceProcAddr") : nullptr;
+#elif defined(__linux__)
+    void *loader = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_NOLOAD);
+    auto gipa = loader ? (PFN_vkGetInstanceProcAddr)dlsym(loader, "vkGetInstanceProcAddr") : nullptr;
+    vk_props2 = gipa ? (PFN_vkGetPhysicalDeviceProperties2)gipa(inst, "vkGetPhysicalDeviceProperties2") : nullptr;
 #else
     /* the loader image already in the process (DXVK's: the package's own
      * beside it, DXVK patch 06, or the one by leaf name open_d3d9 probed),
@@ -2168,7 +2182,9 @@ bool exec_vk_procs(VkInstance inst, PFN_vkGetDeviceProcAddr *gdpa, PFN_vkGetPhys
  * there is the same one only as long as both describe it alike
  * (player-core metalring.rs): MUTABLE_FORMAT, Metal's PixelFormatView,
  * keeps it uncompressed, which both sides' layouts then agree on. False,
- * logged, on any refusal. */
+ * logged, on any refusal. On Linux a d3dpt_exec_ring_fd: an opaque fd is
+ * good only on the device and driver that made it, and its import takes
+ * the exporter's memory type and size. */
 bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice phys, PFN_vkGetDeviceProcAddr gdpa,
                         PFN_vkGetPhysicalDeviceMemoryProperties memprops, void *handle, uint32_t w, uint32_t h,
                         VkImage *img, VkDeviceMemory *mem)
@@ -2181,6 +2197,12 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
     auto props = vkGetMemoryWin32HandlePropertiesKHR;
     const char *ext_name = "VK_KHR_external_memory_win32";
     const VkExternalMemoryHandleTypeFlagBits type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT;
+#elif defined(__linux__)
+    VKFN(vkGetMemoryFdKHR);                         /* DXVK patch 20 enables the extension */
+    auto props = vkGetMemoryFdKHR;                  /* only asked to be there */
+    const char *ext_name = "VK_KHR_external_memory_fd";
+    const VkExternalMemoryHandleTypeFlagBits type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    const d3dpt_exec_ring_fd *rf = (const d3dpt_exec_ring_fd *)handle;
 #else
     VKFN(vkGetMemoryMetalHandlePropertiesEXT);      /* DXVK patch 19 enables the extension */
     auto props = vkGetMemoryMetalHandlePropertiesEXT;
@@ -2192,6 +2214,19 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
         x.log("%s: scanout ring: DXVK's device has no %s", who, ext_name);
         return false;
     }
+#ifdef __linux__
+    {
+        /* DXVK may have picked another GPU than the player's */
+        VkPhysicalDeviceIDProperties idp = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
+        VkPhysicalDeviceProperties2 pp = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &idp };
+        if (!vk_props2) { x.log("%s: scanout ring: no vkGetPhysicalDeviceProperties2", who); return false; }
+        vk_props2(phys, &pp);
+        if (memcmp(idp.deviceUUID, rf->device_uuid, VK_UUID_SIZE) || memcmp(idp.driverUUID, rf->driver_uuid, VK_UUID_SIZE)) {
+            x.log("%s: scanout ring: DXVK runs on another GPU than the player (%s)", who, pp.properties.deviceName);
+            return false;
+        }
+    }
+#endif
     VkExternalMemoryImageCreateInfo ext = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO, nullptr, (VkExternalMemoryHandleTypeFlags)type };
     VkImageCreateInfo ici = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, &ext };
     ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;     /* the resource is typeless */
@@ -2207,6 +2242,23 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
     ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     VkResult vr = vkCreateImage(dev, &ici, nullptr, img);
     if (vr != VK_SUCCESS) { x.log("%s: scanout ring: vkCreateImage %d", who, (int)vr); return false; }
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(dev, *img, &req);
+#ifdef __linux__
+    /* the exporter's own type and size, which an opaque fd's import must
+     * match (the same image on the same device asks the same) */
+    (void)memprops;
+    uint32_t type_index = rf->memory_type;
+    VkDeviceSize size = rf->size;
+    if (type_index >= 32 || !(req.memoryTypeBits & (1u << type_index)) || req.size > size) {
+        x.log("%s: scanout ring: the image's memory (type %u, %llu bytes) does not fit ours (types 0x%x, %llu)", who,
+              type_index, (unsigned long long)size, req.memoryTypeBits, (unsigned long long)req.size);
+        return false;
+    }
+    int fd = dup(rf->fd);                           /* the import owns it, the player keeps its own */
+    if (fd < 0) { x.log("%s: scanout ring: dup: %s", who, strerror(errno)); return false; }
+    VkImportMemoryFdInfoKHR imp = { VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR, nullptr, type, fd };
+#else
 #ifdef _WIN32
     VkMemoryWin32HandlePropertiesKHR hp = { VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR };
     vr = props(dev, type, (HANDLE)handle, &hp);
@@ -2215,8 +2267,7 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
     vr = props(dev, type, handle, &hp);
 #endif
     if (vr != VK_SUCCESS) { x.log("%s: scanout ring: the handle's properties: %d", who, (int)vr); return false; }
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(dev, *img, &req);
+    VkDeviceSize size = req.size;
     VkPhysicalDeviceMemoryProperties mp;
     memprops(phys, &mp);
     uint32_t bits = req.memoryTypeBits & hp.memoryTypeBits, type_index = UINT32_MAX;
@@ -2231,10 +2282,17 @@ bool exec_vk_ring_image(Exec &x, const char *who, VkDevice dev, VkPhysicalDevice
 #else
     VkImportMemoryMetalHandleInfoEXT imp = { VK_STRUCTURE_TYPE_IMPORT_MEMORY_METAL_HANDLE_INFO_EXT, nullptr, type, handle };
 #endif
+#endif
     VkMemoryDedicatedAllocateInfo ded = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, &imp, *img, VK_NULL_HANDLE };
-    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &ded, req.size, type_index };
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &ded, size, type_index };
     vr = vkAllocateMemory(dev, &mai, nullptr, mem);
-    if (vr != VK_SUCCESS) { x.log("%s: scanout ring: importing the memory: %d", who, (int)vr); return false; }
+    if (vr != VK_SUCCESS) {
+#ifdef __linux__
+        close(fd);
+#endif
+        x.log("%s: scanout ring: importing the memory: %d", who, (int)vr);
+        return false;
+    }
     vr = vkBindImageMemory(dev, *img, *mem, 0);
     if (vr != VK_SUCCESS) { x.log("%s: scanout ring: vkBindImageMemory %d", who, (int)vr); return false; }
     return true;

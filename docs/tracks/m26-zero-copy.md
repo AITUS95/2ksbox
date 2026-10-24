@@ -200,7 +200,52 @@ device after 36 frames: 3dfx's login job put its "Voodoo 2 driver is
 loading" box over the fullscreen game, then a Glide error box that held
 the power button (the image's, not the ring's).
 
-Open: step 6 on Linux.
+Open: nothing of step 6 (Linux below).
+
+## State (2026-10-24, Linux)
+
+Step 6's Linux half (user: "implement the zero-copy here on linux"),
+alongside the macOS half above and on the same executor code. The player
+makes the ring on its own Vulkan device (`player-core/src/vkring.rs`):
+three `B8G8R8A8_UNORM` images with `MUTABLE_FORMAT`, each in a dedicated
+allocation exported as an opaque fd. Each handle the device gets points
+to a `d3dpt_exec_ring_fd` (`d3dpt/exec/d3dpt_exec.h`): the fd, the
+allocation's memory type and size, and the device's and driver's UUIDs.
+`exec_vk_ring_image`'s Linux branch refuses when DXVK runs on another GPU
+than the player (an opaque fd is good only on the device that made it),
+dups the fd and imports it with the exporter's memory type and size.
+DXVK enabled only `VK_KHR_external_memory_win32`; DXVK patch 20 adds
+`VK_KHR_external_memory_fd`. `dmabuf::create_device` opens the player's
+device with that extension even where the dma-buf ones are missing.
+
+Layouts, which Direct3D 12's simultaneous access made moot: a filled slot
+rests in GENERAL (DXVK's d3d11 keeps a wrapped image there; `ring_copy`
+ends there too), and wgpu is told at creation that the texture is already
+in its sampled state, so it never transitions it from UNDEFINED (a driver
+may discard the frame then). It then believes SHADER_READ_ONLY_OPTIMAL
+where the image is GENERAL: the same memory for a sampled colour image on
+Mesa's drivers. The slot offset (`SCANOUT_BASE`) keeps the OpenGL
+pass-through's dma-buf ring apart, as the IOSurface one on macOS.
+
+Checked on the Linux box (RX 9060 XT, RADV) in `player-mitsuami`:
+
+- 98 under TCG, D3DGAME9 in exclusive fullscreen at 800x600
+  (`tools/win98-game-test.sh PLAYER=1 PLAYER_BIN=…/player-mitsuami`): both
+  DXVK devices import the ring, flips show their slots, 1500 frames at
+  60 frames/s, 3 readbacks in the run, the executor at 0.03 ms a batch,
+  the scene right in the shots.
+- Windows 11 x64 under KVM (the launcher's `win11` machine on an
+  overlay): DWM's Direct3D 11 flips go through the ring, which is made
+  again as the guest follows the window (1920x1200, 2048x1368,
+  1272x1314); the lock screen and the pointer right in the shots.
+
+These runs were before the rebase onto the macOS half; the merged code
+built (`build-d3dpt-exec.sh`, the player) but was not run again, and
+`scripts/test.sh all` was not run (user: "no need for tests"), nor the
+A/B against `PLAYER_ZERO_COPY=0` at 4K.
+
+Seen on the way, not the ring's: Windows 11 turning the screen off shows
+garbage (00-status "Open threads", M25's track doc).
 
 ## Steps
 
@@ -220,15 +265,15 @@ Open: step 6 on Linux.
    the player's time a frame.
 5. **The Direct3D 9 path** (`d3dpt_exec_ddi.cpp`, XP and 98 games on
    DXVK's d3d9) on the same ring.
-6. **Other hosts**: Linux (dma-buf / opaque fd into wgpu's Vulkan, as the
-   OpenGL ring); macOS done 2026-10-24 (Metal heaps through
+6. **Other hosts**: Linux done 2026-10-24 (opaque fds from wgpu's Vulkan
+   into DXVK's, `vkring.rs`, DXVK patch 20, above); macOS done 2026-10-24 (Metal heaps through
    KosmicKrisp's `VK_EXT_external_memory_metal`, above).
 
 ## Owns
 
 The ring on both sides: the embed API's new calls (`embed/`), the
 player's import (`player-core/src/` beside `dmabuf.rs` / `iosurface.rs`:
-`d3d12ring.rs`, `metalring.rs`, `gpu.rs`), DXVK patch 19, the executor's interop and copy (`d3dpt/exec/`, edited
+`d3d12ring.rs`, `metalring.rs`, `vkring.rs`, `gpu.rs`), DXVK patches 19 and 20, the executor's interop and copy (`d3dpt/exec/`, edited
 minimally as a shared file), the device's slot path in
 `d3dpt/hw/d3dpt_vga.c` (with M7), and this doc.
 

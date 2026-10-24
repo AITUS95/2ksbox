@@ -6,7 +6,9 @@
 //! slot is complete; nothing is copied.
 //!
 //! The device has to be opened with the extensions, so `create_device`
-//! replaces `Adapter::request_device` when the adapter has them.
+//! replaces `Adapter::request_device` when the adapter has them. It also
+//! opens it with `VK_KHR_external_memory_fd` alone where the adapter has
+//! that much: the scanout ring's export (`vkring.rs`, track M26).
 
 use ash::vk;
 use std::ffi::CStr;
@@ -43,12 +45,15 @@ pub fn create_device(
         if !ok {
             eprintln!("[3d] Vulkan dma-buf import extensions missing; using readback");
         }
+        let wanted: Vec<&'static CStr> = if ok {
+            EXTS.to_vec()
+        } else {
+            EXTS[..1].iter().copied().filter(|e| has(e)).collect()
+        };
         let cb = move |args: wgpu::hal::vulkan::CreateDeviceCallbackArgs<'_, '_, '_>| {
-            if ok {
-                for e in EXTS {
-                    if !args.extensions.contains(&e) {
-                        args.extensions.push(e);
-                    }
+            for e in &wanted {
+                if !args.extensions.contains(e) {
+                    args.extensions.push(e);
                 }
             }
         };

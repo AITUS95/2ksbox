@@ -47,9 +47,10 @@ pub struct RawDisplayCb {
     /// v12: the updates just delivered were pushed by the device outside a
     /// refresh tick (a guest flush) and complete a frame
     pub on_flush: Option<unsafe extern "C" fn(*mut c_void)>,
-    /// v17 (Windows, M26; macOS too): a scanout ring of `count` width x
-    /// height BGRA8 images is asked for; write their shared NT handles (on
-    /// macOS their `id<MTLHeap>`s) into `handles`
+    /// v17 (Windows, M26; macOS and Linux too): a scanout ring of `count`
+    /// width x height BGRA8 images is asked for; write their shared NT
+    /// handles (on macOS their `id<MTLHeap>`s, on Linux
+    /// `d3dpt_exec_ring_fd` pointers) into `handles`
     /// and return how many were made (0: none, count 0: release)
     pub on_scanout_ring:
         Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, *mut *mut c_void) -> c_int>,

@@ -9,17 +9,21 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 /// A scanout ring's image (track M26): a shared Direct3D 12 resource on
-/// Windows, a Metal heap on macOS.
+/// Windows, a Metal heap on macOS, a Vulkan image exported as an opaque fd
+/// on Linux.
 #[cfg(windows)]
 use crate::d3d12ring::Slot as RingSlot;
 #[cfg(target_os = "macos")]
 use crate::metalring::Slot as RingSlot;
+#[cfg(target_os = "linux")]
+use crate::vkring::Slot as RingSlot;
 /// What makes a scanout ring's images (`d3d12ring::alloc`,
-/// `metalring::alloc`, on the player's own device): width, height, count.
-#[cfg(any(windows, target_os = "macos"))]
+/// `metalring::alloc`, `vkring::alloc`, on the player's own device):
+/// width, height, count.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub type RingAlloc = Arc<dyn Fn(u32, u32, usize) -> Result<Vec<RingSlot>, String> + Send + Sync>;
-/// No scanout ring on Linux yet (track M26's step 6).
-#[cfg(not(any(windows, target_os = "macos")))]
+/// No scanout ring elsewhere.
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub type RingAlloc = std::convert::Infallible;
 
 /// A backend ring slot offered for zero-copy import: a dma-buf (Linux,
@@ -227,7 +231,7 @@ struct Shared {
     // the scanout ring (M26): what makes its images, and the ones made,
     // kept for their handles while a device may open them
     ring_alloc: Option<RingAlloc>,
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     ring: Vec<RingSlot>,
     // the ring's slots we may still sample (bit n = slot n), which the
     // device's frames must not go into (embed v18): shown and not yet
@@ -714,7 +718,7 @@ unsafe extern "C" fn on_scanout_ring(
     // a new ring (or none): the library holds nothing of it either
     s.slots_held = 0;
     s.slots_untaken = 0;
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     {
         s.ring.clear();
         let alloc = match &s.ring_alloc {
@@ -748,7 +752,7 @@ unsafe extern "C" fn on_scanout_ring(
             }
         }
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = (&mut s, w, h, count, handles);
         0
@@ -1086,7 +1090,7 @@ pub fn start(
         scanout_shown: false,
         zero_copy,
         ring_alloc,
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         ring: Vec::new(),
         slots_held: 0,
         slots_untaken: 0,

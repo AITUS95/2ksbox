@@ -67,8 +67,9 @@ CXX="${CXX:-c++}"
 CC="${CC:-cc}"
 if [ $WINE_ONLY = 0 ]; then
   if [ $IN_PROCESS = 1 ]; then
-    # DXVK's Vulkan headers: on macOS the scanout ring imports the player's
-    # Metal heaps on DXVK's own device (track M26); unused on Linux
+    # DXVK's Vulkan headers: the scanout ring imports the player's images
+    # (Metal heaps on macOS, opaque fds on Linux) on DXVK's own device
+    # (track M26)
     "$CXX" -std=c++17 -O2 -fPIC -fvisibility=hidden -Wall -Wno-unused-function "${SHARED[@]}" -o "$LIB" \
       "$ROOT/d3dpt/exec/d3dpt_exec.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_ddi.cpp" "$ROOT/d3dpt/exec/d3dpt_exec_d11.cpp" \
       -I"$DX" -I"$DX/windows" -I"$DX/directx" -I"$ROOT/third_party/dxvk/include/vulkan/include" -ldl

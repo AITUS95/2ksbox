@@ -22,14 +22,15 @@
 #include "d3dpt_exec.h"
 #include "../d3dpt_proto.h"
 /* the scanout ring (M26): the player's images on DXVK's Vulkan devices,
- * shared Direct3D 12 resources on Windows, Metal heaps on macOS */
-#if defined(_WIN32) || defined(__APPLE__)
+ * shared Direct3D 12 resources on Windows, Metal heaps on macOS, opaque
+ * fds on Linux */
+#if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
 #define D3DPT_RING 1
 #ifdef _WIN32
 #ifndef VK_USE_PLATFORM_WIN32_KHR
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
-#else
+#elif defined(__APPLE__)
 #ifndef VK_USE_PLATFORM_METAL_EXT
 #define VK_USE_PLATFORM_METAL_EXT
 #endif

@@ -32,6 +32,8 @@ pub mod screen;
 pub mod session;
 pub mod share;
 pub mod sweep;
+#[cfg(target_os = "linux")]
+pub mod vkring;
 pub mod window_state;
 
 pub use gpu::{Gpu, GpuView, MinSize};

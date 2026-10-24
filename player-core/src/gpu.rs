@@ -493,8 +493,9 @@ impl Gpu {
     }
 
     /// What makes a scanout ring's images on this device (track M26):
-    /// Direct3D 12 on Windows, Metal on macOS, unless `PLAYER_ZERO_COPY=0`
-    /// (the A/B). None on Linux, and devices keep their surfaces.
+    /// Direct3D 12 on Windows, Metal on macOS, Vulkan with opaque fds on
+    /// Linux, unless `PLAYER_ZERO_COPY=0` (the A/B). None elsewhere, and
+    /// devices keep their surfaces.
     pub fn scanout_ring(&self) -> Option<qemu_vm::RingAlloc> {
         if std::env::var("PLAYER_ZERO_COPY").as_deref() == Ok("0") {
             return None;
@@ -513,7 +514,16 @@ impl Gpu {
             let srgb = self.config.format.is_srgb();
             Some(std::sync::Arc::new(move |w, h, n| crate::metalring::alloc(&device, w, h, n, srgb)))
         }
-        #[cfg(not(any(windows, target_os = "macos")))]
+        #[cfg(target_os = "linux")]
+        {
+            if !crate::vkring::available(&self.device) {
+                return None;
+            }
+            let device = self.device.clone();
+            let srgb = self.config.format.is_srgb();
+            Some(std::sync::Arc::new(move |w, h, n| crate::vkring::alloc(&device, w, h, n, srgb)))
+        }
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         None
     }
 

@@ -3409,7 +3409,7 @@ static bool ring_copy(Exec &x, Ddi &d, VramSurf &s)
                            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { s.d.width, s.d.height, 1 } };
     d.vkCmdCopyImage(r.cb, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, r.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     /* the target back in the layout DXVK keeps it in; the slot in the
-     * general one the player samples (its Direct3D 12 or Metal) */
+     * general one the player samples (its Direct3D 12, Metal or Vulkan) */
     VkImageMemoryBarrier post[2] = {
         { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, nullptr, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, img, all },

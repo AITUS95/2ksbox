@@ -990,8 +990,17 @@ it, the executor on DXVK on KosmicKrisp (Open, "Windows 11 on Arm").
   380 frames doubled; the flip model holds 17); the same path.
 - The vertical blank's ±2 ms between the player and the device: not the
   executor's batch (above); where it comes from is open.
-- The screen Windows turned off still shows the last frame (above); the
-  device could show black while the source is invisible.
+- **The screen Windows turns off shows garbage**, not black (seen
+  2026-10-24 on Linux under KVM, the lock screen idle a minute; the
+  "last frame" of above was the device's grace hold). The kernel driver's
+  `SetVidPnSourceVisibility(FALSE)` writes `ENABLE` = 0, which the device
+  takes for a return to VGA (`d3dpt_vga_gfx_update`): after the grace it
+  shows the VGA core, whose VBE registers still hold the firmware's mode
+  (1280x800), over VRAM laid out for the driver's (2048 wide, pitch 8192),
+  a striped smaller-looking picture until a mouse move wakes the screen.
+  To fix: a register the driver writes instead (an `FB_VERSION` bump that
+  adds it) for "source off", which the device shows as black, keeping
+  `ENABLE` = 0 for a real return to VGA; the driver side builds on the PC.
 
 - ~~**A TDR under a full-screen repaint**~~ (fixed by QEMU patch 94) (`LOAD\anim.ps1` maximized at
   1600x1200, before the NOOVERWRITE change; not seen in one run after

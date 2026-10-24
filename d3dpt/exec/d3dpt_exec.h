@@ -81,10 +81,11 @@ D3DPT_EXEC_API uint32_t d3dpt_exec_features(d3dpt_exec_t *x);
  * so the caller never blocks on the GPU. Returns how many readbacks are
  * still owed (0: VRAM is current). */
 D3DPT_EXEC_API int d3dpt_exec_settle(d3dpt_exec_t *x, int wait);
-/* Optional too, Windows and macOS (track M26): the scanout ring. `ring`
- * imports the front end's `count` images of w x h (NT handles to shared
- * Direct3D 12 resources on Windows, MTLHeaps on macOS, BGRA8; the
- * caller's still) and returns how many it took, 0
+/* Optional too, Windows, macOS and Linux (track M26): the scanout ring.
+ * `ring` imports the front end's `count` images of w x h (NT handles to
+ * shared Direct3D 12 resources on Windows, MTLHeaps on macOS,
+ * d3dpt_exec_ring_fd pointers on Linux, BGRA8; the caller's still) and
+ * returns how many it took, 0
  * for none (count 0 drops the ring); from then on a flip's frame
  * (D3DPT_D11_RES_SCANOUT) that fits goes into the next image on the GPU
  * instead of back into VRAM. `ring_slot`: the image holding the frame of
@@ -93,6 +94,18 @@ D3DPT_EXEC_API int d3dpt_exec_settle(d3dpt_exec_t *x, int wait);
  * and `wait` is 0. `scanout_vram`: that page's frame into VRAM now, for
  * a reader of VRAM (a screendump, a picture the CPU path redraws). */
 D3DPT_EXEC_API int d3dpt_exec_ring(d3dpt_exec_t *x, void *const *handles, int count, uint32_t w, uint32_t h);
+/* A ring image on Linux: a Vulkan image of w x h, B8G8R8A8_UNORM with
+ * MUTABLE_FORMAT, optimal tiling, usage TRANSFER_SRC | TRANSFER_DST |
+ * SAMPLED, in a dedicated allocation exported as an opaque fd, which the
+ * executor imports on DXVK's device with the same parameters (dup'ing
+ * `fd`) once its device's IDs match. It leaves a filled image in GENERAL. */
+typedef struct d3dpt_exec_ring_fd {
+    int32_t fd;
+    uint32_t memory_type;           /* the allocation's memory type index */
+    uint64_t size;                  /* and its size */
+    uint8_t device_uuid[16];        /* VkPhysicalDeviceIDProperties of the exporter */
+    uint8_t driver_uuid[16];
+} d3dpt_exec_ring_fd;
 D3DPT_EXEC_API int d3dpt_exec_ring_slot(d3dpt_exec_t *x, uint32_t vram_offset, int wait);
 D3DPT_EXEC_API void d3dpt_exec_scanout_vram(d3dpt_exec_t *x, uint32_t vram_offset);
 /* Optional too: the ring's images the front end may still be sampling

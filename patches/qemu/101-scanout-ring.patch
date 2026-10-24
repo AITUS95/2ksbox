@@ -25,8 +25,8 @@ index 65ddb4c..c6d7943 100644
 + * the front end, that a display device whose frames are rendered on that
 + * GPU fills there and shows by number, so a frame never leaves the GPU.
 + * `alloc` asks for `count` images of width x height BGRA8 for `con` and
-+ * fills `handles` (NT handles to shared D3D12 resources on Windows,
-+ * MTLHeaps on macOS; the front end's; count 0 releases the ring); it
++ * fills `handles` (shared D3D12 resources on Windows, MTLHeaps on
++ * macOS, opaque fds on Linux; the front end's; count 0 releases); it
 + * returns how many it made, 0 for no ring. `show` puts slot `slot` on
 + * `con` as its whole frame, the slot's GPU work already finished. `held`
 + * (any thread): bit n set while the front end may still sample slot n

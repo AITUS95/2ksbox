@@ -77,13 +77,15 @@ typedef struct qemu_embed_display_cb {
        on_update calls just made complete a frame: show it now rather than
        at the next tick. Main loop or vCPU thread, BQL held. */
     void (*on_flush)(void *ud);
-    /* v17 (Windows, track M26; macOS since the same v18): a scanout
+    /* v17 (Windows, track M26; macOS and Linux since the same v18): a scanout
        ring. A display device whose frames are rendered on the host's GPU
        (d3dpt-vga's Direct3D executor) asks for `count` images of width x
        height BGRA8 there: the frontend makes them as shared D3D12
        resources and writes their NT handles into `handles` (on macOS one
        placement MTLHeap each, the image at offset 0 as metalring.rs
-       describes it, and the id<MTLHeap>s; still the frontend's; the
+       describes it, and the id<MTLHeap>s; on Linux Vulkan images
+       exported as opaque fds, and pointers to d3dpt_exec.h's
+       d3dpt_exec_ring_fd; still the frontend's; the
        device opens its own references), returning how many it made, 0 for none (the
        device keeps its surface). Asked again at another size; count 0
        releases the ring. Main loop, BQL held. */
