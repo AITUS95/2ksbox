@@ -171,6 +171,7 @@ The sources are in `guest-tools/src/d3dptvid/`. The NT layer `nt/`
 | 10 | `CAP_D3D11`: the executor runs the D11 records (protocol v25), so the WDDM driver's Direct3D 11 user-mode driver opens (M25) |
 | 11 | HOST_MHZ (0x118): the rate of the guest's vertical blank as the front end gives it (M25) |
 | 12 | FOLLOW, PREF_W, PREF_H (0x11c..0x124), `IRQ_DISPLAY`, `CAP_FOLLOW`: the desktop following the window (M20, "The desktop following the window") |
+| 13 | BLANK (0x128): a source the driver turned off, shown black at the mode's size after the mode switch's grace (250 ms), `ENABLE` staying 1. The WDDM driver's `SetVidPnSourceVisibility(FALSE)` writes it (the monitor off, the lock screen idle); it wrote `ENABLE` = 0 before, and the device then showed the VGA core's stale firmware mode over the driver's VRAM, a striped picture, until a mouse move (M25) |
 
 The BAR has `valid.min_access_size = 4`, so every access is 32-bit,
 which matters to the 16-bit 9x driver (doc 19).

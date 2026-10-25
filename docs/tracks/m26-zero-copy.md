@@ -314,7 +314,7 @@ built (`build-d3dpt-exec.sh`, the player) but was not run again, and
 A/B against `PLAYER_ZERO_COPY=0` at 4K.
 
 Seen on the way, not the ring's: Windows 11 turning the screen off shows
-garbage (00-status "Open threads", M25's track doc).
+garbage (M25's track doc; black since 2026-10-24, register set v13).
 
 ## Steps
 

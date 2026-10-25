@@ -879,6 +879,10 @@ static NTSTATUS d3dpt_system_display_enable(IN_CONST_PVOID ctx, IN_CONST_D3DDDI_
     if (!a->vram || !a->cur_w || !a->cur_h) {
         return STATUS_UNSUCCESSFUL;
     }
+    /* a bugcheck's screen shows even with the source off */
+    if (a->regs[D3DPT_FB_REG_VERSION / 4] >= 13u) {
+        a->regs[D3DPT_FB_REG_BLANK / 4] = 0;
+    }
     *w = a->cur_w;
     *h = a->cur_h;
     *fmt = D3DDDIFMT_X8R8G8B8;
@@ -1354,6 +1358,9 @@ static VOID d3dpt_reset_device(IN_CONST_PVOID ctx)
      * XP miniport's reset does */
     if (a && a->regs) {
         a->regs[D3DPT_FB_REG_ENABLE / 4] = 0;
+        if (a->regs[D3DPT_FB_REG_VERSION / 4] >= 13u) {
+            a->regs[D3DPT_FB_REG_BLANK / 4] = 0;
+        }
     }
 }
 
@@ -4539,7 +4546,19 @@ static NTSTATUS APIENTRY d3dpt_set_vidpn_source_visibility(IN_CONST_HANDLE h,
 {
     D3DPT_ADAPTER *a = (D3DPT_ADAPTER *)h;
 
-    a->regs[D3DPT_FB_REG_ENABLE / 4] = v->Visible ? 1 : 0;
+    /* A source turned off (the monitor off, the lock screen idle) is BLANK
+     * on register set v13, shown black; ENABLE = 0 would give the console
+     * back to the VGA core, whose firmware mode then shows our VRAM as
+     * stripes. An older device has only ENABLE. Off leaves ENABLE as it
+     * is: a source never shown keeps the firmware's picture. */
+    if (a->regs[D3DPT_FB_REG_VERSION / 4] >= 13u) {
+        a->regs[D3DPT_FB_REG_BLANK / 4] = v->Visible ? 0 : 1;
+        if (v->Visible) {
+            a->regs[D3DPT_FB_REG_ENABLE / 4] = 1;
+        }
+    } else {
+        a->regs[D3DPT_FB_REG_ENABLE / 4] = v->Visible ? 1 : 0;
+    }
     if (g_trace) {
         dbg_hex("d3dptkmd: SetVidPnSourceVisibility ", (ULONG)v->Visible);
         dbg_puts("\n");

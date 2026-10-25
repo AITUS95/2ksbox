@@ -65,6 +65,8 @@ struct D3dptVgaState {
 
     /* guest-programmed registers */
     uint32_t r_enable, r_w, r_h, r_bpp, r_pitch, r_offset, r_hz, r_sel;
+    uint32_t r_blank;           /* BLANK (register set v13): the source is off */
+    bool blank_shown;           /* the black surface is on the console */
     int64_t vbl_ns;             /* clock at the last ENABLE: the vblank counter's origin */
     uint32_t flips;
     uint32_t flips_last;        /* flips at the last rate report */
@@ -805,6 +807,31 @@ static void fb_ring_unstale(D3dptVgaState *s, uint32_t offset)
     }
 }
 
+/* The source the driver turned off (BLANK, register set v13): the last
+ * frame held for the grace, then a black surface of the mode's size, made
+ * once; the linear mode is put back whole when BLANK goes to 0 */
+static void fb_show_blank(D3dptVgaState *s)
+{
+    DisplaySurface *ds;
+    int w = s->r_w >= 64 && s->r_w <= 8192 ? s->r_w : 640;
+    int h = s->r_h >= 64 && s->r_h <= 8192 ? s->r_h : 480;
+
+    if (s->blank_shown && !s->resurface) {
+        return;
+    }
+    if (qemu_clock_get_ms(QEMU_CLOCK_REALTIME) < s->vga_grace_until) {
+        return;
+    }
+    s->lin_on = false;
+    fb_drop_shadow(s);
+    ds = qemu_create_displaysurface(w, h);
+    memset(surface_data(ds), 0, (size_t)surface_stride(ds) * h);
+    qemu_console_set_surface(s->vga.con, ds);
+    qemu_console_update_full(s->vga.con);
+    s->blank_shown = true;
+    s->resurface = false;
+}
+
 static bool d3dpt_vga_gfx_update(void *opaque)
 {
     D3dptVgaState *s = opaque;
@@ -812,6 +839,11 @@ static bool d3dpt_vga_gfx_update(void *opaque)
     DirtyBitmapSnapshot *snap;
     int y, ys;
 
+    if (s->r_blank && s->r_enable) {
+        fb_show_blank(s);
+        return true;
+    }
+    s->blank_shown = false;
     if (!fb_get_mode(s, &m)) {
         if (s->lin_on) {
             /* A mode switch is RESET (ENABLE = 0) followed by the new mode a
@@ -1503,6 +1535,8 @@ static uint64_t d3dpt_vga_regs_read(void *opaque, hwaddr addr, unsigned size)
         return s->follow_on ? s->pref_w : 0;
     case D3DPT_FB_REG_PREF_H:
         return s->follow_on ? s->pref_h : 0;
+    case D3DPT_FB_REG_BLANK:
+        return s->r_blank;
     case D3DPT_FB_REG_GAMMA_ENABLE:
         return s->gamma_on;
     case D3DPT_FB_REG_MODE_COUNT:
@@ -1756,6 +1790,18 @@ static void d3dpt_vga_regs_write(void *opaque, hwaddr addr, uint64_t val,
     case D3DPT_FB_REG_FOLLOW:
         fb_follow(s, val == 1);
         break;
+    case D3DPT_FB_REG_BLANK:
+        if ((val != 0) != (s->r_blank != 0)) {
+            info_report("d3dpt-vga: source %s", val ? "off (black)" : "on");
+            if (val) {
+                /* a mode switch may turn the source off for a moment too */
+                s->vga_grace_until = qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +
+                                     D3DPT_FB_VGA_GRACE_MS;
+            }
+        }
+        s->r_blank = val != 0;
+        qemu_console_hw_invalidate(s->vga.con);
+        break;
     case D3DPT_FB_REG_FENCE:
         s->fence_done = val;
         if (s->irq_enable & D3DPT_FB_IRQ_DMA) {
@@ -1874,6 +1920,8 @@ static void d3dpt_vga_reset(DeviceState *dev)
     /* the VGA core registers its own reset; ours goes back to VGA text */
     s->r_enable = s->r_w = s->r_h = s->r_bpp = s->r_pitch = 0;
     s->r_offset = s->r_hz = s->r_sel = 0;
+    s->r_blank = 0;
+    s->blank_shown = false;
     s->vbl_ns = 0;
     s->cur_flip_hidden = false;
     s->cur_flags = 0;

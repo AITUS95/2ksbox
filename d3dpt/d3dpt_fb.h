@@ -109,6 +109,14 @@
  * PREF_W / PREF_H then hold the window's size and IRQ_DISPLAY says it
  * changed. A reset takes FOLLOW back to 0.
  *
+ * Version 13 (M25): BLANK, a source the driver turns off (WDDM's
+ * SetVidPnSourceVisibility(FALSE): the screen saver's monitor off, the
+ * lock screen idle) without giving the console back to the VGA core. The
+ * device holds the last frame for the grace a mode switch gets, then shows
+ * black at the mode's size until BLANK = 0. ENABLE = 0 stays the real
+ * return to VGA; with it the VGA core's stale firmware mode was shown over
+ * VRAM laid out for the driver's, a striped picture. A reset takes it to 0.
+ *
  * **Versions only add.** Every driver (the XP miniport, the 9x display
  * driver and mini-VDD) accepts any VERSION at or above the one it was
  * built with and refuses only an older one, because a newer register set is
@@ -129,7 +137,7 @@
 
 #include <stdint.h>
 
-#define D3DPT_FB_VERSION      12u
+#define D3DPT_FB_VERSION      13u
 #define D3DPT_FB_MAGIC        0x42463344u          /* "D3FB" at REG_MAGIC */
 
 /* PCI identity: QEMU/Bochs pseudo vendor, our device id ("3D00"). The INF
@@ -232,6 +240,8 @@
                                           * size (the device takes the console's UI info); 0 at reset */
 #define D3DPT_FB_REG_PREF_W      0x120u  /* R: the front end's window in pixels while FOLLOW (0 = none told) */
 #define D3DPT_FB_REG_PREF_H      0x124u
+#define D3DPT_FB_REG_BLANK       0x128u  /* RW (version 13): 1 = the source is off, shown black (ENABLE stays 1);
+                                          * 0 at reset */
 #define D3DPT_FB_DMA_OK          0u
 #define D3DPT_FB_DMA_NO_ROOM     1u      /* the batch has no room for them: ring the doorbell first */
 #define D3DPT_FB_DMA_BAD         2u      /* no window, a size not a multiple of 8, or memory the device cannot read */
