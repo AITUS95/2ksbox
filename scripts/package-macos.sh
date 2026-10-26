@@ -691,9 +691,10 @@ if [ -n "$W11" ]; then
     case "$w11args" in *"$want"*) ;; *) echo "package-macos.sh: Windows 11 on Arm's arguments lack $want" >&2; fail=1 ;; esac
   done
   # One QEMU at a time on this Mac: the run ends by itself through QMP,
-  # or here after a minute.
+  # or here after a minute. `exec`, so the minute's kill reaches the
+  # player and not a subshell that leaves it running.
   read -r -a argv <<< "$w11args"
-  (cd / && env -i HOME="$scratch" PLAYER_QMP_EXEC='{"execute":"quit"}' DYLD_PRINT_LIBRARIES=1 \
+  (cd / && exec env -i HOME="$scratch" PLAYER_QMP_EXEC='{"execute":"quit"}' DYLD_PRINT_LIBRARIES=1 \
     "$C/MacOS/2ksbox-player-aarch64" -- "${argv[@]}" > "$scratch/player-aarch64.txt" 2>&1) &
   pid=$!
   ( sleep 60; kill "$pid" 2>/dev/null ) & killer=$!

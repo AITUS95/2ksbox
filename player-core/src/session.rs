@@ -304,7 +304,7 @@ impl Session {
         if let Source::Qemu {
             qmp: Some(qmp),
             qmp_exec_done,
-            last_seq,
+            display,
             ..
         } = &mut self.source
         {
@@ -318,8 +318,12 @@ impl Session {
             }
             // PLAYER_QMP_EXEC: one request object or an array of them, run once
             // the guest has drawn. A shell-level way to try commands
-            // (eject, blockdev-change-medium, snapshot-save, ...).
-            if !*qmp_exec_done && *last_seq > 0 {
+            // (eject, blockdev-change-medium, snapshot-save, ...). Keyed on
+            // the frames QEMU published, not the ones presented: a scripted
+            // run's window is often covered, and a covered window presents
+            // nothing (the 1.2.0 gate's Windows 11 on Arm check never quit
+            // behind a browser).
+            if !*qmp_exec_done && display.published_seq() > 0 {
                 *qmp_exec_done = true;
                 if let Ok(spec) = std::env::var("PLAYER_QMP_EXEC") {
                     let reqs = match serde_json::from_str::<serde_json::Value>(&spec) {

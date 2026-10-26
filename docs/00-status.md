@@ -532,8 +532,16 @@ tracks, plus the items no track owns.
     `test.sh all` 74 passed, the known `pit-guest`, 8 skipped;
     `package-linux.sh`; `package-flatpak.sh` once the Wine add-on's
     manifest copied in DXVK's Vulkan headers (the executor's mingw build
-    has needed them since M26's scanout ring, 2026-10-23). Left: the PC's
-    and the Air's gates, then the tag.
+    has needed them since M26's scanout ring, 2026-10-23). The Air's
+    from `f054a3e6` built clean and `test.sh all` passed (61, 0 failed,
+    14 skipped for another host or a missing prerequisite), but the App
+    Store package's Windows 11 on Arm check never quit: the player's
+    window opened behind a browser, a covered window presents nothing,
+    and `PLAYER_QMP_EXEC` waited for a presented frame. It now waits for
+    a published one (`session.rs`), and the check's one-minute kill
+    reaches the player (it had killed a subshell and left four players
+    running). Left: the gates again from that fix's commit, then the
+    tag.
 13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.

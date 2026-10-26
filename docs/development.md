@@ -418,7 +418,8 @@ socket file). A script adds its own `-qmp unix:…,server,nowait`.
 - `PLAYER_QMP=1` logs every QMP event (SHUTDOWN, RESET, STOP… are logged
   regardless).
 - `PLAYER_QMP_EXEC='{"execute":"query-status"}'` (or a JSON array) runs
-  requests once the guest has drawn its first frame and prints the
+  requests once QEMU has published the guest's first frame (whether or
+  not the window, perhaps covered, presented it) and prints the
   replies, from a thread of its own (a `quit`'s reply comes only after
   QEMU has torn down, which waits for the UI thread).
 
