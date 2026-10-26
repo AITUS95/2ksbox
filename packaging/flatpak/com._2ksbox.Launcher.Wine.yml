@@ -102,7 +102,8 @@ modules:
   # The executor's Windows build and the program that runs it under Wine,
   # from this tree's sources with the script a developer runs
   # (`scripts/build-d3dpt-exec.sh --wine`, mingw). Only what the script
-  # reads is copied in: `d3dpt/` and the script, at the paths it expects.
+  # reads is copied in: `d3dpt/`, DXVK's Vulkan headers (the scanout ring
+  # includes them) and the script, at the paths it expects.
   - name: d3dpt-exec-wine
     buildsystem: simple
     build-commands:
@@ -113,6 +114,9 @@ modules:
       - type: dir
         path: ../../d3dpt
         dest: d3dpt
+      - type: dir
+        path: ../../third_party/dxvk/include/vulkan/include
+        dest: third_party/dxvk/include/vulkan/include
       - type: file
         path: ../../scripts/build-d3dpt-exec.sh
         dest: scripts

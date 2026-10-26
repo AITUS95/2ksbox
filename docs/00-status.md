@@ -528,6 +528,12 @@ tracks, plus the items no track owns.
     (2026-10-17, user). UIDE's terms are "free with sources", so the
     guest tools disc carries its source, `DOSMODE\UIDE.ASM`, from FreeDOS
     1.4's package (2026-10-17, user; `third_party/uide/UPSTREAM`).
+    **1.2.0** (2026-10-26): the Linux gate from `f054a3e6`: the build,
+    `test.sh all` 74 passed, the known `pit-guest`, 8 skipped;
+    `package-linux.sh`; `package-flatpak.sh` once the Wine add-on's
+    manifest copied in DXVK's Vulkan headers (the executor's mingw build
+    has needed them since M26's scanout ring, 2026-10-23). Left: the PC's
+    and the Air's gates, then the tag.
 13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.
