@@ -498,10 +498,12 @@ Ad hoc signed with the sandbox (2026-10-06), the launcher's library
 moves into its container, a path no panel granted is refused
 (`--keep-grant`), and a cue sheet in the container whose track is
 outside asks for the track's folder (`--grant-ask`); outside the sandbox `--keep-grant` / `--grants` keep,
-resolve, follow a renamed file and report a deleted one. Not yet known
-(open thread): a pick kept across a restart and opened by a player,
-which needs a click in the open panel, and the length of the QMP
-socket path under the container's `tmp` (`AF_UNIX` allows 104 bytes).
+resolve, follow a renamed file and report a deleted one. On TestFlight
+(1.2.0, 2026-10-26, user) a disc added in the launcher's Discs window
+and chosen in the player's Disc menu reads in the guest, across a
+restart of the app too: the player opens the launcher's pick, kept as a
+bookmark, and the swap goes through the machine's QMP socket under the
+container.
 
 ### The Intel build
 

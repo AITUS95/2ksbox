@@ -288,6 +288,16 @@ impl Shelf {
         self.insert(&path);
     }
 
+    /// Whether the player's Disc menu offers Insert Disc Image… and Insert
+    /// Folder as Disc…. Not in the App Sandbox: the player inherits the
+    /// launcher's sandbox, which allows no sandbox entitlement of its own,
+    /// and AppKit opens no panel for a process without the user-selected
+    /// files one (it closed the 1.2.0 TestFlight player). There a disc is
+    /// added in the launcher's Discs window, and the menu swaps it in.
+    pub fn menu_can_pick() -> bool {
+        !crate::grants::sandboxed()
+    }
+
     /// The player's Disc menu (track M22): the shelf's discs in its order,
     /// the one in the drive checked, and before them a disc the drive
     /// holds that is not on the shelf (one removed from it since), so the

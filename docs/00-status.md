@@ -541,8 +541,14 @@ tracks, plus the items no track owns.
     a published one (`session.rs`), and the check's one-minute kill
     reaches the player (it had killed a subshell and left four players
     running). The Linux gate passed again from that fix, `3b6ee90b`,
-    with the same results. Left: the PC's and the Air's gates from
-    `3b6ee90b`, then the tag.
+    with the same results, and the Air's from `636c001e`. TestFlight
+    then found the player closing at Machine > Disc > Insert Disc
+    Image…: the sandboxed player gets no open panel (it inherits the
+    launcher's sandbox, without the user-selected files entitlement),
+    and mitsuami 1.3.6 panicked on AppKit's nil. In the sandbox the
+    menu now leaves out both Inserts (`Shelf::menu_can_pick`, user);
+    mitsuami should answer a nil panel as a cancel. Left: every gate
+    again from that commit, then the tag.
 13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.

@@ -474,7 +474,12 @@ The fields, and why each is what it is:
   `Shelf::menu_discs` (the shelf in its order, the disc in the drive
   checked, one off the shelf first), with Eject, Insert Disc Image… and
   Insert Folder as Disc… (`add_and_insert`: on the shelf and in the
-  drive at once, the shelf republished to the drive). It reaches the
+  drive at once, the shelf republished to the drive). The two Inserts
+  are left out in the App Sandbox (`Shelf::menu_can_pick`, 2026-10-26,
+  user): the player inherits the launcher's sandbox, which allows it no
+  user-selected files entitlement, and AppKit's `openPanel` returns nil
+  without one (mitsuami 1.3.6 panicked on it and the TestFlight player
+  closed). It reaches the
   tray through the launcher's monitor socket, as the window does. It
   follows changes as they happen, never on a timer (user, 2026-10-19):
   the launcher writing `discs.toml` or the bundle (file notifications,

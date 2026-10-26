@@ -113,7 +113,7 @@ impl Discs {
     }
 
     pub fn menu(self) -> Menu {
-        Menu::new("Disc")
+        let menu = Menu::new("Disc")
             .children_with(move || {
                 let rows = self.model.with(Shelf::menu_discs);
                 if rows.is_empty() {
@@ -136,8 +136,11 @@ impl Discs {
                 MenuItem::new("Eject")
                     .enabled(move || self.model.with(|s| s.drive().is_some()))
                     .on_select(move || self.change(Shelf::eject)),
-            )
-            .separator()
+            );
+        if !Shelf::menu_can_pick() {
+            return menu;
+        }
+        menu.separator()
             .item(MenuItem::new("Insert Disc Image…").on_select(move || self.pick(false)))
             .item(MenuItem::new("Insert Folder as Disc…").on_select(move || self.pick(true)))
     }
