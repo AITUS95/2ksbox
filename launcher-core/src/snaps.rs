@@ -371,7 +371,18 @@ impl Snapshots {
                 self.resume_after_job = false;
                 self.status = None;
                 self.error = Some(e);
+                // A load QEMU refused leaves the guest where it was: running.
+                if resume_after {
+                    let _ = self.control().and_then(|mut c| c.set_running(true));
+                }
             }
+        }
+    }
+
+    /// The guest a load stopped runs again, whatever became of the job.
+    fn resume_if_stopped(&mut self) {
+        if std::mem::take(&mut self.resume_after_job) {
+            let _ = self.control().and_then(|mut c| c.set_running(true));
         }
     }
 
@@ -398,20 +409,30 @@ impl Snapshots {
 
     fn poll_now(&mut self) {
         let Some(job_id) = self.job.clone() else { return };
-        let state = self.control().and_then(|mut c| c.job(&job_id));
+        // The short timeout: this runs on the window's timer, and a
+        // busy QEMU is asked again on the next tick.
+        let state = self
+            .bundle_dir
+            .as_deref()
+            .ok_or_else(|| "no machine open".to_string())
+            .and_then(|dir| Control::connect_poll(&control::socket_path(dir)))
+            .and_then(|mut c| c.job(&job_id));
         let (status, error) = match state {
+            Err(e) if e == control::TIMED_OUT => return,
             Ok(Some(state)) => state,
             // Gone already (or the monitor went away with the guest):
             // stop polling rather than spinning on a job that can't
             // report anything.
             Ok(None) => {
                 self.job = None;
+                self.resume_if_stopped();
                 self.refresh();
                 return;
             }
             Err(e) => {
                 self.job = None;
                 self.error = Some(e);
+                self.resume_if_stopped();
                 return;
             }
         };
@@ -422,11 +443,11 @@ impl Snapshots {
         let op = self.job_op.take();
         let resume = std::mem::take(&mut self.resume_after_job);
         let result = self.control().and_then(|mut c| {
-            c.dismiss_job(&job_id)?;
+            let dismissed = c.dismiss_job(&job_id);
             if resume {
                 c.set_running(true)?;
             }
-            Ok(())
+            dismissed
         });
         // The job's own error wins over anything the tidy-up hit.
         let outcome = error.map(Err).unwrap_or(result);

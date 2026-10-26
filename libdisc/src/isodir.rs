@@ -17,6 +17,7 @@
 //! reads. A file's bytes are laid out once and both trees point at them.
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -90,6 +91,9 @@ struct Builder {
     nodes: Vec<Node>,
     dirs: usize,
     warnings: usize,
+    /// File data sectors found so far, so a tree too big for any disc is
+    /// refused while it is walked, not after every file in it was opened.
+    data_sectors: u64,
 }
 
 /// One tree's plan: the ordering the standard wants, the numbering that
@@ -130,7 +134,7 @@ impl Builder {
             jol_id: vec![0],
             lba: 0,
         };
-        Ok(Builder { root: dir.to_path_buf(), disc: Disc::new(), nodes: vec![root], dirs: 1, warnings: 0 })
+        Ok(Builder { root: dir.to_path_buf(), disc: Disc::new(), nodes: vec![root], dirs: 1, warnings: 0, data_sectors: 0 })
     }
 
     /// Say what we are dropping and why. A shared folder is the user's
@@ -226,6 +230,15 @@ impl Builder {
                         }
                     }
                 };
+                if payload.is_some() {
+                    // Metadata is not laid out yet, so this is a lower
+                    // bound of what `finish` checks; past it, no later
+                    // file can bring the total back under.
+                    self.data_sectors += sectors_for_len(len) as u64;
+                    if self.data_sectors + TAIL_PAD as u64 > MAX_SECTORS {
+                        return Err(self.too_big(self.data_sectors + TAIL_PAD as u64));
+                    }
+                }
                 let idx = self.push(Node {
                     name,
                     is_dir: false,
@@ -248,6 +261,16 @@ impl Builder {
         Ok(())
     }
 
+    /// The refusal for a tree of `sectors` (or more) that no disc holds.
+    fn too_big(&self, sectors: u64) -> Error {
+        Error::Invalid(format!(
+            "{}: the folder holds {}, and a disc holds at most {} (a dual-layer DVD); share a folder that fits, or make an image of this one",
+            self.root.display(),
+            size_str(sectors),
+            size_str(MAX_SECTORS)
+        ))
+    }
+
     fn push(&mut self, n: Node) -> usize {
         self.nodes.push(n);
         self.nodes.len() - 1
@@ -264,8 +287,8 @@ impl Builder {
             if self.nodes[i].depth > ISO_MAX_DEPTH {
                 deep += 1;
             }
-            let mut iso_taken: Vec<Vec<u8>> = Vec::new();
-            let mut jol_taken: Vec<Vec<u8>> = Vec::new();
+            let mut iso_taken = HashSet::new();
+            let mut jol_taken = HashSet::new();
             for k in kids {
                 let (name, is_dir) = (self.nodes[k].name.clone(), self.nodes[k].is_dir);
                 let iso = unique(iso_ident(&name, is_dir), &mut iso_taken, iso_suffix);
@@ -362,12 +385,7 @@ impl Builder {
         let data: u64 = self.nodes.iter().filter(|n| n.payload.is_some()).map(|n| sectors_for_len(n.len) as u64).sum();
         let want = meta_sectors as u64 + data + TAIL_PAD as u64;
         if want > MAX_SECTORS {
-            return Err(Error::Invalid(format!(
-                "{}: the folder holds {}, and a disc holds at most {} (a dual-layer DVD); share a folder that fits, or make an image of this one",
-                self.root.display(),
-                size_str(want),
-                size_str(MAX_SECTORS)
-            )));
+            return Err(self.too_big(want));
         }
 
         // Files, in the primary tree's order: a directory's own files
@@ -771,17 +789,19 @@ fn joliet_suffix(id: &[u8], n: u32) -> Vec<u8> {
     ucs2(&units)
 }
 
-/// Make `id` unique among `taken`, case-insensitively: two names that
-/// differ only in case are one name to both trees' readers.
-fn unique(id: Vec<u8>, taken: &mut Vec<Vec<u8>>, suffix: fn(&[u8], u32) -> Vec<u8>) -> Vec<u8> {
+/// Make `id` unique among `taken` (its siblings' identifiers, folded),
+/// case-insensitively: two names that differ only in case are one name to
+/// both trees' readers. A set, so a folder of thousands of names sharing
+/// their first eight characters opens in a moment rather than minutes.
+fn unique(id: Vec<u8>, taken: &mut HashSet<Vec<u8>>, suffix: fn(&[u8], u32) -> Vec<u8>) -> Vec<u8> {
     let fold = |v: &[u8]| -> Vec<u8> { v.iter().map(|b| b.to_ascii_uppercase()).collect() };
     let mut candidate = id;
     let mut n = 1u32;
-    while taken.iter().any(|t| fold(t) == fold(&candidate)) {
+    while taken.contains(&fold(&candidate)) {
         candidate = suffix(&candidate, n);
         n += 1;
     }
-    taken.push(candidate.clone());
+    taken.insert(fold(&candidate));
     candidate
 }
 

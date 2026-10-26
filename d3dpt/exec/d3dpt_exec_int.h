@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "d3dpt_exec.h"
@@ -103,7 +104,20 @@ struct Exec {
     struct Ddi *ddi = nullptr;
     void *d11 = nullptr;            /* M25: the Direct3D 11 side (d3dpt_exec_d11.cpp), made at its first record */
     bool settles = false;           /* v28: the device calls d3dpt_exec_settle before its display reads VRAM */
+    /* the batch's records, copied out of the window before they are read:
+     * the window is guest memory, and off TCG the device runs a batch
+     * without the BQL, so another vCPU could rewrite a record between
+     * its check and its use */
+    std::vector<uint8_t> cmds;
     uint32_t ring_held = 0;         /* M26: scanout ring slots the front end may still sample (d3dpt_exec_ring_held) */
+    /* v31: SCOPE, the handles a guest process's records may name, open
+     * from the kernel driver's SCOPE until its close (across batches: a
+     * submission's RETURN runs it in pieces). Only where a record or a
+     * token names a surface or a resource; what a context bound before is
+     * looked up again unchecked. */
+    bool scoped = false;
+    std::unordered_set<uint32_t> scope;
+    bool named(uint32_t h) const { return !scoped || !h || scope.count(h) != 0; }
 
     /* A scene, opened by the executor rather than by whatever it is
      * executing. The display driver's DP2 stream carries no scene at all
@@ -129,8 +143,12 @@ struct Exec {
         if (it == objs.end() || it->second.kind != k) return nullptr;
         return static_cast<T *>(it->second.p);
     }
+    /* the queries a guest may hold at once: a program keeps a few per
+     * frame in flight (DWM's events, a game's occlusion queries), and a
+     * record of a few bytes makes each */
+    static constexpr size_t MAX_OBJS = 65536;
     bool put(uint32_t h, Kind k, IUnknown *p) {
-        if (!h || objs.count(h)) { if (p) p->Release(); return false; }
+        if (!h || objs.count(h) || objs.size() >= MAX_OBJS) { if (p) p->Release(); return false; }
         objs[h] = { k, p };
         return true;
     }

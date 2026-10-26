@@ -1820,6 +1820,15 @@ impl Form {
         if let Err(e) = bundle::split_args(&self.extra_qemu_args) {
             return Err(std::io::Error::other(e));
         }
+        // an empty disk path loads back as the bundle's own folder
+        if (self.existing_disk || self.editing.is_some()) && self.disk_path.trim().is_empty() {
+            return Err(std::io::Error::other("Choose a disk image."));
+        }
+        // a device (Windows' NUL) has no metadata there, but opens
+        let disk = Path::new(&self.disk_path);
+        if self.existing_disk && self.editing.is_none() && !disk.exists() && std::fs::File::open(disk).is_err() {
+            return Err(std::io::Error::other("That disk image doesn't exist."));
+        }
         if let Some(edit) = &self.editing {
             let bundle_path = edit.bundle_path.clone();
             let mut machine = self.build_machine(PathBuf::from(&self.disk_path));

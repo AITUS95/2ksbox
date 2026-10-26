@@ -231,12 +231,21 @@ void embed_gl_drawable_size(int *w, int *h)
 
 static int drawable_resize(int w, int h)
 {
+    /* a size the platform refused, not asked again at every swap */
+    static int failed_w, failed_h;
+
     if (win_ready && win_w == w && win_h == h) {
         return 1;
     }
-    if (!plat_drawable(w, h)) {
+    if (w == failed_w && h == failed_h) {
         return 0;
     }
+    if (!plat_drawable(w, h)) {
+        failed_w = w;
+        failed_h = h;
+        return 0;
+    }
+    failed_w = failed_h = 0;
     win_w = w;
     win_h = h;
     readback = g_realloc(readback, (size_t)w * h * sizeof(uint32_t));
@@ -582,10 +591,14 @@ static int PbufferGLAttrib(const int attr)
         default:                        return 0;
     }
 }
+/* The pairs a guest's list may hold: its arguments sit in the last page of
+ * the shared window behind a name of at most 64 bytes, so an unterminated
+ * list stops here rather than past the page */
+#define ATTRIB_PAIRS_MAX 256
 static int LookupAttribArray(const int *attrib, const int attr)
 {
     int ret = 0;
-    for (int i = 0; attrib[i]; i+=2) {
+    for (int i = 0; i < 2 * ATTRIB_PAIRS_MAX && attrib[i]; i+=2) {
         if (attrib[i] == attr) {
             switch (attr) {
                 case WGL_DEPTH_BITS_ARB:    ret = cDepthBits;    break;
@@ -685,7 +698,8 @@ void MGLFuncHandler(const char *name)
         return;
     }
     FUNCP_HANDLER("wglGetPixelFormatAttribfvARB") {
-        const int *ia = (const int *)&argsp[4], n = argsp[2];
+        /* nAttribs is the guest's: no more than the reply holds */
+        const int *ia = (const int *)&argsp[4], n = MIN((uint32_t)argsp[2], 64);
         float pf[64];
         for (int i = 0; i < n; i++)
             pf[i] = (float)LookupAttribArray(iAttribs, ia[i]);
@@ -694,7 +708,8 @@ void MGLFuncHandler(const char *name)
         return;
     }
     FUNCP_HANDLER("wglGetPixelFormatAttribivARB") {
-        const int *ia = (const int *)&argsp[4], n = argsp[2];
+        /* nAttribs is the guest's: no more than the reply holds */
+        const int *ia = (const int *)&argsp[4], n = MIN((uint32_t)argsp[2], 64);
         int pi[64];
         for (int i = 0; i < n; i++)
             pi[i] = LookupAttribArray(iAttribs, ia[i]);
@@ -743,6 +758,7 @@ void MGLFuncHandler(const char *name)
         if (plat_pbuffer_create(i, hPbuffer[i].width, hPbuffer[i].height)) {
             argsp[0] = 1;
         } else {
+            plat_pbuffer_destroy(i);    /* whichever half was made */
             memset(&hPbuffer[i], 0, sizeof(FakePBuffer));
             argsp[0] = 0;
         }

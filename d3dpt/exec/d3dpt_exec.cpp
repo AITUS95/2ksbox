@@ -99,6 +99,16 @@ static void exec_one(Batch &b, const d3dpt_cmd *c) {
     switch (c->op) {
     case D3DPT_OP_NOP:
         break;
+    case D3DPT_OP_SCOPE: {
+        auto *a = body<d3dpt_u32x2>(c, 0, b); if (!a) return;
+        if (!(a->b & 1)) { x.scoped = false; x.scope.clear(); break; }
+        if (a->a > (c->size - sizeof(*c) - sizeof(*a)) / 4) { b.err = D3DPT_ERR_MALFORMED; return; }
+        const uint8_t *h = tail(a);
+        x.scope.clear();
+        for (uint32_t i = 0; i < a->a; i++) { uint32_t v; memcpy(&v, h + 4 * i, 4); x.scope.insert(v); }
+        x.scoped = true;
+        break;
+    }
     case D3DPT_OP_RELEASE: {
         auto *a = body<d3dpt_handle>(c, 0, b); if (!a) return;
         auto it = x.objs.find(a->handle);
@@ -111,6 +121,12 @@ static void exec_one(Batch &b, const d3dpt_cmd *c) {
         auto *a = body<d3dpt_create_query>(c, 0, b); if (!a) return;
         d3dpt_ret *r = b.slot(a->ret_off, 0); if (!r) return;
         if (!need_device(b)) return;
+        if (x.objs.size() >= Exec::MAX_OBJS && !x.objs.count(a->handle)) {
+            static bool told;
+            if (!told) { told = true; x.log("query %u refused: %zu queries already", a->handle, x.objs.size()); }
+            r->hr = (uint32_t)E_OUTOFMEMORY;
+            break;
+        }
         IDirect3DQuery9 *q = nullptr;
         r->hr = (uint32_t)x.dev->CreateQuery((D3DQUERYTYPE)a->type, &q);
         if (SUCCEEDED(r->hr) && !x.put(a->handle, K_QUERY, q)) { r->hr = (uint32_t)D3DERR_INVALIDCALL; b.err = D3DPT_ERR_BAD_HANDLE; }
@@ -141,7 +157,12 @@ static void exec_one(Batch &b, const d3dpt_cmd *c) {
             r->bytes = a->size;
             break;
         }
-        r->hr = (uint32_t)q->GetData(a->size ? (void *)(r + 1) : nullptr, a->size, a->flags & D3DGETDATA_FLUSH);
+        /* never more than the query's own size: DXVK copies what it is
+         * asked for out of a 16-byte cache, and the rest is host heap */
+        uint8_t data[256] = {};
+        DWORD want = std::min((DWORD)a->size, q->GetDataSize());
+        r->hr = (uint32_t)q->GetData(a->size ? (void *)data : nullptr, want, a->flags & D3DGETDATA_FLUSH);
+        memcpy(r + 1, data, a->size);
         r->bytes = r->hr == S_OK ? a->size : 0;
         break;
     }
@@ -473,6 +494,9 @@ void d3dpt_exec_attach(d3dpt_exec_t *xp, int attach)
 {
     Exec *x = (Exec *)xp;
     if (!x) return;
+    /* a guest that went away mid-submission left its scope open */
+    x->scoped = false;
+    x->scope.clear();
     if (attach) x->attach++;
     else if (x->attach > 0 && --x->attach == 0) x->release_all();
 }
@@ -496,7 +520,11 @@ uint32_t d3dpt_exec_submit(d3dpt_exec_t *xp, void *shm, uint32_t shm_size)
     uint32_t bytes = hdr->cmd_bytes, count = hdr->cmd_count;
     hdr->batches++;
     if (bytes > D3DPT_CMD_SIZE || bytes % 8) { b.err = D3DPT_ERR_MALFORMED; }
-    const uint8_t *p = (const uint8_t *)shm + D3DPT_CMD_OFFSET, *end = p + (b.err ? 0 : bytes);
+    if (!b.err) {
+        if (x->cmds.size() < bytes) x->cmds.resize(bytes);
+        memcpy(x->cmds.data(), (const uint8_t *)shm + D3DPT_CMD_OFFSET, bytes);
+    }
+    const uint8_t *p = x->cmds.data(), *end = p + (b.err ? 0 : bytes);
     while (!b.err && p < end) {
         if (end - p < (ptrdiff_t)sizeof(d3dpt_cmd)) { b.err = D3DPT_ERR_MALFORMED; break; }
         const d3dpt_cmd *c = (const d3dpt_cmd *)p;

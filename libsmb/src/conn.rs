@@ -50,6 +50,10 @@ const OPLOCK_BREAK: u16 = 0x12;
 const OPLOCK_LEVEL_LEASE: u8 = 0xff;
 const MAX_IO: u32 = 1 << 20;
 const HDR: usize = 64;
+/// Opens one connection may hold, under the host's usual 1024 descriptors.
+const MAX_OPENS: usize = 512;
+/// Change notifications one connection may wait on (Explorer: one a window).
+const MAX_WATCHES: usize = 128;
 
 const FSCTL_DFS_GET_REFERRALS: u32 = 0x0006_0194;
 const FSCTL_DFS_GET_REFERRALS_EX: u32 = 0x0006_01b0;
@@ -519,6 +523,12 @@ impl Conn {
                 self.log(false, "malformed header, dropping the frame");
                 return None;
             };
+            // a compound element shorter than its own header would be read
+            // (and signed) past its end
+            if h.next != 0 && (h.next as usize) < 64 {
+                self.log(false, "compound element shorter than a header, dropping the frame");
+                return None;
+            }
             let end = if h.next == 0 { rest.len() } else { (h.next as usize).min(rest.len()) };
             let req = &rest[..end];
             let related = h.flags & FLAG_RELATED != 0;
@@ -958,6 +968,10 @@ impl Conn {
     }
 
     fn create(&mut self, c: &Ctx, share: usize) -> Result<Reply, u32> {
+        // each open holds a host file descriptor until the guest closes it
+        if self.opens.len() >= MAX_OPENS {
+            return Err(STATUS_INSUFFICIENT_RESOURCES);
+        }
         let r = c.req;
         let access = u32_at(r, HDR + 24);
         let attrs = u32_at(r, HDR + 28);
@@ -970,6 +984,9 @@ impl Conn {
         let want_dir = options & 0x01 != 0;
         let non_dir = options & 0x40 != 0;
         let delete_on_close = options & 0x1000 != 0;
+        if delete_on_close && rel.trim_matches('\\').is_empty() {
+            return Err(STATUS_ACCESS_DENIED);
+        }
         if sh.read_only && (access & WRITE_ACCESS != 0 || delete_on_close || !matches!(disposition, 1 | 3)) {
             return Err(STATUS_ACCESS_DENIED);
         }
@@ -1311,6 +1328,9 @@ impl Conn {
             }
             FSCTL_VALIDATE_NEGOTIATE_INFO => {
                 let input = slice(r, in_off, in_len).ok_or(STATUS_INVALID_PARAMETER)?;
+                if input.len() < 24 {
+                    return Err(STATUS_INVALID_PARAMETER);
+                }
                 let client_caps = u32_at(input, 0);
                 let secmode = u16_at(input, 20);
                 if client_caps != self.client_caps || input[4..20] != self.client_guid || secmode != self.client_secmode {
@@ -1398,6 +1418,10 @@ impl Conn {
         let o = &self.opens[&id];
         if !o.is_dir {
             return Err(STATUS_INVALID_PARAMETER);
+        }
+        // each one is a snapshot of its folder taken every second
+        if self.watches.lock().unwrap().len() >= MAX_WATCHES {
+            return Err(STATUS_INSUFFICIENT_RESOURCES);
         }
         let Some(Session { state: SessionState::Done { key, .. }, .. }) = self.sessions.get(&c.session_id) else {
             return Err(STATUS_USER_SESSION_DELETED);
@@ -1623,6 +1647,10 @@ impl Conn {
             }
             (1, 13) | (1, 64) => {
                 let delete = if class == 13 { buf.first().copied().unwrap_or(0) != 0 } else { u32_at(&buf, 0) & 1 != 0 };
+                // the share's own folder stays, whatever the guest asks
+                if delete && o.rel.trim_matches('\\').is_empty() {
+                    return Err(STATUS_ACCESS_DENIED);
+                }
                 if delete && o.is_dir && fs::read_dir(&o.path).map(|mut d| d.next().is_some()).unwrap_or(false) {
                     return Err(STATUS_DIRECTORY_NOT_EMPTY);
                 }

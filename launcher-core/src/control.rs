@@ -44,8 +44,16 @@ pub fn socket_path(bundle_dir: &Path) -> PathBuf {
         hash ^= *b as u64;
         hash = hash.wrapping_mul(0x1000_0000_01b3);
     }
-    let stem: String =
-        bundle_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().chars().take(24).collect();
+    // Only characters QEMU's option parser and every filesystem take as
+    // they are (a comma would end `-qmp unix:<path>`); the hash keeps it unique.
+    let stem: String = bundle_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+        .chars()
+        .take(24)
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .collect();
     dir.join(format!("{stem}-{hash:016x}.qmp"))
 }
 
@@ -97,7 +105,7 @@ pub fn qmp_args(path: &Path) -> Option<Vec<String>> {
         eprintln!("live control off: this host cannot bind a Unix socket at {}: {e}", path.display());
         return None;
     }
-    Some(vec!["-qmp".into(), format!("unix:{},server,nowait", path.display())])
+    Some(vec!["-qmp".into(), format!("unix:{},server,nowait", path.display().to_string().replace(',', ",,"))])
 }
 
 /// Whether something is listening on `path`, meaning a player is up,
@@ -194,6 +202,16 @@ mod imp {
     }
 }
 
+/// The error a read or write past its timeout returns, so a poller can
+/// tell "no answer yet" from a failure.
+pub const TIMED_OUT: &str = "the machine is not answering";
+
+/// A socket timeout reads as `WouldBlock` on Unix and `TimedOut` on
+/// Windows.
+fn is_timeout(e: &std::io::Error) -> bool {
+    matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+}
+
 /// A connected QMP session. Synchronous and single-threaded: the launcher
 /// is the only client of this socket and issues one command at a time, so
 /// replies are read inline (events in between are dropped, since nothing
@@ -210,11 +228,23 @@ impl Control {
     /// connection means the machine isn't running (or was started outside
     /// the launcher).
     pub fn connect(path: &Path) -> Result<Control, String> {
-        let stream = imp::connect(path).map_err(|e| format!("{}: {e}", path.display()))?;
         // Bounded so a wedged QEMU can't hang the UI thread forever;
         // generous because a snapshot command runs on QEMU's main loop,
         // which a busy guest can hold briefly.
-        let timeout = Duration::from_secs(10);
+        Control::connect_with_timeout(path, Duration::from_secs(10))
+    }
+
+    /// `connect` for a question a window asks on a timer (what is in the
+    /// drive, how a job is doing). A wedged QEMU must not freeze the
+    /// window for every tick, so the wait is short, and a reply that
+    /// misses it is `TIMED_OUT`: the caller asks again on the next tick.
+    pub fn connect_poll(path: &Path) -> Result<Control, String> {
+        Control::connect_with_timeout(path, Duration::from_secs(1))
+    }
+
+    /// `connect` with every read and write bounded by `timeout`.
+    pub fn connect_with_timeout(path: &Path, timeout: Duration) -> Result<Control, String> {
+        let stream = imp::connect(path).map_err(|e| format!("{}: {e}", path.display()))?;
         stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
         stream.set_write_timeout(Some(timeout)).map_err(|e| e.to_string())?;
         let mut control = Control { stream: BufReader::new(stream), next_id: 1 };
@@ -232,6 +262,7 @@ impl Control {
             match self.stream.read_line(&mut line) {
                 Ok(0) => return Err("monitor closed the connection".into()),
                 Ok(_) => {}
+                Err(e) if is_timeout(&e) => return Err(TIMED_OUT.into()),
                 Err(e) => return Err(format!("reading the monitor: {e}")),
             }
             let Ok(v) = serde_json::from_str::<Value>(line.trim()) else {
@@ -255,7 +286,10 @@ impl Control {
         }
         let mut line = msg.to_string();
         line.push('\n');
-        self.stream.get_mut().write_all(line.as_bytes()).map_err(|e| format!("writing to the monitor: {e}"))?;
+        self.stream.get_mut().write_all(line.as_bytes()).map_err(|e| match is_timeout(&e) {
+            true => TIMED_OUT.to_string(),
+            false => format!("writing to the monitor: {e}"),
+        })?;
         let reply = self.read_until(|v| v.get("id").and_then(Value::as_u64) == Some(id))?;
         if let Some(r) = reply.get("return") {
             return Ok(r.clone());

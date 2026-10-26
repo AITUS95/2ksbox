@@ -281,3 +281,24 @@ pub fn runtime_dir() -> PathBuf {
         .and_then(|d| d.runtime_dir().map(Path::to_path_buf))
         .unwrap_or_else(std::env::temp_dir)
 }
+
+/// Write a file beside its place and rename it over, so a crash, a full
+/// disk or a kill mid-write leaves the old file rather than half of the
+/// new one. Where the rename is refused (Windows, while another process
+/// holds the file open) it is written in place as before.
+pub fn write_atomic(path: &Path, data: impl AsRef<[u8]>) -> std::io::Result<()> {
+    // a name of this process's own: the player and the launcher may both
+    // save one bundle
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}-{}.tmp", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, data.as_ref())?;
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            let _ = std::fs::remove_file(&tmp);
+            std::fs::write(path, data)
+        }
+    }
+}

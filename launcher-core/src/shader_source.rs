@@ -147,8 +147,14 @@ impl Download {
         let result = Arc::new(Mutex::new(None));
         let (b, r) = (bytes.clone(), result.clone());
         std::thread::spawn(move || {
-            let outcome = fetch(&dest, &b).map(|()| dest).map_err(|e| e.to_string());
-            *r.lock().unwrap() = Some(outcome);
+            // A panic in `fetch` still ends the download, as a failure,
+            // or the window would say "Downloading" forever.
+            let fetched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fetch(&dest, &b)));
+            let outcome = match fetched {
+                Ok(r) => r.map(|()| dest).map_err(|e| e.to_string()),
+                Err(_) => Err("the download stopped on an internal error".to_string()),
+            };
+            *r.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
         });
         Download { bytes, result }
     }
@@ -187,10 +193,18 @@ pub fn fetch(dest: &Path, bytes: &AtomicU64) -> std::io::Result<()> {
     // rename onto a non-empty directory fails.
     let previous = staging.with_extension("previous");
     std::fs::remove_dir_all(&previous).ok();
-    if dest.exists() {
+    let had = dest.exists();
+    if had {
         std::fs::rename(dest, &previous)?;
     }
-    std::fs::rename(&staging, dest)?;
+    if let Err(e) = std::fs::rename(&staging, dest) {
+        // the old collection back where it was, not stranded for the
+        // next download to delete
+        if had {
+            std::fs::rename(&previous, dest).ok();
+        }
+        return Err(e);
+    }
     std::fs::remove_dir_all(&previous).ok();
     Ok(())
 }
