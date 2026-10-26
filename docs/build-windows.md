@@ -574,16 +574,6 @@ emulated regardless.
 - **No installer** beside the zip for users outside the Store (doc 07
   wants one).
   The MSIX is one, but only through the Store or a trusted certificate.
-- **The Store package has not been uploaded.** It installs and runs on
-  the PC through `scripts/win-sideload.ps1` (2026-09-23) and passes the
-  certification kit ("The Store package"); its
-  packaged library location has been checked with `LAUNCHER_PACKAGED=1`,
-  not yet read back from the installed package (`win-sideload.ps1
-  -Check`). The Partner Center account is open, the name `2ksbox` is
-  reserved (2026-10-07) and the workspace version is 1.0.0; what is
-  left needs the user: packing with the reservation's identity triple
-  (`--identity`, `--publisher`, `--publisher-display`) and screenshots
-  of the player's window with games in it.
 
 ## Building on Windows
 

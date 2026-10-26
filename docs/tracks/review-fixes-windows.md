@@ -1,12 +1,18 @@
 # The review pass's Windows half (2026-10-25)
 
-Branch `track/review-fixes`: three review passes over the host code and
-the drivers (bugs, security, performance), then the fixes that could be
-made and checked on Linux. `scripts/test.sh all` passed there (74, with
-`pit-guest` the baseline failure). What is left needs the PC: code only
-the EWDK builds, and code that runs only on a Windows host or in a
-Windows 11 guest on our adapter. This doc is the list, in order. Delete
-it when every item is done or moved to its track doc.
+Three review passes over the host code and the drivers (bugs, security,
+performance), then the fixes that could be made and checked on Linux.
+`scripts/test.sh all` passed there (74, with `pit-guest` the baseline
+failure). What is left needs the PC: code only the EWDK builds, and code
+that runs only on a Windows host or in a Windows 11 guest on our
+adapter. This doc is the list, in order. Delete it when every item is
+done or moved to its track doc.
+
+**State, 2026-10-26**: the branch is on `main` (squashed, `3e281956`),
+the WDDM driver is published (`build-windows.sh wddm --publish`), and
+`main` was tested on Linux and the Mac (user). Left: the driver on
+32-bit Windows 7, the player and launcher by hand on the PC (item 1),
+and section 3's checks in a long Windows 11 session.
 
 ## 1. Build and run what Linux could not
 
@@ -41,7 +47,8 @@ What each part has to show:
     -frames 600` 59 fps windowed, 60 fps full screen (the flip waits for
     the blank); `GDITEST` 37 of 37; DWM composes, the taskbar's text and
     clock draw; no refusal, reset or `CollectDbgInfo` in the log. Not yet
-    checked: 32-bit Windows 7, a window dragged by hand, `--publish`.
+    checked: 32-bit Windows 7, a window dragged by hand. Published
+    2026-10-26.
 - **The executor** (`d3dpt/exec/`, MSVC): `d3dpt-dp2` and
   `d3dpt-dp2-system` in the suite. The `system` run matters: Windows'
   own d3d9 is the one D3D9 that the saturated primitive count

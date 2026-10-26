@@ -1,4 +1,4 @@
-# 0. Status and how to resume (updated 2026-10-24)
+# 0. Status and how to resume (updated 2026-10-26)
 
 The handoff for a new session: the tracks and what each owns, where each
 area stands, the everyday commands, open threads, next steps and the
@@ -271,15 +271,12 @@ live in its track doc; fixed things leave this list.
 Each track's own order is in its track doc. This is the order across
 tracks, plus the items no track owns.
 
-0. **The review pass's Windows half** (`tracks/review-fixes-windows.md`,
-   branch `track/review-fixes`): built and tested on the PC, the WDDM
-   driver's four fixes made and checked on Windows 11 x64 (2026-10-25).
-   Left: the driver on 32-bit Windows 7, `--publish`, the package, the
-   player and launcher by hand, the executor's GDI cache and limits in a
-   long Windows 11 session. The two driver items found on the way (a
-   raw handle naming another process's surface, a crashed process's
-   host contexts) are fixed (protocol v31's `SCOPE`). Merge the branch
-   after.
+0. **The review pass's last checks** (`tracks/review-fixes-windows.md`).
+   The branch is on `main` (squashed 2026-10-26, `3e281956`), the WDDM
+   driver published, and the result tested on Linux and the Mac (user).
+   Left: the driver on 32-bit Windows 7, the player and launcher by hand
+   on the PC, and the executor's GDI cache and limits in a long Windows
+   11 session.
 
 1. **M15, the Direct3D fallback on Wine** (ADR-018,
    `tracks/m15-wine-executor.md`). Steps 1–7 are done. Left: a game

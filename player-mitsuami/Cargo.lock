@@ -868,7 +868,7 @@ dependencies = [
 
 [[package]]
 name = "gamepad"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "serde",
 ]
@@ -1550,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "ash",
  "directories",
@@ -2651,7 +2651,7 @@ dependencies = [
 
 [[package]]
 name = "player-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "arboard",
  "ash",
@@ -2681,7 +2681,7 @@ dependencies = [
 
 [[package]]
 name = "player-mitsuami"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "launcher-core",
  "mitsuami",
@@ -2762,7 +2762,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qemu-embed"
-version = "1.1.0"
+version = "1.2.0"
 
 [[package]]
 name = "quick-xml"
@@ -3068,7 +3068,7 @@ dependencies = [
 
 [[package]]
 name = "shader-chain"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "librashader",
  "png",
