@@ -540,8 +540,9 @@ tracks, plus the items no track owns.
     and `PLAYER_QMP_EXEC` waited for a presented frame. It now waits for
     a published one (`session.rs`), and the check's one-minute kill
     reaches the player (it had killed a subshell and left four players
-    running). Left: the gates again from that fix's commit, then the
-    tag.
+    running). The Linux gate passed again from that fix, `3b6ee90b`,
+    with the same results. Left: the PC's and the Air's gates from
+    `3b6ee90b`, then the tag.
 13. **The user manual** (`manual/`). Screenshots of the real windows,
     taken through `LAUNCHER_SHOT` and the player's headless dump so they
     never go stale; the store links once the listings are up.
