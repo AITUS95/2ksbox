@@ -81,10 +81,14 @@ ensure_msvcrt_cc() {
   [ -n "$real" ] || { echo "need i686-w64-mingw32-gcc (mingw-w64)"; exit 1; }
   select_msvcrt_crt "$real"
   MSVCRT_FLAGS="-D__MSVCRT_VERSION__=0x700 ${MSVCRT_CRT_FLAG[*]}"
-  [ -f "$(dirname "$(dirname "$real")")/i686-w64-mingw32/lib/libmsvcrt-os.a" ] || \
-  [ -f "$(dirname "$real")/../i686-w64-mingw32/lib/libmsvcrt-os.a" ] || \
-  [ -f "$(dirname "$real")/../lib/libmsvcrt-os.a" ] || \
-    echo "warning: libmsvcrt-os.a not found next to the toolchain; msvcrt link may fail"
+  # Only explicit -mcrtdll mode needs this import library. The default-
+  # MSVCRT toolchain path already passed the PE import check above.
+  if [ "${#MSVCRT_CRT_FLAG[@]}" -gt 0 ]; then
+    [ -f "$(dirname "$(dirname "$real")")/i686-w64-mingw32/lib/libmsvcrt-os.a" ] || \
+    [ -f "$(dirname "$real")/../i686-w64-mingw32/lib/libmsvcrt-os.a" ] || \
+    [ -f "$(dirname "$real")/../lib/libmsvcrt-os.a" ] || \
+      echo "warning: libmsvcrt-os.a not found next to the toolchain; msvcrt link may fail"
+  fi
   printf '#!/usr/bin/env bash\nexec "%s" %s "$@" %s\n' "$real" "$MSVCRT_FLAGS" "$ARCH_FLAGS" > "$bin/i686-w64-mingw32-gcc"
   chmod +x "$bin/i686-w64-mingw32-gcc"
   # MSYS2 (msys2-i686.sh): conf_wrapper's native mode writes CC=gcc into
