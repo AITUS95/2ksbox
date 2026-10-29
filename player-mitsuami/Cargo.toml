@@ -44,3 +44,6 @@ launcher-core = { path = "../launcher-core", default-features = false }
 # profiles), through the platform's own notifications rather than a timer
 # (`watch.rs`).
 notify = "8"
+
+[patch.crates-io]
+mitsuami-linux = { path = "../vendor/mitsuami-linux" }

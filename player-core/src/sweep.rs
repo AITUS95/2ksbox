@@ -169,10 +169,9 @@ pub(crate) fn sweep_step(gpu: &mut Gpu, s: &mut Sweep) -> bool {
     if vw > sw + 0.5 || vh > sh + 0.5 || vx < -0.5 || vy < -0.5 {
         bad.push(format!("viewport {vw}x{vh}+{vx}+{vy} does not fit {sw}x{sh}"));
     }
-    // rule 4: where a whole multiple of the scanlines fits, the height is one
-    let scale = vh / m.scanlines as f32;
-    if scale >= 1.0 && (scale - scale.round()).abs() > 0.001 {
-        bad.push(format!("scanline pitch {scale:.4} px is not a whole number"));
+    // The automatic fit fills one axis and stays centered to pixel precision.
+    if (sw - vw).min(sh - vh) > 1.5 || (2.0 * vx + vw - sw).abs() > 2.0 || (2.0 * vy + vh - sh).abs() > 2.0 {
+        bad.push(format!("viewport {vw}x{vh}+{vx}+{vy} is not a centered maximum fit in {sw}x{sh}"));
     }
     // rule 3: the preset was told this mode's scanline count (skipped under
     // the PLAYER_MODE_PARAMS=0 control, where by definition it was not)

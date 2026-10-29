@@ -385,8 +385,10 @@ impl Gpu {
             return None;
         }
         let gh = m.scanlines as f32;
-        let shown = (self.geom.3 / gh).floor().max(1.0) as u32;
-        let scale = self.fixed_scale.unwrap_or(shown) as f32;
+        if self.fixed_scale.is_none() {
+            return Some((self.geom.2 as u32, self.geom.3 as u32));
+        }
+        let scale = self.fixed_scale.unwrap_or(1) as f32;
         Some(((gh * scale * m.display_aspect).round() as u32, (gh * scale) as u32))
     }
 
@@ -891,12 +893,9 @@ impl Gpu {
     /// guest is in `self.mode`, which is why the analysis is not repeated
     /// here.
     ///
-    /// The height is an integer multiple of the guest's rows so scanlines
-    /// stay even, and the width then follows the display aspect rather than
-    /// the framebuffer's ratio. That is rule 2. A 320x200 mode is a 4:3
-    /// picture, not a 1.6:1 one, and integer-scaling
-    /// both axes would show it stretched. Square-pixel 4:3 modes (640x480,
-    /// 800x600, …) come out exactly as they did before.
+    /// The automatic fit uses the available surface while keeping the
+    /// display aspect. A 320x200 mode, for example, is a 4:3 picture.
+    /// Explicit whole-number scales remain available for even scanlines.
     ///
     /// A scale the user holds (`set_fixed_scale`) replaces the largest
     /// that fits, and is kept when the surface is smaller than the picture.
@@ -915,10 +914,8 @@ impl Gpu {
         // Every whole scale of the scanlines is a whole scale of the rows
         // too, so this only ever refines the old rule.
         let gh = m.scanlines as f32;
-        // bounded by both axes once the width is corrected; when even 1x does
-        // not fit, fall back to a free fit so the picture is letterboxed
-        // rather than clipped
-        let most = (sh / gh).floor().min((sw / (gh * dar)).floor());
+        // Bound the proportional fit by both axes after aspect correction.
+        let most = (sh / gh).min(sw / (gh * dar));
         // A scale the user chose stands even when the window is smaller
         // than the picture: the picture stays centred and what overflows
         // the window is cropped (the viewport may lie past the target;

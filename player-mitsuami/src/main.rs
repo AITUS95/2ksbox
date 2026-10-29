@@ -428,8 +428,8 @@ fn menus(w: Window_, discs: Option<discs::Discs>, shaders: Option<shaders::Shade
     // Nothing to fit while the guest takes the window's size (the
     // picture is the window), nor in full screen.
     let sized = move || !w.full.get() && w.fits.get();
-    // Every whole scale in the screen's real pixels, the ones the largest
-    // fit lands on: 1x is one pixel per scanline on any screen, and a
+    // Every whole scale in the screen's real pixels: 1x is one pixel
+    // per scanline on any screen, and a
     // Retina screen lists up to 8x (4 points per scanline).
     let scale = Menu::new("Scale")
         .item(
